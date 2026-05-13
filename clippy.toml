@@ -1,0 +1,17 @@
+# Project-specific clippy config. The `..` at the end of doc-valid-idents
+# extends the default list (KiB, OAuth, OpenStreetMap, WebAssembly, etc.)
+# rather than replacing it.
+#
+# Add proper-noun format / protocol names that look like Rust idents to clippy
+# but aren't. Rust identifiers in our own code (TileWriter, UpackWriter, etc.)
+# should keep their backticks in docs — they're not exempted here.
+
+doc-valid-idents = [
+    "MBTiles",
+    "PMTiles",
+    "UUIDv5",
+    "MapLibre",
+    "MapTiler",
+    "MapTrack",
+    "..",
+]
