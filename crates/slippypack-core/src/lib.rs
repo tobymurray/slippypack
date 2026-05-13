@@ -3,7 +3,7 @@
 //! See `PLAN.md` at the repo root for the full design. The eventual module
 //! layout (per PLAN.md § The load-bearing observation: shared Rust core):
 //!
-//! - `decode` — PNG / JPEG → RGB888 via the `image` crate. (Phase 0)
+//! - [`decode`] — PNG / JPEG → RGB888 via the `image` crate. **Landed.**
 //! - [`quantise`] — RGB888 → ABGR2222 (integer-only, cross-platform deterministic). **Landed.**
 //! - `format` — `.upack` `TileWriter` trait + `UpackWriter` implementation. (Phase 0)
 //! - `reader` — `.upack` parser (round-trip tests; future "open existing pack"). (Phase 0)
@@ -12,6 +12,7 @@
 //!   The source-mtime / Last-Modified accumulator for `build_timestamp` lives
 //!   per-front-end since it's I/O-shaped. **Canonical descriptor + derivation landed.**
 
+pub mod decode;
 pub mod identity;
 pub mod projection;
 pub mod quantise;

@@ -14,7 +14,7 @@ workspace = true
 [dependencies]
 # Phase 0 dependencies — uncommented as modules land:
 uuid = { version = "1", default-features = false, features = ["v5"] }
-# image      = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # sha2       = { version = "0.10", default-features = false }
 
 # Note: `slippypack-core` is intended to be `no_std + alloc` once the format

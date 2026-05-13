@@ -130,6 +130,40 @@ No state, but methods take `&self` to fit the trait shape that accommodates stat
 
 ---
 
+## D — Decode module
+
+### D-001 — `image` crate with `default-features = false, features = ["png", "jpeg"]`
+Minimum format coverage for the slippypack pipeline. The `image` crate is used (rather than `png` / `jpeg-decoder` directly) for the unified API — `image::load_from_memory` auto-detects format from magic bytes and `DynamicImage::to_rgb8` handles palette / grayscale / RGBA → RGB flattening uniformly. Disabling default features keeps the WASM binary lean and pins the format scope at compile time (TIFF, WebP, AVIF, GIF, BMP are not compiled in; their magic bytes produce `DecodeError::DecodeFailed`).
+**Manifests:** `crates/slippypack-core/Cargo.toml` `image` dep line.
+**Commit:** to land with the decode module commit.
+
+### D-002 — Alpha channel discarded; no compositing
+`DynamicImage::to_rgb8()` discards alpha. Slippypack does not composite RGBA pixels against any background colour (black or white). Rationale: the downstream quantiser forces alpha = 3 (fully opaque) regardless, real-world map tiles are essentially always opaque, and compositing-over-background is a UI-policy decision the toolchain shouldn't impose. PNGs with transparency get their RGB channels used as-is.
+**Manifests:** `crates/slippypack-core/src/decode.rs::decode_rgb888` (`dynamic.to_rgb8()` call); module-level doc explains.
+**Commit:** to land with the decode module commit.
+
+### D-003 — Grayscale broadcast to RGB; palette resolved
+`image`'s `to_rgb8` conversion handles all common input variants: grayscale broadcasts the gray channel across R=G=B, palette inputs look up RGB values from the palette. No special handling needed in slippypack — the conversion is uniform and well-defined.
+**Manifests:** `crates/slippypack-core/src/decode.rs::decode_rgb888`; module-level doc.
+**Commit:** to land with the decode module commit.
+
+### D-004 — `DecodeError` is a small payload-free enum
+Three variants: `EmptyInput`, `DecodeFailed`, `ZeroDimension`. The underlying `image::ImageError` is mapped to `DecodeFailed` and discarded. Rationale: keeps slippypack's public surface stable across `image`-crate version bumps; decode failures in the pipeline are usually handled by "skip this tile, continue" so detailed error context isn't load-bearing. Can grow a richer variant later without breaking the simple case.
+**Manifests:** `crates/slippypack-core/src/decode.rs::DecodeError`, `::map_image_err`.
+**Commit:** to land with the decode module commit.
+
+### D-005 — Test fixtures embedded as `&[u8]` byte literals (not files)
+93-byte PNG and 415-byte JPEG fixtures embedded directly in `decode.rs` test module rather than committed as separate files. Smaller maintenance surface (no fixture files to track), tests are self-contained. Future tests with larger fixtures could move to `tests/fixtures/` (e.g. the synthetic-grid-z4 etc. fixtures for the format module's spec_layout test).
+**Manifests:** `crates/slippypack-core/src/decode.rs::tests::FIXTURE_PNG_2X2`, `FIXTURE_JPEG_2X2`.
+**Commit:** to land with the decode module commit.
+
+### D-006 — JPEG test tolerance: ±16 per channel
+JPEG is lossy. The decoded fixture pixels for pure-channel inputs (R=255 → channel ≈ 245) drift ~10 from the encoder's input. The test tolerance is 16 per channel — large enough to accept any reasonable JPEG decoder (including alternative decoders we might swap to later) while still failing if a decoder produces obviously-wrong output (e.g. swapped channels or completely garbled colors).
+**Manifests:** `crates/slippypack-core/src/decode.rs::tests::JPEG_PER_CHANNEL_TOLERANCE = 16`, `assert_pixel_close`.
+**Commit:** to land with the decode module commit.
+
+---
+
 ## I — Identity module
 
 ### I-001 — `SLIPPYPACK_NAMESPACE = 4e72f962-6632-4538-8e0a-7eab63350f3f`
