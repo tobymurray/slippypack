@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
 name = "slippypack-cli"
 version = "0.1.0"
 dependencies = [
@@ -12,6 +18,9 @@ dependencies = [
 [[package]]
 name = "slippypack-core"
 version = "0.1.0"
+dependencies = [
+ "uuid",
+]
 
 [[package]]
 name = "slippypack-web"
@@ -32,4 +41,13 @@ name = "slippypack-web-pmtiles"
 version = "0.1.0"
 dependencies = [
  "slippypack-core",
+]
+
+[[package]]
+name = "uuid"
+version = "1.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
+dependencies = [
+ "sha1_smol",
 ]

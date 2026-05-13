@@ -130,6 +130,55 @@ No state, but methods take `&self` to fit the trait shape that accommodates stat
 
 ---
 
+## I — Identity module
+
+### I-001 — `SLIPPYPACK_NAMESPACE = 4e72f962-6632-4538-8e0a-7eab63350f3f`
+Permanent UUIDv4 generated via `uuidgen` on macOS on 2026-05-13. Used as the seed for every UUIDv5 `pack_uuid` derivation. **Never changes** across slippypack versions — changing this value would alter every `pack_uuid` ever produced by slippypack and break the watch-side "is this pack already on the watch?" companion check.
+**Manifests:** `crates/slippypack-core/src/identity.rs::SLIPPYPACK_NAMESPACE`.
+**Commit:** to land with the identity module commit.
+
+### I-002 — Hand-rolled canonical JSON serializer, not `serde_json`
+Three reasons: (a) the canonical form is precisely pinned by PLAN.md (sorted keys, no whitespace, no trailing newline) and `serde_json` defaults don't match cleanly, (b) zero dependency surface beyond `uuid`, (c) the descriptor schema is fixed so a hand-rolled serializer is small (~150 lines) and easy to audit.
+**Manifests:** `crates/slippypack-core/src/identity.rs::canonical_descriptor_bytes` + internal `write_*` helpers.
+**Commit:** to land with the identity module commit.
+
+### I-003 — `uuid` crate, no default features, `v5` feature only
+Minimal dependency surface: just UUIDv5 derivation. The `uuid` crate's pure-Rust SHA-1 backend is bundled with the `v5` feature, so no separate `sha1` dep. Compatible with `no_std + alloc` for the eventual switch (W-008).
+**Manifests:** `crates/slippypack-core/Cargo.toml`.
+**Commit:** to land with the identity module commit.
+
+### I-004 — Control-character escapes use `\u00XX` form uniformly
+JSON allows shorter escapes for common control chars (`\n`, `\t`, `\r`, `\b`, `\f`). The hand-rolled serializer uses the long `\u00XX` form for **every** control char (U+0000..U+001F), giving exactly one canonical representation. The plan pins a single canonical form; mixing short and long escapes would invite "did the spec really pin the short form?" ambiguity.
+**Manifests:** `crates/slippypack-core/src/identity.rs::write_json_string`.
+**Commit:** to land with the identity module commit.
+
+### I-005 — `Source` enum variant + field declaration order is load-bearing
+Variants are declared in alphabetical kind-name order (`Dir < Geotiff < Mbtiles < Pbf < Pmtiles < Style < Synthetic < Url`) so the derived `Ord` impl matches PLAN.md's canonical sort rule. Within each variant, the first field is the per-kind "identity" (`content_hash` for file-backed kinds, `template` for URL, `fixture_version` for synthetic) so derived `Ord` ties-break correctly.
+**Manifests:** `crates/slippypack-core/src/identity.rs::Source` and the `sources.sort_by` call inside `write_sources`.
+**Commit:** to land with the identity module commit.
+
+### I-006 — Source sort: `(zoom_min, zoom_max)` major key + derived `Source` `Ord` minor key
+PLAN.md says sort by `(zoom_min, zoom_max, kind, identity)`. Implemented as a two-stage sort: first by `(zoom_min, zoom_max)` (tuple comparison), then by `Source`'s derived `Ord` (which compares variant index then field-by-field). This collapses `(kind, identity)` into one step because the variant-declaration order is alphabetical and the first field is the identity.
+**Manifests:** `crates/slippypack-core/src/identity.rs::write_sources` `sort_by`.
+**Commit:** to land with the identity module commit.
+
+### I-007 — `auth_kinds` sorted and deduplicated by the serializer
+Callers can pass `Vec<AuthKind>` in any order (and even with duplicates). The serializer defensively sorts and dedups before emitting bytes, so caller mistakes don't break determinism.
+**Manifests:** `crates/slippypack-core/src/identity.rs::write_auth_kinds`.
+**Commit:** to land with the identity module commit.
+
+### I-008 — `affn` top-level key deferred (Phase 10)
+PLAN.md mentions an `affn` top-level key for Local-Linear / hand-drawn `image` packs. Not implemented yet — image sources are Phase 10. The `Source::Image` variant and the `affn` key will land together with Phase 10's runtime support.
+**Manifests:** absence of `affn` handling in `canonical_descriptor_bytes`; no `Source::Image` variant.
+**Open until:** Phase 10 lands.
+
+### I-009 — Freshness accumulator (`build_timestamp`) lives per-front-end, not in `slippypack-core`
+PLAN.md § The load-bearing observation lists "source-mtime / Last-Modified accumulator for build_timestamp" as an identity-module deliverable. On reflection, that accumulator is I/O-shaped (reads file mtimes on the CLI, parses HTTP headers on the PWA) and doesn't belong in `slippypack-core`'s `no_std + alloc` surface. The accumulator lives in the per-front-end glue; the core just accepts a `build_timestamp: u64` field on `PackMetadata` (when the format module lands) and stamps it into the header verbatim.
+**Manifests:** absence of accumulator code in `identity.rs`; the `PackDescriptor` does not include `build_timestamp` (per PLAN.md § Canonical source descriptor — `build_timestamp` is in `PackMetadata`, not in the canonical descriptor, because it varies independently of the inputs that produce the same `pack_uuid`).
+**Commit:** to land with the identity module commit.
+
+---
+
 ## Cross-cutting
 
 ### X-001 — Inline `#[cfg(test)] mod tests` for module-level unit tests
