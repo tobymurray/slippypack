@@ -1,0 +1,143 @@
+# Decisions log
+
+Implementation-level decisions made during slippypack development. [PLAN.md](PLAN.md) documents the project-level design and architectural decisions; this file records the granular choices made during coding that PLAN.md doesn't already pin.
+
+Each entry has a stable ID (never renumbered), a one-line decision, the rationale, a pointer to where the decision is enforced in code, and the commit it landed in.
+
+When a decision is refined or reversed, **edit the entry rather than deleting it** — the history stays auditable. Add a "Superseded by …" line if a new entry replaces an old one.
+
+---
+
+## W — Workspace
+
+### W-001 — Five-crate workspace
+Layout: `slippypack-core`, `slippypack-cli`, `slippypack-web`, `slippypack-web-mbtiles`, `slippypack-web-pmtiles`. Matches PLAN.md § Code organisation.
+**Manifests:** `Cargo.toml` (workspace `members`).
+**Commit:** `16ff518`.
+
+### W-002 — Rust edition 2024, MSRV 1.95
+Recent stable; supports the language features we're likely to use across both std and no_std targets. `rust-toolchain.toml` pins the exact toolchain so contributors get reproducible builds.
+**Manifests:** `Cargo.toml` (workspace.package), `rust-toolchain.toml`.
+**Commit:** `16ff518`.
+
+### W-003 — `Cargo.lock` committed
+Standard Rust practice for workspaces that ship a binary (slippypack-cli). The lockfile is the cross-machine build-determinism anchor.
+**Manifests:** `.gitignore` (Cargo.lock is NOT in the ignore list).
+**Commit:** `16ff518`.
+
+### W-004 — Release profile tuned for binary size
+`lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = "symbols"`. Primarily for the WASM crates (where size is load-bearing per PLAN.md § Phase 4); the CLI inherits and can override per-crate if a benchmark indicates runtime perf matters more.
+**Manifests:** `Cargo.toml` `[profile.release]`.
+**Commit:** `16ff518`.
+
+### W-005 — `unsafe_code = "forbid"` at workspace level
+Nothing in slippypack's scope (format writer, integer math, JSON canonicalization, projection math, async fetch) needs `unsafe`. Forbidding it prevents accidental drift and saves a code-review axis.
+**Manifests:** `Cargo.toml` `[workspace.lints.rust]`.
+**Commit:** `16ff518`.
+
+### W-006 — `clippy::pedantic = warn` at workspace level
+Catches stylistic issues early. `module_name_repetitions = allow` because the workspace expects module names to echo their parent (e.g., `Mercator` in `mercator.rs`, `UpackWriter` in `format/mod.rs`).
+**Manifests:** `Cargo.toml` `[workspace.lints.clippy]`.
+**Commit:** `16ff518`.
+
+### W-007 — `doc-valid-idents` extended in `clippy.toml`
+Adds proper-noun format / protocol names that look like Rust identifiers but aren't: `MBTiles`, `PMTiles`, `UUIDv5`, `MapLibre`, `MapTiler`, `MapTrack`. The `..` suffix preserves clippy's default list (`OAuth`, `OpenStreetMap`, `WebAssembly`, etc.). Rust identifiers in our own code (e.g. `TileWriter`) keep their backticks — they're not exempted.
+**Manifests:** `clippy.toml`.
+**Commit:** `951389d`.
+
+### W-008 — `slippypack-core` kept as `std` for now
+PLAN.md commits to `no_std + alloc`. Deferred until the `format` module lands because no current module needs allocations. The switch is one PR (`#![no_std]` + `extern crate alloc` + libm dep) when the first alloc-requiring module ships.
+**Manifests:** `crates/slippypack-core/src/lib.rs` (no `#![no_std]` attribute yet).
+**Open until:** the `format` module commit.
+
+---
+
+## Q — Quantise module
+
+### Q-001 — ABGR2222 byte layout: `AABBGGRR` from MSB to LSB
+Neither PLAN.md nor the una-sdk MapTrack PLAN explicitly pins the bit order of the ABGR2222 byte. Picked the most common ABGR2222 convention: channel order MSB → LSB matching the name (`A` in bits 7–6, `B` in 5–4, `G` in 3–2, `R` in 1–0). Needs cross-verification against the una-sdk `TilePack` reader when MapTrack Phase 2 lands.
+**Manifests:** `crates/slippypack-core/src/quantise.rs::quantise_pixel` (`0b1100_0000 | (b2 << 4) | (g2 << 2) | r2`).
+**Commit:** `cdd611d`.
+
+### Q-002 — Alpha always = `3` (fully opaque) in v1
+v1 packs are opaque map tiles. The top 2 bits of every quantised byte are hard-coded to `11`. If overlay packs ever ship semi-transparent tiles, this becomes an input-dependent value, which would be a `QUANTISER_VERSION` bump.
+**Manifests:** `crates/slippypack-core/src/quantise.rs::quantise_pixel` (`0b1100_0000 |` constant).
+**Commit:** `cdd611d`.
+
+### Q-003 — Channel thresholds at midpoints `42|43`, `127|128`, `212|213`
+Midpoints between the four displayed levels `{0, 85, 170, 255}` are `42.5`, `127.5`, `212.5`. Round-to-nearest puts each integer input in the bucket whose displayed value is closer.
+**Manifests:** `crates/slippypack-core/src/quantise.rs::channel_to_2bit`.
+**Commit:** `cdd611d`.
+
+### Q-004 — If-chain implementation, not `(v + 42) / 85` integer math
+Functionally identical, but the if-chain avoids the `u8` overflow concern (`v + 42 > 255` for `v ≥ 214`) and gives clippy-pedantic-clean code with no cast-related lints to suppress.
+**Manifests:** `crates/slippypack-core/src/quantise.rs::channel_to_2bit`.
+**Commit:** `cdd611d`.
+
+### Q-005 — `QUANTISER_VERSION: u32 = 1`
+`u32` to fit the canonical descriptor's `int` keys. Starts at `1` (no `0` — `0` is conventionally "unset / invalid").
+**Manifests:** `crates/slippypack-core/src/quantise.rs::QUANTISER_VERSION`.
+**Commit:** `cdd611d`.
+
+### Q-006 — `quantise_pixel` is `const fn`
+Enables compile-time quantisation for known palettes (e.g. baking the synthetic fixture into constants). No runtime cost.
+**Manifests:** `crates/slippypack-core/src/quantise.rs::quantise_pixel`.
+**Commit:** `cdd611d`.
+
+### Q-007 — `quantise_rgb888` panics on size mismatch (no `Result`)
+This is a hot-path function called per pixel; size mismatches are caller bugs, not runtime conditions. Higher layers (`format`, CLI args) validate at their own surface before reaching this function.
+**Manifests:** `crates/slippypack-core/src/quantise.rs::quantise_rgb888` (`assert!` on `input.len() % 3 == 0` and `output.len() == input.len() / 3`).
+**Commit:** `cdd611d`.
+
+---
+
+## P — Projection module
+
+### P-001 — `Projection` trait now (with one impl); Local Linear deferred
+PLAN.md calls for both `Mercator` and `LocalLinear` in Phase 0. Local Linear's runtime support is Phase 10; landing Mercator first keeps the slice small. The trait is declared now so the eventual `LocalLinear` impl slots in without re-architecting.
+**Manifests:** `crates/slippypack-core/src/projection/mod.rs` (trait declaration); `crates/slippypack-core/src/projection/mercator.rs` (sole impl).
+**Open until:** Local Linear lands (either later in Phase 0 or with Phase 10).
+
+### P-002 — `f64` throughout (not `f32`)
+At v1's max zoom (z=17), a tile is ~2 cm wide at the equator. `f64` (~15 significant decimal digits) has comfortable margin; `f32` would work but with thinner headroom for accumulator math.
+**Manifests:** `crates/slippypack-core/src/projection/mercator.rs` (all signatures and intermediate values).
+**Commit:** `34521de`.
+
+### P-003 — Platform `libm` dependency accepted (deterministic-modulo-libm)
+Mercator's y-coordinate computation uses `f64::tan` and `f64::asinh`, which delegate to platform `libm`. For realistic user inputs the integer tile coordinates are byte-identical across platforms because the float result lands far from any `floor`-boundary. When slippypack-core switches to `no_std + alloc` (per W-008), this module will switch to the pure-Rust `libm` crate for guaranteed cross-platform identical output.
+**Manifests:** module doc comment in `crates/slippypack-core/src/projection/mercator.rs`.
+**Open until:** W-008 closes.
+
+### P-004 — Out-of-range coordinate inputs clamp; do not panic
+Out-of-range lat/lon usually comes from bbox edges that extend past Mercator's coverage (a country whose southernmost tip is below the LAT_LIMIT), not from buggy callers. Clamping (`lat → ±LAT_LIMIT_DEG`, `lon → ±180°`) is more useful than panicking.
+**Manifests:** `crates/slippypack-core/src/projection/mercator.rs::lonlat_to_tile` (`.clamp` calls).
+**Commit:** `34521de`.
+
+### P-005 — `tile_to_lonlat` returns the tile's **NW corner**
+Conventional in slippy-map literature. Easier to compose with bbox-edge math than "tile centre" or "tile SW corner."
+**Manifests:** `crates/slippypack-core/src/projection/mercator.rs::tile_to_lonlat` doc.
+**Commit:** `34521de`.
+
+### P-006 — `LAT_LIMIT_DEG = 85.051_128_779_806_59`
+Mercator coverage limit `atan(sinh(π)) × 180 / π`. Pinned to 15 significant decimal digits (f64's full precision).
+**Manifests:** `crates/slippypack-core/src/projection/mercator.rs::Mercator::LAT_LIMIT_DEG`.
+**Commit:** `34521de`.
+
+### P-007 — `Mercator` is a unit struct (Default-constructible)
+No state, but methods take `&self` to fit the trait shape that accommodates stateful projections (like `LocalLinear` with its affine matrix).
+**Manifests:** `crates/slippypack-core/src/projection/mercator.rs::Mercator`.
+**Commit:** `34521de`.
+
+---
+
+## Cross-cutting
+
+### X-001 — Inline `#[cfg(test)] mod tests` for module-level unit tests
+Integration tests under `crates/*/tests/` are reserved for tests that exercise the format writer + reader together (per PLAN.md § Test plan). Pure-unit tests live inline alongside the module they test.
+**Manifests:** `crates/slippypack-core/src/quantise.rs`, `crates/slippypack-core/src/projection/mercator.rs`.
+**Commit:** established with `cdd611d`.
+
+### X-002 — Determinism tests commit expected output bytes
+Every module that produces deterministic bytes ships a `determinism_committed_output_*` test that locks the bytes against a committed expected value. Any drift fails the test and demands either a version bump (e.g. `QUANTISER_VERSION`) or a fix.
+**Manifests:** `quantise::tests::determinism_committed_output_for_known_input`, `projection::mercator::tests::determinism_committed_output_for_known_coordinates`.
+**Commit:** established with `cdd611d`.
