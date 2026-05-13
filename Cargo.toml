@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/slippypack-core",
+    "crates/slippypack-cli",
+    "crates/slippypack-web",
+    "crates/slippypack-web-mbtiles",
+    "crates/slippypack-web-pmtiles",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+authors = ["Toby Murray"]
+repository = "https://github.com/tobymurray/slippypack"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Allowed exceptions to pedantic — revisit case-by-case as code lands.
+module_name_repetitions = "allow"
+
+[profile.release]
+# Optimise for binary size on the WASM crates; the CLI inherits these defaults but
+# can override per-crate if benchmarks indicate runtime perf matters more.
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

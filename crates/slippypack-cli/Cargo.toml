@@ -1,0 +1,32 @@
+[package]
+name = "slippypack-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Native CLI for building offline .upack tile packs"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "slippypack"
+path = "src/main.rs"
+
+[features]
+# Default: raster-only path. The vector feature pulls in MapLibre Native (Phase 2)
+# and requires a C++ toolchain at install time — see PLAN.md § Phase 2.
+default = []
+vector  = []
+
+[dependencies]
+slippypack-core = { path = "../slippypack-core" }
+# Phase 1 dependencies — uncomment as the modules land:
+# clap     = { version = "4", features = ["derive"] }
+# tokio    = { version = "1", features = ["rt-multi-thread", "macros"] }
+# reqwest  = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
+# Phase 2 dependencies (gated behind `vector`):
+# maplibre_native = { version = "0.4", optional = true }

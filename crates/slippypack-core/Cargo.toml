@@ -1,0 +1,23 @@
+[package]
+name = "slippypack-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Shared library for building offline .upack tile packs (writer, reader, quantiser, projection math, UUIDv5 identity)"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Phase 0 dependencies — uncomment as the modules land:
+# image            = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# uuid             = { version = "1",    default-features = false, features = ["v5"] }
+# sha2             = { version = "0.10", default-features = false }
+# serde_json       = { version = "1",    default-features = false, features = ["alloc"] }
+
+# Note: `slippypack-core` is intended to be `no_std + alloc` once Phase 0 lands.
+# The skeleton is plain `std` until real modules ship — that switch is part of
+# the Phase 0 PR, not an artifact of the workspace scaffold.
