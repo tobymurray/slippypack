@@ -7,8 +7,9 @@
 //! - [`quantise`] — RGB888 → ABGR2222 (integer-only, cross-platform deterministic). **Landed.**
 //! - `format` — `.upack` `TileWriter` trait + `UpackWriter` implementation. (Phase 0)
 //! - `reader` — `.upack` parser (round-trip tests; future "open existing pack"). (Phase 0)
-//! - `projection` — Web Mercator and Local Linear math. (Phase 0)
+//! - [`projection`] — Web Mercator (Local Linear lands later in Phase 0). **Mercator landed.**
 //! - `identity` — UUIDv5 derivation from the canonical source descriptor;
 //!   source-mtime / Last-Modified accumulator for `build_timestamp`. (Phase 0)
 
+pub mod projection;
 pub mod quantise;
