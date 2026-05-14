@@ -1,6 +1,6 @@
 //! Tile-index entry serialization. 20 bytes per entry, little-endian.
 //!
-//! Layout per `spec/rawtiles-v1.0.md` § 5.1:
+//! Layout per `spec/rawtiles-v1.0-rc1.md` § 5.1:
 //!
 //! | Offset | Size | Field            | v1 |
 //! |-------:|-----:|------------------|----|

@@ -2,7 +2,7 @@
 
 > Status: **plan**. No code yet. This document is the design and roadmap; concrete deliverables ship in slices, starting with [§ First Slice](#first-slice-phase-0--phase-1).
 
-> **Format spec is authoritative in [spec/rawtiles-v1.0.md](spec/rawtiles-v1.0.md).** This file describes the project plan, phasing, and rationale; where it discusses `.rawtiles` byte layout, the spec doc is the source of truth.
+> **Format spec is authoritative in [spec/rawtiles-v1.0-rc1.md](spec/rawtiles-v1.0-rc1.md).** This file describes the project plan, phasing, and rationale; where it discusses `.rawtiles` byte layout, the spec doc is the source of truth.
 
 ## What this is
 
@@ -11,7 +11,7 @@ A Rust toolkit for building offline tile packs in the `.rawtiles` format. One co
 - **`slippypack` CLI** — a native binary for desktop / CI / power-user workflows. The v1 CLI reads URL templates, `gdal2tiles`-style tile directories, MBTiles, PMTiles, GeoTIFF, OSM PBF (with vector rendering via MapLibre Native, with a `tilemaker`-shellout fallback — see [§ Phase 2](#phase-2--cli-vector-rendering-osm-pbf)), MapLibre style JSON, and a built-in synthetic fixture for first-run validation. Runs entirely offline when sources are local. The canonical tool.
 - **`slippypack-web` PWA** — a static browser app for users who can't or won't install a CLI. A strict subset of the CLI: **raster sources only, no in-browser vector rendering, BYO tile source**.
 
-Both write `.rawtiles`. The format spec is authoritative in [`spec/rawtiles-v1.0.md`](spec/rawtiles-v1.0.md) in this repo — it is the public byte contract that any conforming reader implements. slippypack is the canonical writer; the una-sdk watch firmware is one reference reader (others can follow). **The format is the contract** — producers and consumers coordinate only through `.rawtiles` bytes.
+Both write `.rawtiles`. The format spec is authoritative in [`spec/rawtiles-v1.0-rc1.md`](spec/rawtiles-v1.0-rc1.md) in this repo — it is the public byte contract that any conforming reader implements. slippypack is the canonical writer; the una-sdk watch firmware is one reference reader (others can follow). **The format is the contract** — producers and consumers coordinate only through `.rawtiles` bytes.
 
 The project name picks up "slippy map" — the standard term for `{z}/{x}/{y}` tile schemes (OSM, MapLibre, Mapbox vocabulary). It signals the niche without claiming any particular consumer, device, or rendering style. The `rawtiles` format itself is independent of slippypack: anyone can build a conforming writer or reader from the spec alone.
 
@@ -116,9 +116,9 @@ graph LR
     Pack --> Reader
 ```
 
-slippypack writes `.rawtiles`; una-sdk (and any other reader implementer) reads it. The spec is owned by this repo at [`spec/rawtiles-v1.0.md`](spec/rawtiles-v1.0.md). Conformance is tested two ways: round-tripping bytes through slippypack's own reader (self-consistency), and round-tripping through independent readers (cross-implementation conformance — currently the C++ second-opinion validator at `spec-validator-cpp/`, and eventually the una-sdk simulator).
+slippypack writes `.rawtiles`; una-sdk (and any other reader implementer) reads it. The spec is owned by this repo at [`spec/rawtiles-v1.0-rc1.md`](spec/rawtiles-v1.0-rc1.md). Conformance is tested two ways: round-tripping bytes through slippypack's own reader (self-consistency), and round-tripping through independent readers (cross-implementation conformance — currently the C++ second-opinion validator at `spec-validator-cpp/`, and eventually the una-sdk simulator).
 
-**Spec changes are proposed against [`spec/rawtiles-v1.0.md`](spec/rawtiles-v1.0.md).** New extension tags, pixel formats, or projection enums get a PR here; downstream consumers (slippypack writer, una-sdk reader, third-party implementations) adopt at their own pace. Minor version bumps (additive, backward-compatible) are accepted by older readers per the forward-compat contract; major bumps are coordinated through the spec's CHANGELOG.
+**Spec changes are proposed against [`spec/rawtiles-v1.0-rc1.md`](spec/rawtiles-v1.0-rc1.md).** New extension tags, pixel formats, or projection enums get a PR here; downstream consumers (slippypack writer, una-sdk reader, third-party implementations) adopt at their own pace. Minor version bumps (additive, backward-compatible) are accepted by older readers per the forward-compat contract; major bumps are coordinated through the spec's CHANGELOG.
 
 ## TileWriter trait — the format-pluggability seam
 

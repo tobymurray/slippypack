@@ -465,7 +465,7 @@ Pre-1.0-freeze refinement. § 10 was hand-spelling the CRC-32 polynomial, init, 
 
 Same "external standard, no need to restate" pattern as F-034 (JCS for canonicalization). Same wins: smaller conformance surface, third-party readers/writers get the algorithm from their language's standard library.
 
-**Manifests**: `spec/rawtiles-v1.0.md` § 10 (rewritten, ~5 lines shorter).
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` § 10 (rewritten, ~5 lines shorter).
 **Commit**: to land with the CRC-cite slice.
 
 ### F-034 — Canonicalisation aligned to RFC 8785 (JCS)
@@ -484,7 +484,7 @@ Spec § A.3 rewritten to reference RFC 8785 directly, with only two slippypack-s
 - Trims ~10 lines of spec prose that was duplicating RFC 8785.
 - The "did I implement § A.3 correctly?" class of bugs reduces to "did the JCS library work" — a much smaller and externally-validated surface.
 
-**Manifests**: `crates/slippypack-core/src/identity.rs::write_json_string` (added five shortcut branches); test renames + addition; `spec/rawtiles-v1.0.md` § A.3 rewritten.
+**Manifests**: `crates/slippypack-core/src/identity.rs::write_json_string` (added five shortcut branches); test renames + addition; `spec/rawtiles-v1.0-rc1.md` § A.3 rewritten.
 **Commit**: to land with the JCS-alignment slice.
 
 ### F-033 — Eight more pre-1.0 spec refinements
@@ -506,7 +506,7 @@ Pure-doc batch closing eight more rough spots flagged by review. One small Rust 
 
 8. **§ 14.5 CRC-32 cross-reference** — was duplicating § 10's check value `0xCBF43926` for `"123456789"`. Replaced with a cross-reference + note that § 14.5 exists to flag the check as a conformance requirement without inviting drift between the two sections.
 
-**Manifests**: `spec/rawtiles-v1.0.md` §§ 4 (row), 4.11, 7.4, 11 #20, 14.3, 14.5, A.3, A.4, A.5; `crates/slippypack-core/src/format/reader.rs::{ReaderError, open}`; `spec-validator-cpp/src/validator.cpp` (`==` vs `>=`).
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 4 (row), 4.11, 7.4, 11 #20, 14.3, 14.5, A.3, A.4, A.5; `crates/slippypack-core/src/format/reader.rs::{ReaderError, open}`; `spec-validator-cpp/src/validator.cpp` (`==` vs `>=`).
 **Commit**: to land with the eight-fix batch.
 
 ### F-032 — Spec internal consistency: § 8 offsets, § 11 #19 alignment, § 12 numbering
@@ -523,7 +523,7 @@ Three pure-doc cleanups triggered by review. None change wire format.
 
 (c) **§ 12 SHOULD-list numbering off by one**: when F-030 inserted "Emit extension sections in a deterministic order" as MUST #10, MUST went to #13 but SHOULD still started at #13 (overlap), and MUST NOT started at #16 (skipping #14, #15). Renumbered SHOULD to #14–15; MUST NOT was already correct at #16–17.
 
-**Manifests**: `spec/rawtiles-v1.0.md` §§ 8.1, 8.2, 8.3, 8.4, 8.6, 11 #19, 12 #14, 12 #15.
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 8.1, 8.2, 8.3, 8.4, 8.6, 11 #19, 12 #14, 12 #15.
 **Commit**: to land with the spec-consistency slice.
 
 ### F-031 — Header padded to 292 bytes for full natural alignment
@@ -550,11 +550,11 @@ Reserved-byte semantics (§ 4 row 6→8):
 
 Mechanical changes:
 - HEADER_BASE_SIZE: 290 → 292; ZOOM_OFFSETS_START: 94 → 96; all field offsets in write_header/read_header shifted by +2 starting at offset 6.
-- spec/rawtiles-v1.0.md § 3 (file structure diagram + alignment paragraph), § 4 (full table rewrite), § 11 #1 (min file size 296), § 11 #20 (`index_offset ≥ 292`), § 12 #4 (`index_offset = 292`).
+- spec/rawtiles-v1.0-rc1.md § 3 (file structure diagram + alignment paragraph), § 4 (full table rewrite), § 11 #1 (min file size 296), § 11 #20 (`index_offset ≥ 292`), § 12 #4 (`index_offset = 292`).
 - spec-validator-cpp constants + new `kOffReservedV1_0`.
 - All 6 golden fixtures re-blessed.
 
-**Manifests**: `format/header.rs::{HEADER_BASE_SIZE, ZOOM_OFFSETS_START, write_header, read_header}`; `spec/rawtiles-v1.0.md` § 3, § 4, § 11, § 12; `spec-validator-cpp/src/validator.cpp` constants.
+**Manifests**: `format/header.rs::{HEADER_BASE_SIZE, ZOOM_OFFSETS_START, write_header, read_header}`; `spec/rawtiles-v1.0-rc1.md` § 3, § 4, § 11, § 12; `spec-validator-cpp/src/validator.cpp` constants.
 **Commit**: to land with the alignment slice.
 
 ### F-030 — Spec § 12.1: deterministic extension-section emit order
@@ -564,7 +564,7 @@ Rule (now § 12.1): emit extension sections sorted ascending by 4-byte tag, with
 
 slippypack's writer was emitting in input order; updated to sort via `extensions.sort_by(|a, b| (a.tag, &a.payload).cmp(&(b.tag, &b.payload)))` before serialization. New tests `extensions_emit_sorted_regardless_of_add_order` and `multiple_same_tag_sections_sort_by_payload` lock the invariant. One existing reader test had to flip its expected order (NAME → ATTR-first).
 
-**Manifests**: `spec/rawtiles-v1.0.md` § 12 #10 + new § 12.1; `crates/slippypack-core/src/format/rawtiles_writer.rs::finalize` (sort step before write).
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` § 12 #10 + new § 12.1; `crates/slippypack-core/src/format/rawtiles_writer.rs::finalize` (sort step before write).
 **Commit**: to land with the deterministic-ordering slice.
 
 ### F-029b — Appendix A.5 example synced with new affn rule
@@ -572,7 +572,7 @@ Worked example in Appendix A.5 had drifted from the F-028 rule that `affn` is al
 
 Updated A.5 to include `"affn":null` and pinned the new derived UUID `5146db8e-0859-561c-8580-45c6154e890d` (the same value locked by `determinism_baseline_pack_uuid_is_committed` in slippypack-core).
 
-**Manifests**: `spec/rawtiles-v1.0.md` § A.5.
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` § A.5.
 **Commit**: to land with the deterministic-ordering slice.
 
 ### F-029 — Pre-1.0 spec corrections (fixes 6–14): bound MUSTs, definitions, conformance
@@ -590,7 +590,7 @@ Pure documentation pass — no wire-format change — closing nine spec ambiguit
 
 Also fixed: § 11 #1 (file-size minimum 398 → 294 after the u32-offset shrink); added § 11 #8 (enum-pair legality cross-reference to § 8.6, complementing F-025).
 
-**Manifests**: `spec/rawtiles-v1.0.md` §§ 3, 4.10, 5.2, 7.1, 7.3, 11, 14.1, 14.3.
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 3, 4.10, 5.2, 7.1, 7.3, 11, 14.1, 14.3.
 **Commit**: to land with the spec-batch slice.
 
 ### F-028 — AFFN canonical bits committed as six hex-encoded `f64` bit-patterns
@@ -606,7 +606,7 @@ Byte-identical `AFFN` extension bytes ⇒ byte-identical `affn` key bytes ⇒ by
 
 The canonical-bytes shape changes (new lex-first key), so the baseline `pack_uuid` rotated: `53077f67-522e-5cb0-b2b5-ffddba17d0db` → `5146db8e-0859-561c-8580-45c6154e890d`. CLI synthetic golden fixture re-blessed.
 
-**Manifests**: `crates/slippypack-core/src/identity.rs::{PackDescriptor::affn, write_affn_bits, canonical_descriptor_bytes}`; spec `spec/rawtiles-v1.0.md` § A.3 (key table + worked example).
+**Manifests**: `crates/slippypack-core/src/identity.rs::{PackDescriptor::affn, write_affn_bits, canonical_descriptor_bytes}`; spec `spec/rawtiles-v1.0-rc1.md` § A.3 (key table + worked example).
 **Commit**: to land with the AFFN-bits slice.
 
 ### F-027 — Drop u64 offsets to u32 (header 290 bytes, tile-index entry 20 bytes)
@@ -625,11 +625,28 @@ Mechanical changes:
 - `rawtiles_writer.rs`: layout planning stays in u64 to avoid intermediate overflow; converts to u32 at the boundary with checked `try_from` (returns `PackTooLarge` if any offset exceeds 4 GiB).
 - `reader.rs`: parses u32 offsets; promotes to u64 only for bounds arithmetic.
 - `spec-validator-cpp`: matching constant + decoder changes.
-- spec/rawtiles-v1.0.md § 3, § 4, § 5: layout tables updated; "4 GiB cap" noted in § 3.
+- spec/rawtiles-v1.0-rc1.md § 3, § 4, § 5: layout tables updated; "4 GiB cap" noted in § 3.
 - All 6 golden fixtures re-blessed (header shape changed → CRC changed → bytes changed).
 
-**Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
+**Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
+
+### N-002 — Spec document rebranded as `v1.0-rc1`
+The wire format is pinned but the spec document is in release-candidate status — frozen pending real-world cross-implementation validation (currently slated for the una-sdk MapTrack simulator round-trip). Any wire-format-affecting change between rc1 and 1.0 would invalidate every `pack_uuid` derived under rc1; the `-rc1` marker tells early implementers that fixtures are provisional until 1.0 ships.
+
+**Distinction**: the spec *document* version (`1.0-rc1`, `1.0-rc2`, `1.0`, `1.1`, …) is separate from the *wire format* `format_version` bytes (`(1, 0)`). Multiple spec-document revisions can describe the same wire format if changes are editorial / clarification-only.
+
+Mechanical changes:
+- `spec/rawtiles-v1.0.md` → `spec/rawtiles-v1.0-rc1.md`
+- Title: "rawtiles format specification — version 1.0" → "... version 1.0-rc1"
+- Status paragraph rewritten to call out RC status + the two-versioning distinction
+- Appendix C — Change history: column header → "Spec version" + footnote
+- All filename references in `PLAN.md`, `README.md`, `DECISIONS.md`, `crates/slippypack-core/src/format/{types,tile_index}.rs`, `spec-validator-cpp/README.md`
+
+No code change beyond doc-comment filename updates; no fixture re-bless.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` (renamed + updated header/footer); 7 reference points across `*.md`, `*.rs`.
+**Commit**: to land with the rc1-rebrand slice.
 
 ### N-001 — Rename: `.upack` / `UPCK` → `.rawtiles` / `RAWT`
 The format extension was originally `.upack` (Una Pack), naming it after the una-sdk project that motivated the design. As scope broadened to "any low-resource device that can do a memcpy" (per V-003 zoom expansion, V-004 quantiser trait, V-001 C++ validator), the vendor-named extension stopped fitting. `.upack` also clashed with Inedo's UPack universal-package format.
@@ -643,14 +660,14 @@ The format extension was originally `.upack` (Una Pack), naming it after the una
 - File extension: `.upack` → `.rawtiles` across code, docs, fixtures, tests
 - Type names: `UpackWriter` / `UpackReader` → `RawtilesWriter` / `RawtilesReader`
 - Source file: `format/upack_writer.rs` → `format/rawtiles_writer.rs`
-- Spec doc: `spec/upack-v1.0.md` → `spec/rawtiles-v1.0.md`
+- Spec doc: `spec/upack-v1.0.md` → `spec/rawtiles-v1.0-rc1.md`
 - All 6 golden fixtures renamed and re-blessed (CRC changes when magic does)
 - C++ validator binary: `upack_validate` → `rawtiles_validate`
-- Narrative: "una-sdk owns the format spec" → "`spec/rawtiles-v1.0.md` in this repo is authoritative; una-sdk is one reader implementation"
+- Narrative: "una-sdk owns the format spec" → "`spec/rawtiles-v1.0-rc1.md` in this repo is authoritative; una-sdk is one reader implementation"
 
 slippypack stays as the toolkit/project name (the writer). `rawtiles` is the format the toolkit produces.
 
-**Manifests**: workspace-wide; `crates/slippypack-core/src/format/types.rs::MAGIC`; `crates/slippypack-core/src/identity.rs::RAWTILES_NAMESPACE`; all 6 `golden-*.rawtiles` fixtures; `spec/rawtiles-v1.0.md`.
+**Manifests**: workspace-wide; `crates/slippypack-core/src/format/types.rs::MAGIC`; `crates/slippypack-core/src/identity.rs::RAWTILES_NAMESPACE`; all 6 `golden-*.rawtiles` fixtures; `spec/rawtiles-v1.0-rc1.md`.
 **Commit**: to land with the rename slice.
 
 ---
@@ -686,7 +703,7 @@ Pre-1.0-freeze closure of a spec ambiguity. v1.0 `SingleImage` (the future `Loca
 
 Readers MUST reject violations. If we ever want tiled multi-image packs, that's a new `tile_addressing_scheme` enum value via minor-version bump — not ambiguity in v1.0.
 
-**Manifests**: `spec/rawtiles-v1.0.md` § 8.6 (added in the same section as F-025).
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` § 8.6 (added in the same section as F-025).
 **Commit**: to land with the spec-alignment slice.
 
 ### F-025 — Spec § 8.6 pins legal `projection` × `tile_addressing_scheme` pairs
@@ -701,7 +718,7 @@ The previous § 8.3 said "Quadtree | v1 (used with `WebMercator`)" — advisory 
 
 Future projections / addressing schemes paired with existing values can be added via minor-version bumps.
 
-**Manifests**: `spec/rawtiles-v1.0.md` § 8.6 (new section); § 8.3 cross-references § 8.6.
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` § 8.6 (new section); § 8.3 cross-references § 8.6.
 **Commit**: to land with the spec-alignment slice.
 
 ### F-024 — Spec § 7.3 / § 7.4 aligned to NAME length-prefixed payload
@@ -711,7 +728,7 @@ Fixed pre-1.0-freeze by updating spec § 7.3 to point at § 7.4, and adding § 7
 
 The implementation is unchanged; only the spec catches up.
 
-**Manifests**: `spec/rawtiles-v1.0.md` § 7.3 (row description) and new § 7.4 (full payload layout). Implementation reference: `crates/slippypack-core/src/format/extensions.rs::build_name_payload`, `parse_name_payload`.
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` § 7.3 (row description) and new § 7.4 (full payload layout). Implementation reference: `crates/slippypack-core/src/format/extensions.rs::build_name_payload`, `parse_name_payload`.
 **Commit**: to land with the spec-alignment slice.
 
 ### F-023 — `NAME` extension payload structured as `uint8 tag_length | bcp47_tag | name`

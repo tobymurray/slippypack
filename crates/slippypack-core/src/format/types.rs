@@ -17,7 +17,7 @@ pub const MAGIC: [u8; 4] = *b"RAWT";
 /// `(1, 0)` in the header. Bumping the **major** is a breaking-format
 /// change; bumping the **minor** is an additive change that earlier-minor
 /// readers MUST accept with unknown extension tags skipped (per
-/// `spec/rawtiles-v1.0.md`).
+/// `spec/rawtiles-v1.0-rc1.md`).
 pub const FORMAT_VERSION: FormatVersion = FormatVersion { major: 1, minor: 0 };
 
 /// Pixel-format enum byte. Per PLAN.md § Pixel format enum and the

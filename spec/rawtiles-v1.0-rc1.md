@@ -1,7 +1,8 @@
-# rawtiles format specification — version 1.0
+# rawtiles format specification — version 1.0-rc1
 
-**Status:** Stable for slippypack 0.1.0 / una-sdk MapTrack Phase 1.
+**Status:** Release candidate. The byte layout is frozen pending real-world validation against an independent reader (currently slated for the una-sdk MapTrack simulator round-trip). Wire-format-affecting changes between rc1 and the eventual 1.0 release would invalidate any `pack_uuid` derived under rc1; pre-rc1 implementers should treat fixtures as provisional until 1.0 ships.
 **Date:** 2026-05-14.
+**Wire format version**: the `format_version` bytes in conforming packs remain `(1, 0)`. The `-rc1` marker is on this *specification document*, not on the on-disk format — see § 13 for the version semantics.
 
 This document defines the `.rawtiles` binary file format. It is the byte-level contract between writers (e.g. [slippypack](https://github.com/tobymurray/slippypack)) and readers (e.g. una-sdk's watch firmware `TilePack`, or any future device-side consumer). Conforming implementations on either side need only this document.
 
@@ -724,6 +725,8 @@ All other byte values for the listed enums are unallocated; future spec versions
 
 ## Appendix C — Change history
 
-| Version | Date | Notes |
+| Spec version | Date | Notes |
 |---|---|---|
-| 1.0 | 2026-05-14 | Initial publication. Frozen at slippypack 0.1.0 and una-sdk MapTrack Phase 1. |
+| 1.0-rc1 | 2026-05-14 | First release candidate. Byte layout pinned; awaiting independent-reader validation (una-sdk MapTrack simulator round-trip) before promotion to 1.0. Any wire-format-affecting change between rc1 and 1.0 invalidates `pack_uuid`s derived under rc1. |
+
+Note: the *spec document* version (`1.0-rc1`, `1.0-rc2`, `1.0`, `1.1`, …) is distinct from the *wire format* `format_version` bytes in the header. Multiple spec-document revisions can describe the same wire format `(1, 0)` if the changes are editorial or normative-clarification only.
