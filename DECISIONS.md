@@ -130,6 +130,13 @@ No state, but methods take `&self` to fit the trait shape that accommodates stat
 
 ---
 
+## W — Workspace (continued)
+
+### W-009 — `extern crate alloc;` added at the lib root
+Lets modules use the `alloc::*` path today (e.g. `alloc::collections::BTreeSet` in `UpackWriter`) even though slippypack-core is currently std-compiled. When W-008 closes (the no_std + alloc switch), code that already uses `alloc::*` paths needs no churn.
+**Manifests:** `crates/slippypack-core/src/lib.rs` (`extern crate alloc;`).
+**Commit:** to land with the format slice-B commit.
+
 ## F — Format module (byte-layout primitives)
 
 ### F-001 — Bbox stored as 4×i32 microdegrees in the header (16 bytes)
@@ -176,6 +183,46 @@ Polynomial `0xEDB88320` (reflected), init `0xFFFF_FFFF`, xor-out `0xFFFF_FFFF`. 
 v1 supports only `Compression::None`. The enum exists as a typed wrapper around the spec's `compression` byte so callers can't accidentally write a reserved value, and so future per-tile compression support (LZ4, QOI per una-sdk § Per-tile metadata) is a non-breaking addition via `#[non_exhaustive]`.
 **Manifests:** `crates/slippypack-core/src/format/tile_index.rs::Compression`.
 **Commit:** to land with the format-primitives commit.
+
+### F-010 — `TileWriter` trait error type carries extra v1-only variants
+PLAN.md § `TileWriter` trait pinned six `TileWriterError` variants. The implementation adds five more: `NotBegun`, `AlreadyBegun`, `TileTooLarge`, `ExtensionTooLarge`, `TileZoomOutOfRange`, `TileZoomTooHigh`. All represent caller misuse that the trait surface should reject explicitly rather than panic on. The enum is `#[non_exhaustive]`, so additions are non-breaking.
+**Manifests:** `crates/slippypack-core/src/format/writer_trait.rs::TileWriterError`.
+**Commit:** to land with the format slice-B commit.
+
+### F-011 — `Write for Vec<u8>` + blanket `Write for &mut W`
+Local `Write` trait gets an impl for `Vec<u8>` (with `Infallible` error) — convenient for in-memory tests and the OPFS round-trip — plus a blanket impl for `&mut W` so callers can pass `&mut buffer` to `finalize` without consuming the buffer. Both are local-trait impls so the orphan rule is satisfied.
+**Manifests:** `crates/slippypack-core/src/format/writer_trait.rs` (`impl Write for Vec<u8>`, `impl<W: Write> Write for &mut W`).
+**Commit:** to land with the format slice-B commit.
+
+### F-012 — Tile blob starts at the first 4-byte-aligned offset after the index
+The header is 322 bytes; the index is `N × 24` bytes. `322 mod 4 = 2`, so after the index the cursor is at offset `322 + 24N`, which is also `≡ 2 (mod 4)`. The writer emits **2 bytes of zero padding** between the index and the first tile to bring the tile blob to a 4-byte boundary, then aligns each subsequent tile by zero-padding 0-3 bytes after the previous tile's bytes. Per una-sdk PLAN.md "4-byte aligned tiles" for the watch's memcpy-blit hot path.
+**Manifests:** `crates/slippypack-core/src/format/upack_writer.rs::finalize` (the `pad_after_index` calculation and the per-tile alignment padding loop).
+**Commit:** to land with the format slice-B commit.
+
+### F-013 — `UpackWriter` state machine via single enum (`NotBegun` / `Building`)
+Two states; transitions are NotBegun → Building (via begin_pack) and Building → consumed (via finalize). Each pre-build method (`add_tile_ref`, `add_extension`) checks state and returns `NotBegun` if begin_pack hasn't run. `register_byte_source` works in either state (byte sources are independent of pack metadata; SourceId is just an index into the Vec).
+**Manifests:** `crates/slippypack-core/src/format/upack_writer.rs::WriterState` and the `if let WriterState::Building(state) = ...` checks in each method.
+**Commit:** to land with the format slice-B commit.
+
+### F-014 — Sources held at `UpackWriter` level (not inside `Building`)
+`byte_sources: Vec<Box<dyn TileByteSource<...>>>` lives at the writer level so `register_byte_source` can run before `begin_pack`. Alternative (sources inside Building) would force begin_pack-before-register or panic on pre-begin register. The current design is more flexible and matches the trait signature (register_byte_source doesn't return Result).
+**Manifests:** `crates/slippypack-core/src/format/upack_writer.rs::UpackWriter::byte_sources`.
+**Commit:** to land with the format slice-B commit.
+
+### F-015 — `add_tile_ref` validates zoom against `zoom_range` from metadata
+A tile with `z < zoom_range.min` or `z > zoom_range.max` is rejected with `TileZoomOutOfRange`. Defensive: keeps the on-disk `zoom_offsets[18]` directory consistent with the header's declared range, and catches programmer mistakes early.
+**Manifests:** `crates/slippypack-core/src/format/upack_writer.rs::add_tile_ref` (the `if z < min || z > max` check).
+**Commit:** to land with the format slice-B commit.
+
+### F-016 — Reader holds buffer reference; metadata/index/extensions owned
+`UpackReader<'a>` borrows the original buffer (so `tile_bytes` can return `&'a [u8]` zero-copy) but owns the parsed metadata, tile index, and extension sections (parsed once at `open`). The metadata struct's UUIDs etc. are 16-byte arrays — cheap to copy on parse, not worth chasing pointer-aliasing complexity for.
+**Manifests:** `crates/slippypack-core/src/format/reader.rs::UpackReader`.
+**Commit:** to land with the format slice-B commit.
+
+### F-017 — `tile_bytes` binary-search within zoom_offsets[z] range
+Lookup is O(log n) per the spec's mandatory binary-search rule (PLAN.md / una-sdk PLAN.md § Index lookup). `zoom_offsets[z]` gives the offset+count of tiles at zoom z; we binary-search within that range by `(x, y)`. Linear scan would be a spec conformance failure for the watch reader; slippypack-core's reader follows the same rule for consistency and as a behavioral reference.
+**Manifests:** `crates/slippypack-core/src/format/reader.rs::UpackReader::tile_bytes`.
+**Commit:** to land with the format slice-B commit.
 
 ---
 

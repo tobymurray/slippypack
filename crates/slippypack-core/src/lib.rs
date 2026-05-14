@@ -6,12 +6,18 @@
 //! - [`decode`] — PNG / JPEG → RGB888 via the `image` crate. **Landed.**
 //! - [`quantise`] — RGB888 → ABGR2222 (integer-only, cross-platform deterministic). **Landed.**
 //! - [`format`] — `.upack` byte-layout primitives (header / tile index /
-//!   extensions / CRC32). The `TileWriter` trait + `UpackWriter` land in a
-//!   follow-up slice. **Primitives landed.**
+//!   extensions / CRC32) **plus** the `TileWriter` trait and concrete
+//!   `UpackWriter` implementation. **Primitives + writer landed.**
 //! - [`projection`] — Web Mercator (Local Linear lands later in Phase 0). **Mercator landed.**
 //! - [`identity`] — UUIDv5 derivation from the canonical source descriptor.
 //!   The source-mtime / Last-Modified accumulator for `build_timestamp` lives
 //!   per-front-end since it's I/O-shaped. **Canonical descriptor + derivation landed.**
+
+// `extern crate alloc;` makes the `alloc` crate's types (Box, Vec, etc) available
+// under the `alloc::*` path even though slippypack-core is currently std-compiled.
+// Modules that target the eventual `no_std + alloc` switch use `alloc::*` paths
+// today so the transition is mechanical when it lands.
+extern crate alloc;
 
 pub mod decode;
 pub mod format;

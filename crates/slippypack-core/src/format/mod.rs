@@ -18,8 +18,11 @@
 pub mod crc;
 pub mod extensions;
 pub mod header;
+pub mod reader;
 pub mod tile_index;
 pub mod types;
+pub mod upack_writer;
+pub mod writer_trait;
 
 pub use crc::{Crc32, crc32_ieee};
 pub use extensions::{
@@ -30,6 +33,7 @@ pub use header::{
     DerivedHeaderFields, HEADER_BASE_SIZE, HeaderError, ParsedHeader, ZOOM_OFFSETS_COUNT,
     ZoomOffset, read_header, write_header,
 };
+pub use reader::{ReaderError, UpackReader};
 pub use tile_index::{
     Compression, INDEX_ENTRY_SIZE, TileIndexEntry, TileIndexError, read_index_entry,
     write_index_entry,
@@ -37,3 +41,5 @@ pub use tile_index::{
 pub use types::{
     AddressingScheme, AxisConvention, FORMAT_VERSION, MAGIC, PackMetadata, PixelFormat, Projection,
 };
+pub use upack_writer::UpackWriter;
+pub use writer_trait::{SourceId, TileByteSource, TileContent, TileWriter, TileWriterError, Write};
