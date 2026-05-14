@@ -104,10 +104,9 @@ pub enum HeaderError {
     /// First 4 bytes aren't `b"UPCK"`.
     BadMagic,
     /// Major version differs from this build's [`FORMAT_VERSION`].
+    /// Higher *minor* versions are accepted per the format's
+    /// forward-compat contract (additive only — see [`read_header`]).
     UnsupportedMajorVersion { got: u8, supported: u8 },
-    /// Minor version exceeds this build's [`FORMAT_VERSION::minor`]
-    /// (forward-incompatible additive change).
-    UnsupportedMinorVersion { got: u8, supported: u8 },
     /// `pixel_format` byte is reserved or unknown.
     InvalidPixelFormat(u8),
     /// `projection` byte is reserved or unknown.
@@ -137,12 +136,6 @@ impl core::fmt::Display for HeaderError {
                 write!(
                     f,
                     "unsupported format major version {got} (supports {supported})"
-                )
-            }
-            Self::UnsupportedMinorVersion { got, supported } => {
-                write!(
-                    f,
-                    "unsupported format minor version {got} (supports ≤ {supported})",
                 )
             }
             Self::InvalidPixelFormat(b) => write!(f, "invalid pixel_format byte {b}"),
@@ -268,12 +261,13 @@ pub fn read_header(input: &[u8]) -> Result<ParsedHeader, HeaderError> {
             supported: FORMAT_VERSION.major,
         });
     }
-    if format_version.minor > FORMAT_VERSION.minor {
-        return Err(HeaderError::UnsupportedMinorVersion {
-            got: format_version.minor,
-            supported: FORMAT_VERSION.minor,
-        });
-    }
+    // Higher minor versions MUST be accepted — the format's forward-
+    // compat contract is "header layout frozen per major, additive
+    // changes via extension tags". Unknown extension tags are skipped
+    // by the extension iterator (already minor-version-agnostic).
+    // Callers that want to know whether the pack is from a newer
+    // minor than this build supports can inspect
+    // `ParsedHeader::format_version.minor`.
 
     let mut pack_uuid = [0_u8; 16];
     pack_uuid.copy_from_slice(&input[6..22]);
@@ -611,16 +605,26 @@ mod tests {
     }
 
     #[test]
-    fn read_rejects_newer_minor_version() {
+    fn read_accepts_newer_minor_version() {
+        // Forward-compat contract: higher minor must succeed. The
+        // header layout is frozen for a given major version, and any
+        // additive changes ride on the extension-tag mechanism (which
+        // already skips unknown tags). Callers that care can inspect
+        // `ParsedHeader::format_version.minor` after reading.
         let mut buf = write_header(&baseline_metadata(), &baseline_derived());
         buf[5] = 99; // minor
-        assert_eq!(
-            read_header(&buf),
-            Err(HeaderError::UnsupportedMinorVersion {
-                got: 99,
-                supported: FORMAT_VERSION.minor,
-            }),
-        );
+        let parsed = read_header(&buf).expect("higher minor must read");
+        assert_eq!(parsed.format_version.major, FORMAT_VERSION.major);
+        assert_eq!(parsed.format_version.minor, 99);
+    }
+
+    #[test]
+    fn read_accepts_max_minor_version() {
+        // Sanity check at the u8 boundary.
+        let mut buf = write_header(&baseline_metadata(), &baseline_derived());
+        buf[5] = 255;
+        let parsed = read_header(&buf).expect("minor=255 must read");
+        assert_eq!(parsed.format_version.minor, 255);
     }
 
     #[test]

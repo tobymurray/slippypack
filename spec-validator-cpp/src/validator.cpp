@@ -271,10 +271,17 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
             std::to_string(bytes[kOffVersion]) + ", expected " +
             std::to_string(kFormatMajor));
   }
+  // Higher *minor* versions MUST be accepted — the format's
+  // forward-compat contract is "header layout frozen per major,
+  // additive-only changes via extension tags". The extension walker
+  // below already skips unrecognized tags, so a higher-minor pack
+  // can validate cleanly: we just won't introspect any new tags it
+  // contains.
   if (bytes[kOffVersion + 1] > kFormatMinor) {
-    r.error("unsupported minor version: got " +
-            std::to_string(bytes[kOffVersion + 1]) + ", supported up to " +
-            std::to_string(kFormatMinor));
+    r.warn("pack reports minor version " +
+           std::to_string(bytes[kOffVersion + 1]) +
+           " (validator knows up to " + std::to_string(kFormatMinor) +
+           "); unrecognized extension tags will be skipped");
   }
 
   // ---- Decode + validate header invariants ----

@@ -467,6 +467,20 @@ Phase 1.x deliverable, prompted by the need to catch writer-side bugs (endiannes
 **Manifests**: `spec-validator-cpp/src/validator.cpp`; `spec-validator-cpp/tests/run.sh`.
 **Commit**: to land with the C++ validator slice.
 
+### F-022 — Higher minor versions in `format_version` are accepted, not rejected
+Bug closed by review. `read_header` previously emitted `HeaderError::UnsupportedMinorVersion` for any pack whose minor version exceeded this build's. That defeats the whole point of having a minor version field — the format's forward-compat contract is "major locks the header layout, minor adds extension tags only," and unknown extension tags are already skipped by the extension iterator.
+
+After fix:
+- Same major, any minor → reads successfully. `ParsedHeader::format_version.minor` carries the actual minor value; callers can inspect if they need to.
+- Different major → still `HeaderError::UnsupportedMajorVersion`.
+
+`HeaderError::UnsupportedMinorVersion` is removed (it was never reachable after the fix). `#[non_exhaustive]` on the enum means downstream code that matched on it gets a clean compile error pointing at the change.
+
+C++ validator (`spec-validator-cpp`) mirrors: a higher-minor pack produces a *warning* (it can't introspect new tags it doesn't know about), not a hard error.
+
+**Manifests**: `crates/slippypack-core/src/format/header.rs::read_header`; tests `read_accepts_newer_minor_version` and `read_accepts_max_minor_version`; `spec-validator-cpp/src/validator.cpp::validate`.
+**Commit**: to land with the minor-version-acceptance slice.
+
 ### I-010 — `Source::Style` carries a `content_hash` like every other file-backed source kind
 Bug closed by review. `Source::Style { zoom_min, zoom_max }` had no content identity, so two builds with identical zoom ranges but different MapLibre Style JSONs collided on `pack_uuid`. Now `Source::Style { content_hash, zoom_min, zoom_max }` mirrors Dir / Geotiff / Mbtiles / Pbf / Pmtiles.
 
