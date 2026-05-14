@@ -382,6 +382,8 @@ mod tests {
     fn round_trip_with_extension_sections() {
         let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
+        // Add NAME first; the writer MUST sort to lex-tag order per
+        // spec § 12.1. ATTR ('A' = 0x41) sorts before NAME ('N' = 0x4E).
         w.add_extension(*b"NAME", b"Local trails").unwrap();
         w.add_extension(*b"ATTR", b"\xc2\xa9 OpenStreetMap contributors")
             .unwrap();
@@ -391,10 +393,10 @@ mod tests {
         let r = RawtilesReader::open(&buf).expect("round-trip parse");
         let exts = r.extensions();
         assert_eq!(exts.len(), 2);
-        assert_eq!(exts[0].tag, *b"NAME");
-        assert_eq!(exts[0].payload, b"Local trails");
-        assert_eq!(exts[1].tag, *b"ATTR");
-        assert_eq!(exts[1].payload, b"\xc2\xa9 OpenStreetMap contributors");
+        assert_eq!(exts[0].tag, *b"ATTR");
+        assert_eq!(exts[0].payload, b"\xc2\xa9 OpenStreetMap contributors");
+        assert_eq!(exts[1].tag, *b"NAME");
+        assert_eq!(exts[1].payload, b"Local trails");
     }
 
     #[test]

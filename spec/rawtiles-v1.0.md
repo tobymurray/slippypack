@@ -475,9 +475,10 @@ A conforming v1 writer MUST:
 7. Pad the tile index to a 4-byte boundary before the tile blob.
 8. Place each tile at a 4-byte-aligned offset and pad with 0–3 zero bytes between tiles.
 9. Place each extension section starting at a 4-byte-aligned offset; pad each payload to a 4-byte boundary with zero bytes.
-10. Populate `zoom_offsets[z] = (0, 0)` for every zoom `z` with no tiles, and `(byte_offset_of_first_entry_at_z, count_at_z)` otherwise.
-11. Emit an `AFFN` extension when `projection = LocalLinear`.
-12. Compute the CRC-32 over every preceding byte and emit it as the file's last 4 bytes.
+10. Emit extension sections in a deterministic, input-derivable order — see § 12.1.
+11. Populate `zoom_offsets[z] = (0, 0)` for every zoom `z` with no tiles, and `(byte_offset_of_first_entry_at_z, count_at_z)` otherwise.
+12. Emit an `AFFN` extension when `projection = LocalLinear`.
+13. Compute the CRC-32 over every preceding byte and emit it as the file's last 4 bytes.
 
 A conforming v1 writer SHOULD:
 
@@ -486,8 +487,19 @@ A conforming v1 writer SHOULD:
 
 A conforming v1 writer MUST NOT:
 
-15. Emit an upper-case extension tag not defined in this spec (§ 7.3).
-16. Emit a non-zero `flags` or `reserved` byte in any tile-index entry.
+16. Emit an upper-case extension tag not defined in this spec (§ 7.3).
+17. Emit a non-zero `flags` or `reserved` byte in any tile-index entry.
+
+### 12.1 Extension-section ordering
+
+For § 14.1's writer-round-trip property to hold, the order in which extension sections are emitted MUST be a deterministic function of the logical inputs. A conforming v1 writer MUST emit extension sections in this order:
+
+1. **Primary sort: ascending by the 4-byte tag**, compared as unsigned bytes. This puts reserved tags before ancillary ones (`A–Z` < `a–z` in ASCII) and orders within each group lexicographically. For the v1-reserved tags this happens to give the canonical order **`AFFN, ATTR, NAME, PLET, SRCD`**.
+2. **Secondary sort: for tags with multiple legal instances**, ascending by payload bytes (compared as unsigned bytes, shorter-payload-first when one is a prefix of the other). In v1 only `NAME` has multiple instances, ordered by their length-prefixed payloads — which, since the payload's first byte is `tag_length` and BCP-47 tags sort lexicographically as ASCII, naturally orders the `NAME` sections by locale tag (`tag_length=0` unlocalized first, then locale-tagged variants in alphabetical order).
+
+This rule is what makes the round-trip property of § 14.1 actually enforceable. Two writers applied to the same logical inputs (same metadata + same tiles + same set of `NAME` locales + same `ATTR` text + same `AFFN` matrix, etc.) MUST emit the extension sections in the same byte order.
+
+Ancillary (lower-case) tags follow the same primary/secondary rule. Two writers that emit the same ancillary tags with the same payloads MUST order them deterministically; writers that emit different ancillary tags are allowed to disagree (only writers operating on the same logical inputs are required to agree).
 
 ## 13. Versioning
 
@@ -670,19 +682,19 @@ Per-kind entry shapes (keys in lex order within each object):
 
 ### A.5 Worked example
 
-Baseline descriptor for a single-source pack of OSM tiles, z=6–12, world-scale bbox:
+Baseline descriptor for a single-source pack of OSM tiles, z=6–12, world-scale bbox. Note `"affn":null` as the lex-first key (per § A.3, the `affn` key is always emitted; non-LocalLinear packs carry `null`):
 
 ```json
-{"bbox":[-180000000,-85000000,180000000,85000000],"format_version":[1,0],"pixel_format":1,"projection":1,"quantiser_version":1,"sources":[{"auth_kinds":[],"kind":"url","template":"https://tile.openstreetmap.org/{z}/{x}/{y}.png","zoom_max":12,"zoom_min":6}],"style_hash":null,"tile_addressing_scheme":1,"tile_axis_convention":1,"tile_dim_px":128,"zoom_range":[6,12]}
+{"affn":null,"bbox":[-180000000,-85000000,180000000,85000000],"format_version":[1,0],"pixel_format":1,"projection":1,"quantiser_version":1,"sources":[{"auth_kinds":[],"kind":"url","template":"https://tile.openstreetmap.org/{z}/{x}/{y}.png","zoom_max":12,"zoom_min":6}],"style_hash":null,"tile_addressing_scheme":1,"tile_axis_convention":1,"tile_dim_px":128,"zoom_range":[6,12]}
 ```
 
 Derived `pack_uuid`:
 
 ```
-53077f67-522e-5cb0-b2b5-ffddba17d0db
+5146db8e-0859-561c-8580-45c6154e890d
 ```
 
-Two writers can independently verify by feeding the canonical bytes above into any conformant UUIDv5 implementation with the namespace from § A.1.
+Two writers can independently verify by feeding the canonical bytes above into any conformant UUIDv5 implementation with the namespace from § A.1. The exact bytes and the derived UUID are locked by the test `identity::tests::baseline_canonical_bytes_match_committed_string` and `identity::tests::determinism_baseline_pack_uuid_is_committed` in slippypack-core.
 
 ---
 

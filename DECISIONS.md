@@ -460,6 +460,24 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ## N — Naming
 
+### F-030 — Spec § 12.1: deterministic extension-section emit order
+Pre-1.0-freeze fix. § 14.1 newly asserts "A conforming writer applied twice to the same logical inputs MUST produce byte-identical output" but § 12 had no rule pinning *the order in which extension sections are emitted*. A writer free to emit NAME-then-SRCD one day and SRCD-then-NAME the next would silently violate § 14.1.
+
+Rule (now § 12.1): emit extension sections sorted ascending by 4-byte tag, with payload-byte tie-break for multi-instance tags. Lex order of tags happens to give the canonical reserved-tag order `AFFN, ATTR, NAME, PLET, SRCD` for free. NAME-with-multiple-locales naturally sorts by BCP-47 tag (since the payload's first byte is `tag_length` and tags are ASCII).
+
+slippypack's writer was emitting in input order; updated to sort via `extensions.sort_by(|a, b| (a.tag, &a.payload).cmp(&(b.tag, &b.payload)))` before serialization. New tests `extensions_emit_sorted_regardless_of_add_order` and `multiple_same_tag_sections_sort_by_payload` lock the invariant. One existing reader test had to flip its expected order (NAME → ATTR-first).
+
+**Manifests**: `spec/rawtiles-v1.0.md` § 12 #10 + new § 12.1; `crates/slippypack-core/src/format/rawtiles_writer.rs::finalize` (sort step before write).
+**Commit**: to land with the deterministic-ordering slice.
+
+### F-029b — Appendix A.5 example synced with new affn rule
+Worked example in Appendix A.5 had drifted from the F-028 rule that `affn` is always emitted. The example JSON was missing the `"affn":null` lex-first key, and its derived `pack_uuid` (`53077f67-...`) was computed from a JSON that no v1.0-conforming writer should produce.
+
+Updated A.5 to include `"affn":null` and pinned the new derived UUID `5146db8e-0859-561c-8580-45c6154e890d` (the same value locked by `determinism_baseline_pack_uuid_is_committed` in slippypack-core).
+
+**Manifests**: `spec/rawtiles-v1.0.md` § A.5.
+**Commit**: to land with the deterministic-ordering slice.
+
 ### F-029 — Pre-1.0 spec corrections (fixes 6–14): bound MUSTs, definitions, conformance
 Pure documentation pass — no wire-format change — closing nine spec ambiguities pre-1.0-freeze. Each one is a place where two spec-faithful readers could legally disagree on the same pack:
 

@@ -211,6 +211,15 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
         let mut tiles = state.tiles;
         tiles.sort_by_key(|t| (t.z, t.x, t.y));
 
+        // Sort extension sections per spec § 12.1: primary by 4-byte tag
+        // (unsigned-byte ascending — puts reserved upper-case tags before
+        // ancillary lower-case), secondary by payload bytes
+        // (shorter-prefix-first). Required for § 14.1 writer round-trip:
+        // two writers applied to the same logical inputs MUST emit
+        // extension sections in the same byte order.
+        let mut extensions = state.extensions;
+        extensions.sort_by(|a, b| (a.tag, &a.payload).cmp(&(b.tag, &b.payload)));
+
         // Validate every External tile refers to a registered source.
         for tile in &tiles {
             if let TileContent::External { source, .. } = &tile.content
@@ -244,8 +253,8 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
         // Extensions follow the tile blob, with each section already
         // self-aligned (write_extension_section pads payload to 4 bytes).
         let extensions_offset_u64 = cursor;
-        let mut ext_buffers: Vec<Vec<u8>> = Vec::with_capacity(state.extensions.len());
-        for ext in &state.extensions {
+        let mut ext_buffers: Vec<Vec<u8>> = Vec::with_capacity(extensions.len());
+        for ext in &extensions {
             let section = ExtensionSection {
                 tag: ext.tag,
                 payload: ext.payload.clone(),
@@ -592,7 +601,55 @@ mod tests {
         assert_eq!(&buf[0..4], b"RAWT");
     }
 
-    /// Vec<u8> as Write — convenient for in-memory tests. The
+    /// Spec § 12.1: extensions MUST emit in lex-tag-then-payload order
+    /// regardless of input order. Required for § 14.1 round-trip.
+    #[test]
+    fn extensions_emit_sorted_regardless_of_add_order() {
+        let build = |order: &[(&[u8; 4], &[u8])]| {
+            let mut w: TestWriter = RawtilesWriter::new();
+            w.begin_pack(baseline_metadata()).unwrap();
+            for &(tag, payload) in order {
+                w.add_extension(*tag, payload).unwrap();
+            }
+            let mut buf: Vec<u8> = Vec::new();
+            w.finalize(&mut buf).unwrap();
+            buf
+        };
+
+        // Three reserved tags added in three different orders.
+        let a = build(&[(b"SRCD", b"src"), (b"NAME", b"name"), (b"ATTR", b"attr")]);
+        let b = build(&[(b"ATTR", b"attr"), (b"NAME", b"name"), (b"SRCD", b"src")]);
+        let c = build(&[(b"NAME", b"name"), (b"ATTR", b"attr"), (b"SRCD", b"src")]);
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+        // The actual byte order should be ATTR, NAME, SRCD (lex-sorted).
+        // Find the three tags within the bytes and assert their order.
+        let attr_pos = a.windows(4).position(|w| w == b"ATTR").unwrap();
+        let name_pos = a.windows(4).position(|w| w == b"NAME").unwrap();
+        let srcd_pos = a.windows(4).position(|w| w == b"SRCD").unwrap();
+        assert!(attr_pos < name_pos && name_pos < srcd_pos);
+    }
+
+    /// Within a tag with multiple instances (NAME), tie-break by payload.
+    #[test]
+    fn multiple_same_tag_sections_sort_by_payload() {
+        let build = |order: &[&[u8]]| {
+            let mut w: TestWriter = RawtilesWriter::new();
+            w.begin_pack(baseline_metadata()).unwrap();
+            for payload in order {
+                w.add_extension(*b"NAME", payload).unwrap();
+            }
+            let mut buf: Vec<u8> = Vec::new();
+            w.finalize(&mut buf).unwrap();
+            buf
+        };
+        // Three NAME sections inserted in two different orders.
+        let a = build(&[b"\x02en hello", b"\x00default", b"\x02fr bonjour"]);
+        let b = build(&[b"\x02fr bonjour", b"\x02en hello", b"\x00default"]);
+        assert_eq!(a, b);
+    }
+
+    /// `Vec<u8>` as `Write` — convenient for in-memory tests. The
     /// `&mut Vec<u8>` reference also gets the impl through `Write for
     /// Vec<u8>` (`extend_from_slice` works through `&mut`).
     #[test]
