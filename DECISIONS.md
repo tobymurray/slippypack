@@ -239,6 +239,11 @@ The PLAN.md fixtures were sketched as PNG inputs producing ABGR2222 tile bytes. 
 **Manifests:** `crates/slippypack-core/tests/spec_layout.rs::synth_tile_content`.
 **Commit:** to land with the spec-layout-test commit.
 
+### F-021 — End-to-end pipeline test (PNG → decode → quantise → format)
+Complements F-020 with an integration test that exercises the full pipeline against a committed PNG fixture. PR-1's `--source synthetic` and `--source <url>` paths follow exactly this composition (decode bytes from a source → quantise to ABGR2222 → write to a pack), so this test catches regressions in inter-stage shape contracts that per-stage unit tests miss. Uses `tile_dim_px = 2` (not the spec-mandated 128) since the test verifies pipeline composition rather than watch-loadability of the produced packs; this avoids committing 16 KB of decoded tile content per fixture. Same `BLESS_E2E=1` bootstrap pattern as spec_layout. **PNG-only — JPEG decode is too lossy / decoder-version-sensitive to commit a stable golden for.**
+**Manifests:** `crates/slippypack-core/tests/end_to_end.rs`; `crates/slippypack-core/tests/fixtures/e2e/{input-2x2-rgb.png, golden-png-to-pack-*.upack}`.
+**Commit:** to land with the e2e-test commit.
+
 ---
 
 ## D — Decode module

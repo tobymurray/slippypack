@@ -26,4 +26,5 @@ debug/
 !/crates/slippypack-cli/tests/fixtures/*.upack.hex
 !/crates/slippypack-core/tests/fixtures/*.upack.hex
 !/crates/slippypack-core/tests/fixtures/format/*.upack
+!/crates/slippypack-core/tests/fixtures/e2e/*.upack
 !/crates/slippypack-cli/tests/fixtures/*.upack
