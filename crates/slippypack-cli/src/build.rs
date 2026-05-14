@@ -280,6 +280,32 @@ fn check_cancel(cancel: Option<&AtomicBool>) -> Result<(), BuildError> {
     Ok(())
 }
 
+/// Build the canonical [`PackDescriptor`] for the source/bbox/zoom in
+/// `opts` without doing any work beyond schema construction. Shared
+/// between the `make` build path and the `debug uuid` diagnostic.
+///
+/// # Errors
+///
+/// - [`BuildError::UnknownSourceKind`] for a `--source` that isn't
+///   `synthetic` and doesn't start with `http://` / `https://`.
+/// - [`BuildError::UrlTemplate`] if the URL template is malformed.
+/// - [`BuildError::MissingBbox`] / [`BuildError::MissingZoom`] if a
+///   URL-template source is missing the required `--bbox` / `--zoom`.
+pub fn descriptor_for(opts: &BuildOptions) -> Result<PackDescriptor, BuildError> {
+    if opts.source == "synthetic" {
+        Ok(synthetic_descriptor())
+    } else if opts.source.starts_with("http://") || opts.source.starts_with("https://") {
+        // Validate the URL template before constructing the descriptor
+        // — the descriptor would otherwise embed an invalid template.
+        UrlTemplate::parse(&opts.source)?;
+        let bbox = opts.bbox.ok_or(BuildError::MissingBbox)?;
+        let zoom = opts.zoom_range.ok_or(BuildError::MissingZoom)?;
+        Ok(url_template_descriptor(&opts.source, bbox, zoom))
+    } else {
+        Err(BuildError::UnknownSourceKind(opts.source.clone()))
+    }
+}
+
 fn synthetic_descriptor() -> PackDescriptor {
     PackDescriptor {
         bbox: world_bbox_micro(),

@@ -426,6 +426,21 @@ The workspace forbids `unsafe_code` (W-005), so `libc::kill` (an unsafe extern) 
 **Manifests:** `crates/slippypack-cli/Cargo.toml` (`[target.'cfg(unix)'.dev-dependencies]`); `crates/slippypack-cli/tests/cli_cancel.rs`.
 **Commit:** to land with the SIGINT slice.
 
+### C-020 — `slippypack debug uuid` shares descriptor construction with `make`
+The descriptor-building helper `descriptor_for(&BuildOptions)` is the single source of truth for both `make`'s `pack_uuid` and `debug uuid`'s emitted UUIDv5 / canonical bytes. The integration test `debug_uuid_uuid_matches_make_output_for_synthetic` is the standing contract: two CLI invocations against the same source/bbox/zoom always produce the same UUID. Reusing the helper avoids two derivations drifting silently.
+**Manifests:** `crates/slippypack-cli/src/build.rs::descriptor_for`; `crates/slippypack-cli/src/debug.rs::run_debug_uuid`; `crates/slippypack-cli/tests/cli_debug_uuid.rs::debug_uuid_uuid_matches_make_output_for_synthetic`.
+**Commit:** to land with the `debug uuid` slice.
+
+### C-021 — `debug uuid --bytes` emits canonical descriptor bytes without trailing newline
+The `--bytes` mode is meant to be piped into other tools (`sha1sum`, `xxd`, `jq`, third-party UUIDv5 implementations) for independent verification. A trailing newline would break the hash chain (any byte appended changes the SHA-1 input), so `--bytes` writes exactly the canonical descriptor bytes — same shape as `identity::canonical_descriptor_bytes`. The default (UUID) mode adds a trailing newline since it's meant for human consumption in a terminal.
+**Manifests:** `crates/slippypack-cli/src/debug.rs::run_debug_uuid` (the `DebugUuidFormat::Bytes` branch).
+**Commit:** to land with the `debug uuid` slice.
+
+### C-022 — `--bbox` accepts hyphen-leading values via `allow_hyphen_values`
+Without this clap attribute, `slippypack make --bbox -0.15,51.49,-0.10,51.52` fails parsing because `-0.15` looks like a short flag. Setting `allow_hyphen_values = true` on the `--bbox` argument lets clap treat the leading `-` as part of the value. Real bboxes — especially anywhere in the Western Hemisphere — routinely start with a negative longitude, so this is essential ergonomics, not a corner case.
+**Manifests:** `crates/slippypack-cli/src/main.rs` (`MakeArgs::bbox` and `DebugUuidCliArgs::bbox`).
+**Commit:** to land with the `debug uuid` slice.
+
 ---
 
 ## Cross-cutting

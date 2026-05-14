@@ -14,9 +14,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use clap::{Parser, Subcommand};
 
 mod build;
+mod debug;
 mod sources;
 
 use build::{BboxDeg, BuildError, BuildOptions, build};
+use debug::{DebugUuidArgs, DebugUuidFormat, run_debug_uuid};
 
 #[derive(Parser)]
 #[command(name = "slippypack", version, about = "Build offline .upack map packs")]
@@ -29,6 +31,40 @@ struct Cli {
 enum Command {
     /// Build a `.upack` from a tile source.
     Make(MakeArgs),
+    /// Diagnostic subcommands.
+    #[command(subcommand)]
+    Debug(DebugCommand),
+}
+
+#[derive(Subcommand)]
+enum DebugCommand {
+    /// Print the UUIDv5 `pack_uuid` (or canonical descriptor bytes
+    /// with `--bytes`) for a given source/bbox/zoom — without doing
+    /// any tile fetching, decoding, or writing.
+    Uuid(DebugUuidCliArgs),
+}
+
+#[derive(clap::Args)]
+struct DebugUuidCliArgs {
+    /// Tile source. Same shape as `make --source`.
+    #[arg(long)]
+    source: String,
+
+    /// Bounding box in decimal degrees. Required for URL-template /
+    /// MBTiles / PMTiles / `dir://` sources; ignored for `synthetic`.
+    #[arg(long, value_parser = parse_bbox, allow_hyphen_values = true)]
+    bbox: Option<BboxDeg>,
+
+    /// Zoom range. Same shape as `make --zoom`.
+    #[arg(long, value_parser = parse_zoom)]
+    zoom: Option<(u8, u8)>,
+
+    /// Emit the canonical descriptor bytes (UTF-8 JSON, no trailing
+    /// newline) instead of the derived UUIDv5. Useful for piping into
+    /// `sha1sum`, `xxd`, or a third-party UUIDv5 implementation for
+    /// independent verification.
+    #[arg(long)]
+    bytes: bool,
 }
 
 #[derive(clap::Args)]
@@ -47,7 +83,7 @@ struct MakeArgs {
     /// Bounding box in decimal degrees: `minLon,minLat,maxLon,maxLat`.
     /// Required for URL-template / MBTiles / PMTiles / `dir://` sources.
     /// Ignored for `synthetic` (which has a fixed world-bbox).
-    #[arg(long, value_parser = parse_bbox)]
+    #[arg(long, value_parser = parse_bbox, allow_hyphen_values = true)]
     bbox: Option<BboxDeg>,
 
     /// Zoom range: single zoom (e.g. `8`) or inclusive range (e.g. `6-12`).
@@ -87,7 +123,31 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::Debug(DebugCommand::Uuid(args)) => match run_debug_uuid_cli(&args) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
     }
+}
+
+fn run_debug_uuid_cli(args: &DebugUuidCliArgs) -> Result<(), BuildError> {
+    let format = if args.bytes {
+        DebugUuidFormat::Bytes
+    } else {
+        DebugUuidFormat::Uuid
+    };
+    let debug_args = DebugUuidArgs {
+        source: args.source.clone(),
+        bbox: args.bbox,
+        zoom_range: args.zoom,
+        format,
+    };
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    run_debug_uuid(&debug_args, &mut handle)
 }
 
 /// Install a SIGINT / Ctrl-C handler that flips the returned
