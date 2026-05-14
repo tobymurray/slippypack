@@ -1,14 +1,14 @@
-//! Byte-layout-against-spec test for the `.upack` writer.
+//! Byte-layout-against-spec test for the `.rawtiles` writer.
 //!
 //! Builds three known packs (grid / pyramid / attr) using deterministic
 //! tile content and metadata, then byte-compares the writer's output
-//! against committed golden `.upack` files in `tests/fixtures/format/`.
+//! against committed golden `.rawtiles` files in `tests/fixtures/format/`.
 //!
 //! Per PLAN.md § Test plan (test 4):
 //!
 //! > Byte-layout-against-spec test: three sub-tests, one per fixture,
 //! > each byte-comparing the writer's output against the corresponding
-//! > `golden-pack-*.upack.hex`. **This is the test that catches off-by-
+//! > `golden-pack-*.rawtiles.hex`. **This is the test that catches off-by-
 //! > one header errors, wrong endianness, mis-sized zoom_offsets
 //! > entries, broken extension-section iteration, etc.** Until the
 //! > una-sdk simulator round-trip exists, this is the only test that
@@ -33,8 +33,8 @@ use core::convert::Infallible;
 use std::path::{Path, PathBuf};
 
 use slippypack_core::format::{
-    AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, TAG_ATTR, TileContent,
-    TileWriter, UpackReader, UpackWriter,
+    AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, RawtilesReader,
+    RawtilesWriter, TAG_ATTR, TileContent, TileWriter,
 };
 use slippypack_core::identity::BoundingBox;
 
@@ -95,7 +95,7 @@ fn baseline_metadata(zoom_min: u8, zoom_max: u8) -> PackMetadata {
 
 /// Single-zoom grid: 25 tiles at z=4, x ∈ [0..5), y ∈ [0..5).
 fn build_grid_pack() -> Vec<u8> {
-    let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+    let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
     w.begin_pack(baseline_metadata(4, 4)).unwrap();
     for y in 0..5_u32 {
         for x in 0..5_u32 {
@@ -119,7 +119,7 @@ fn build_grid_pack() -> Vec<u8> {
 /// directory's behavior (3 populated zooms is enough to verify the
 /// directory's offset arithmetic).
 fn build_pyramid_pack() -> Vec<u8> {
-    let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+    let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
     w.begin_pack(baseline_metadata(2, 4)).unwrap();
     for z in 2..=4_u8 {
         // n_side is 1, 2, 4 for z=2, 3, 4 respectively.
@@ -140,7 +140,7 @@ fn build_pyramid_pack() -> Vec<u8> {
 /// section. Exercises the extension-section iterator's offset
 /// arithmetic + the writer's `extensions_offset` layout.
 fn build_attr_pack() -> Vec<u8> {
-    let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+    let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
     w.begin_pack(baseline_metadata(3, 3)).unwrap();
     for y in 0..3_u32 {
         for x in 0..3_u32 {
@@ -214,19 +214,19 @@ fn assert_matches_golden(actual: &[u8], name: &str) {
 #[test]
 fn grid_pack_matches_golden() {
     let bytes = build_grid_pack();
-    assert_matches_golden(&bytes, "golden-grid.upack");
+    assert_matches_golden(&bytes, "golden-grid.rawtiles");
 }
 
 #[test]
 fn pyramid_pack_matches_golden() {
     let bytes = build_pyramid_pack();
-    assert_matches_golden(&bytes, "golden-pyramid.upack");
+    assert_matches_golden(&bytes, "golden-pyramid.rawtiles");
 }
 
 #[test]
 fn attr_pack_matches_golden() {
     let bytes = build_attr_pack();
-    assert_matches_golden(&bytes, "golden-attr.upack");
+    assert_matches_golden(&bytes, "golden-attr.rawtiles");
 }
 
 /// Sanity check: every golden pack round-trips through the reader and
@@ -234,7 +234,7 @@ fn attr_pack_matches_golden() {
 #[test]
 fn grid_pack_round_trips() {
     let bytes = build_grid_pack();
-    let r = UpackReader::open(&bytes).expect("grid pack should parse");
+    let r = RawtilesReader::open(&bytes).expect("grid pack should parse");
     assert_eq!(r.tile_count(), 25);
     for y in 0..5_u32 {
         for x in 0..5_u32 {
@@ -250,7 +250,7 @@ fn grid_pack_round_trips() {
 #[test]
 fn pyramid_pack_round_trips() {
     let bytes = build_pyramid_pack();
-    let r = UpackReader::open(&bytes).expect("pyramid pack should parse");
+    let r = RawtilesReader::open(&bytes).expect("pyramid pack should parse");
     assert_eq!(r.tile_count(), 1 + 4 + 16);
     // Per-zoom directory: each populated zoom's count matches 4^z.
     let header = r.header();
@@ -276,7 +276,7 @@ fn pyramid_pack_round_trips() {
 #[test]
 fn attr_pack_round_trips() {
     let bytes = build_attr_pack();
-    let r = UpackReader::open(&bytes).expect("attr pack should parse");
+    let r = RawtilesReader::open(&bytes).expect("attr pack should parse");
     assert_eq!(r.tile_count(), 9);
     let exts = r.extensions();
     assert_eq!(exts.len(), 1);

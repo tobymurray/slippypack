@@ -1,8 +1,8 @@
-//! `slippypack` — native CLI for building offline `.upack` tile packs.
+//! `slippypack` — native CLI for building offline `.rawtiles` tile packs.
 //!
 //! Phase 1 first slice: `make --source synthetic --out <path>` builds a
 //! pack from the embedded synthetic fixture and writes it via an
-//! atomic `.upack.partial` → rename. Other source kinds (URL templates,
+//! atomic `.rawtiles.partial` → rename. Other source kinds (URL templates,
 //! MBTiles, PMTiles, `dir://`) land in Phase 1.x; vector sources
 //! (`pbf`, `style`) land in Phase 2.
 
@@ -21,7 +21,11 @@ use build::{BboxDeg, BuildError, BuildOptions, build};
 use debug::{DebugUuidArgs, DebugUuidFormat, run_debug_uuid};
 
 #[derive(Parser)]
-#[command(name = "slippypack", version, about = "Build offline .upack map packs")]
+#[command(
+    name = "slippypack",
+    version,
+    about = "Build offline .rawtiles map packs"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -29,7 +33,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Build a `.upack` from a tile source.
+    /// Build a `.rawtiles` from a tile source.
     Make(MakeArgs),
     /// Diagnostic subcommands.
     #[command(subcommand)]

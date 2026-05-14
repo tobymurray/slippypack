@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use slippypack_core::decode::{DecodeError, decode_rgb888};
 use slippypack_core::format::{
-    AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, TileContent,
-    TileWriter, TileWriterError, UpackWriter,
+    AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, RawtilesWriter,
+    TileContent, TileWriter, TileWriterError,
 };
 use slippypack_core::identity::{
     AuthKind, BoundingBox, FormatVersion, PackDescriptor, Source, ZoomRange, derive_pack_uuid,
@@ -195,7 +195,7 @@ impl<W: std::io::Write> slippypack_core::format::Write for IoWriteAdapter<W> {
 }
 
 /// RAII guard: deletes `path` on drop unless `commit()` was called. The
-/// CLI uses this to keep `.upack.partial` from leaking on early exit
+/// CLI uses this to keep `.rawtiles.partial` from leaking on early exit
 /// (panic, error, or SIGINT-triggered cleanup).
 struct PartialFile {
     path: PathBuf,
@@ -488,7 +488,7 @@ fn build_metadata(
 /// Per-tile decode → quantise → add. Verifies the decoded dimensions
 /// match the metadata's `tile_dim_px`.
 fn add_decoded_tile(
-    writer: &mut UpackWriter<Infallible, std::io::Error>,
+    writer: &mut RawtilesWriter<Infallible, std::io::Error>,
     z: u8,
     x: u32,
     y: u32,
@@ -516,12 +516,12 @@ fn add_decoded_tile(
 /// closure, write the .partial file, atomic rename to final.
 fn run_build<F>(opts: &BuildOptions, metadata: PackMetadata, populate: F) -> Result<(), BuildError>
 where
-    F: FnOnce(&mut UpackWriter<Infallible, std::io::Error>) -> Result<(), BuildError>,
+    F: FnOnce(&mut RawtilesWriter<Infallible, std::io::Error>) -> Result<(), BuildError>,
 {
     let partial_path = partial_path_for(&opts.out);
     let partial = PartialFile::new(partial_path.clone());
 
-    let mut writer: UpackWriter<Infallible, std::io::Error> = UpackWriter::new();
+    let mut writer: RawtilesWriter<Infallible, std::io::Error> = RawtilesWriter::new();
     writer.begin_pack(metadata).map_err(BuildError::Writer)?;
     populate(&mut writer)?;
 
@@ -557,9 +557,9 @@ mod tests {
 
     #[test]
     fn partial_path_appends_partial_suffix() {
-        let out = PathBuf::from("/tmp/trail.upack");
+        let out = PathBuf::from("/tmp/trail.rawtiles");
         let partial = partial_path_for(&out);
-        assert_eq!(partial, PathBuf::from("/tmp/trail.upack.partial"));
+        assert_eq!(partial, PathBuf::from("/tmp/trail.rawtiles.partial"));
     }
 
     #[test]
@@ -632,7 +632,7 @@ mod tests {
         //      fires before OpenOptions::open), the partial file is
         //      never created — equally valid.
         let tmp = std::env::temp_dir().join(format!(
-            "slippypack-cancel-test-{}.upack",
+            "slippypack-cancel-test-{}.rawtiles",
             std::process::id(),
         ));
         let partial = partial_path_for(&tmp);
@@ -662,7 +662,7 @@ mod tests {
 
         assert!(
             !tmp.exists(),
-            "cancelled build must not leave a final .upack at {}",
+            "cancelled build must not leave a final .rawtiles at {}",
             tmp.display(),
         );
         assert!(

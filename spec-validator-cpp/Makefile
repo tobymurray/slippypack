@@ -1,4 +1,4 @@
-# Build the standalone .upack validator.
+# Build the standalone .rawtiles validator.
 #
 #   make                    — build the validator
 #   make clean              — remove build outputs
@@ -10,7 +10,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow \
             -Wconversion -Wsign-conversion
 
 BIN_DIR  := build
-BIN      := $(BIN_DIR)/upack_validate
+BIN      := $(BIN_DIR)/rawtiles_validate
 SRC      := src/validator.cpp
 
 .PHONY: all clean test

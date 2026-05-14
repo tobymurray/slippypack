@@ -1,7 +1,7 @@
 //! Format-level enums and the [`PackMetadata`] struct that callers hand
 //! to a [`TileWriter`] before adding tiles.
 //!
-//! The enum byte values match the una-sdk `.upack` spec exactly — these
+//! The enum byte values match the rawtiles v1.0 spec exactly — these
 //! are wire-format identifiers and renumbering them would break
 //! cross-implementation compatibility.
 //!
@@ -9,14 +9,15 @@
 
 use crate::identity::{BoundingBox, FormatVersion};
 
-/// `.upack` magic bytes. Every conforming pack starts with these 4 ASCII
-/// characters at offset 0.
-pub const MAGIC: [u8; 4] = *b"UPCK";
+/// `.rawtiles` magic bytes. Every conforming pack starts with these
+/// 4 ASCII characters at offset 0.
+pub const MAGIC: [u8; 4] = *b"RAWT";
 
-/// `.upack` format version baked into the writer. v1 packs declare
+/// rawtiles format version baked into the writer. v1 packs declare
 /// `(1, 0)` in the header. Bumping the **major** is a breaking-format
-/// change; bumping the **minor** is an additive change that v1 readers
-/// must refuse cleanly (per PLAN.md / una-sdk spec).
+/// change; bumping the **minor** is an additive change that earlier-minor
+/// readers MUST accept with unknown extension tags skipped (per
+/// `spec/rawtiles-v1.0.md`).
 pub const FORMAT_VERSION: FormatVersion = FormatVersion { major: 1, minor: 0 };
 
 /// Pixel-format enum byte. Per PLAN.md § Pixel format enum and the
@@ -146,7 +147,7 @@ impl AxisConvention {
 
 /// Caller-supplied metadata for [`super::TileWriter::begin_pack`]. The
 /// writer uses these to populate the on-disk header; fields the writer
-/// derives itself (`tile_count`, `index_offset`, `zoom_offsets[18]`,
+/// derives itself (`tile_count`, `index_offset`, `zoom_offsets[24]`,
 /// `extensions_offset`) are NOT in this struct.
 ///
 /// `format_version` is NOT here either — it's a constant ([`FORMAT_VERSION`])
@@ -185,9 +186,9 @@ mod tests {
     use super::{AddressingScheme, AxisConvention, FORMAT_VERSION, MAGIC, PixelFormat, Projection};
 
     #[test]
-    fn magic_is_upck_ascii() {
-        assert_eq!(MAGIC, [0x55, 0x50, 0x43, 0x4B]);
-        assert_eq!(&MAGIC, b"UPCK");
+    fn magic_is_rawt_ascii() {
+        assert_eq!(MAGIC, [0x52, 0x41, 0x57, 0x54]);
+        assert_eq!(&MAGIC, b"RAWT");
     }
 
     #[test]

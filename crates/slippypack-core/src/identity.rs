@@ -8,7 +8,7 @@
 //! - Integers in decimal, no leading zeros, no `+`/`.0`.
 //! - Coordinates as integer microdegrees (lat/lon × 10⁶, banker's rounding).
 //! - File-content hashes as lowercase hex SHA-256.
-//! - `pack_uuid = UUIDv5(slippypack_namespace, canonical_descriptor_bytes)`.
+//! - `pack_uuid = UUIDv5(rawtiles_namespace, canonical_descriptor_bytes)`.
 //!
 //! The serializer is hand-rolled (not `serde_json`) for three reasons:
 //! one canonical form (no surprises from `serde_json`'s defaults), zero
@@ -17,17 +17,17 @@
 
 use uuid::Uuid;
 
-/// Permanent slippypack namespace UUID, used as the seed for every
+/// Permanent rawtiles format namespace UUID, used as the seed for every
 /// UUIDv5 `pack_uuid` derivation.
 ///
 /// Generated via `uuidgen` on 2026-05-13. **Never changes across
-/// slippypack versions** — changing this value would alter every
-/// `pack_uuid` ever produced and break the "did the watch already
+/// rawtiles versions** — changing this value would alter every
+/// `pack_uuid` ever produced and break the "did the device already
 /// receive this pack?" companion check.
-pub const SLIPPYPACK_NAMESPACE: Uuid =
+pub const RAWTILES_NAMESPACE: Uuid =
     Uuid::from_bytes(*b"\x4e\x72\xf9\x62\x66\x32\x45\x38\x8e\x0a\x7e\xab\x63\x35\x0f\x3f");
 
-/// `.upack` format version. v1 is (1, 0); spec bumps will change this.
+/// `rawtiles` format version. v1 is (1, 0); spec bumps will change this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FormatVersion {
     pub major: u8,
@@ -244,11 +244,11 @@ pub fn canonical_descriptor_bytes(d: &PackDescriptor) -> Vec<u8> {
 }
 
 /// Derive `pack_uuid` from the descriptor:
-/// `UUIDv5(SLIPPYPACK_NAMESPACE, canonical_descriptor_bytes(descriptor))`.
+/// `UUIDv5(RAWTILES_NAMESPACE, canonical_descriptor_bytes(descriptor))`.
 #[must_use]
 pub fn derive_pack_uuid(d: &PackDescriptor) -> Uuid {
     let bytes = canonical_descriptor_bytes(d);
-    Uuid::new_v5(&SLIPPYPACK_NAMESPACE, &bytes)
+    Uuid::new_v5(&RAWTILES_NAMESPACE, &bytes)
 }
 
 // ---- Internal byte-level writers ------------------------------------
@@ -445,7 +445,7 @@ fn write_auth_kinds(auth_kinds: &[AuthKind], buf: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AuthKind, BoundingBox, FormatVersion, PackDescriptor, SLIPPYPACK_NAMESPACE, Source,
+        AuthKind, BoundingBox, FormatVersion, PackDescriptor, RAWTILES_NAMESPACE, Source,
         ZoomRange, canonical_descriptor_bytes, derive_pack_uuid,
     };
     use uuid::Uuid;
@@ -483,7 +483,7 @@ mod tests {
         // Pin the namespace bytes; changing this value invalidates every
         // pack_uuid ever derived by slippypack.
         assert_eq!(
-            SLIPPYPACK_NAMESPACE.to_string(),
+            RAWTILES_NAMESPACE.to_string(),
             "4e72f962-6632-4538-8e0a-7eab63350f3f",
         );
     }

@@ -1,13 +1,13 @@
-//! slippypack-core — shared library for the `.upack` writer pipeline.
+//! slippypack-core — shared library for the `.rawtiles` writer pipeline.
 //!
 //! See `PLAN.md` at the repo root for the full design. The eventual module
 //! layout (per PLAN.md § The load-bearing observation: shared Rust core):
 //!
 //! - [`decode`] — PNG / JPEG → RGB888 via the `image` crate. **Landed.**
 //! - [`quantise`] — RGB888 → ABGR2222 (integer-only, cross-platform deterministic). **Landed.**
-//! - [`format`] — `.upack` byte-layout primitives (header / tile index /
+//! - [`format`] — `.rawtiles` byte-layout primitives (header / tile index /
 //!   extensions / CRC32) **plus** the `TileWriter` trait and concrete
-//!   `UpackWriter` implementation. **Primitives + writer landed.**
+//!   `RawtilesWriter` implementation. **Primitives + writer landed.**
 //! - [`projection`] — Web Mercator (Local Linear lands later in Phase 0). **Mercator landed.**
 //! - [`identity`] — UUIDv5 derivation from the canonical source descriptor.
 //!   The source-mtime / Last-Modified accumulator for `build_timestamp` lives

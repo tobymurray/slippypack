@@ -1,7 +1,7 @@
-//! The `.upack` concrete implementation of [`TileWriter`].
+//! The `.rawtiles` concrete implementation of [`TileWriter`].
 //!
 //! Buffers metadata + registered byte sources + tile records + extension
-//! records until [`UpackWriter::finalize`] runs, which streams the final
+//! records until [`RawtilesWriter::finalize`] runs, which streams the final
 //! pack bytes through the output [`Write`] while reading any
 //! [`TileContent::External`] tile bytes from the matching
 //! [`TileByteSource`].
@@ -31,11 +31,11 @@ use super::writer_trait::{
     SourceId, TileByteSource, TileContent, TileWriter, TileWriterError, Write,
 };
 
-/// Concrete `.upack` writer. Generic over the [`TileByteSource`]'s error
+/// Concrete `.rawtiles` writer. Generic over the [`TileByteSource`]'s error
 /// type (`SrcErr`) and the [`Write`]'s error type (`OutErr`) so concrete
 /// callers don't lose error context.
 ///
-/// Construct via [`UpackWriter::new`] (or `Default`). Then call
+/// Construct via [`RawtilesWriter::new`] (or `Default`). Then call
 /// [`TileWriter::begin_pack`] once, optionally [`register_byte_source`]
 /// any number of times, [`add_tile_ref`] / [`add_extension`] as needed,
 /// and finally [`finalize`].
@@ -44,7 +44,7 @@ use super::writer_trait::{
 /// [`add_tile_ref`]: TileWriter::add_tile_ref
 /// [`add_extension`]: TileWriter::add_extension
 /// [`finalize`]: TileWriter::finalize
-pub struct UpackWriter<SrcErr, OutErr> {
+pub struct RawtilesWriter<SrcErr, OutErr> {
     state: WriterState,
     byte_sources: Vec<Box<dyn TileByteSource<Error = SrcErr>>>,
     _phantom: PhantomData<fn() -> OutErr>,
@@ -74,7 +74,7 @@ struct RecordedExtension {
     payload: Vec<u8>,
 }
 
-impl<SrcErr, OutErr> UpackWriter<SrcErr, OutErr> {
+impl<SrcErr, OutErr> RawtilesWriter<SrcErr, OutErr> {
     /// Construct a fresh writer with no metadata, sources, tiles, or
     /// extensions.
     #[must_use]
@@ -87,7 +87,7 @@ impl<SrcErr, OutErr> UpackWriter<SrcErr, OutErr> {
     }
 }
 
-impl<SrcErr, OutErr> Default for UpackWriter<SrcErr, OutErr> {
+impl<SrcErr, OutErr> Default for RawtilesWriter<SrcErr, OutErr> {
     fn default() -> Self {
         Self::new()
     }
@@ -113,7 +113,7 @@ fn validate_metadata<SrcErr, OutErr>(
     Ok(())
 }
 
-impl<SrcErr, OutErr> TileWriter for UpackWriter<SrcErr, OutErr> {
+impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
     type SourceError = SrcErr;
     type OutputError = OutErr;
 
@@ -422,7 +422,7 @@ mod tests {
         AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection,
     };
     use super::super::writer_trait::{TileContent, TileWriter, TileWriterError};
-    use super::UpackWriter;
+    use super::RawtilesWriter;
     use crate::identity::BoundingBox;
 
     fn baseline_metadata() -> PackMetadata {
@@ -449,11 +449,11 @@ mod tests {
     /// Writer type with `Infallible` source-error and `Infallible`
     /// output-error — useful for in-memory tests with `Vec<u8>` output
     /// and no external tile sources.
-    type TestWriter = UpackWriter<Infallible, Infallible>;
+    type TestWriter = RawtilesWriter<Infallible, Infallible>;
 
     #[test]
     fn fresh_writer_rejects_add_tile_before_begin() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         let err = w
             .add_tile_ref(4, 0, 0, TileContent::Inline(vec![0; 16]))
             .unwrap_err();
@@ -462,14 +462,14 @@ mod tests {
 
     #[test]
     fn fresh_writer_rejects_add_extension_before_begin() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         let err = w.add_extension(*b"NAME", b"name").unwrap_err();
         assert!(matches!(err, TileWriterError::NotBegun));
     }
 
     #[test]
     fn fresh_writer_rejects_finalize_before_begin() {
-        let w: TestWriter = UpackWriter::new();
+        let w: TestWriter = RawtilesWriter::new();
         let buf: Vec<u8> = Vec::new();
         let err = w.finalize(buf).unwrap_err();
         assert!(matches!(err, TileWriterError::NotBegun));
@@ -477,7 +477,7 @@ mod tests {
 
     #[test]
     fn begin_pack_twice_returns_already_begun() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         let err = w.begin_pack(baseline_metadata()).unwrap_err();
         assert!(matches!(err, TileWriterError::AlreadyBegun));
@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     fn begin_pack_with_zero_pack_uuid_is_invalid() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         let mut m = baseline_metadata();
         m.pack_uuid = [0_u8; 16];
         let err = w.begin_pack(m).unwrap_err();
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn begin_pack_with_some_parent_uuid_is_invalid_in_v1() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         let mut m = baseline_metadata();
         m.parent_uuid = Some([0xAB; 16]);
         let err = w.begin_pack(m).unwrap_err();
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn begin_pack_with_zero_tile_dim_is_invalid() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         let mut m = baseline_metadata();
         m.tile_dim_px = 0;
         let err = w.begin_pack(m).unwrap_err();
@@ -512,7 +512,7 @@ mod tests {
 
     #[test]
     fn begin_pack_with_inverted_zoom_range_is_invalid() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         let mut m = baseline_metadata();
         m.zoom_range = (10, 5);
         let err = w.begin_pack(m).unwrap_err();
@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     fn add_tile_with_zoom_outside_range_is_rejected() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         // Range is 4..=6.
         let err = w
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn add_tile_with_duplicate_zxy_is_rejected() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0; 16]))
             .unwrap();
@@ -551,7 +551,7 @@ mod tests {
     #[test]
     fn empty_pack_finalizes_successfully() {
         // A pack with zero tiles and zero extensions is still valid bytes.
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
@@ -560,12 +560,12 @@ mod tests {
         // So total = 396 + 0 + 0 + 4 = 400.
         assert_eq!(buf.len(), 400);
         // Magic check.
-        assert_eq!(&buf[0..4], b"UPCK");
+        assert_eq!(&buf[0..4], b"RAWT");
     }
 
     #[test]
     fn pack_with_one_inline_tile_finalizes() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0xAB; 16_384]))
             .unwrap();
@@ -577,7 +577,7 @@ mod tests {
         // CRC: 4 bytes.
         // Total: 420 + 16_384 + 4 = 16_808.
         assert_eq!(buf.len(), 420 + 16_384 + 4);
-        assert_eq!(&buf[0..4], b"UPCK");
+        assert_eq!(&buf[0..4], b"RAWT");
     }
 
     /// Vec<u8> as Write — convenient for in-memory tests. The
@@ -585,7 +585,7 @@ mod tests {
     /// Vec<u8>` (`extend_from_slice` works through `&mut`).
     #[test]
     fn write_target_can_be_borrowed_vec() {
-        let mut w: TestWriter = UpackWriter::new();
+        let mut w: TestWriter = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();

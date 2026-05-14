@@ -1,5 +1,5 @@
 //! Integration test for PLAN.md's test 6: SIGINT mid-build removes the
-//! `.partial` file and leaves no `.upack` artifact behind.
+//! `.partial` file and leaves no `.rawtiles` artifact behind.
 //!
 //! Unix-only: relies on `libc::kill` to deliver `SIGINT` to a child
 //! process. On Windows, `ctrlc` uses `CTRL_C_EVENT` which we'd need a
@@ -31,7 +31,7 @@ fn binary_path() -> &'static str {
 #[test]
 fn sigint_mid_build_cleans_up_partial_and_leaves_no_output() {
     let out_path: PathBuf = std::env::temp_dir().join(format!(
-        "slippypack-sigint-test-{}.upack",
+        "slippypack-sigint-test-{}.rawtiles",
         std::process::id(),
     ));
     let partial_path = {
@@ -94,7 +94,7 @@ fn sigint_mid_build_cleans_up_partial_and_leaves_no_output() {
 
     assert!(
         !out_path.exists(),
-        "SIGINT-cancelled build must not leave a final .upack at {}",
+        "SIGINT-cancelled build must not leave a final .rawtiles at {}",
         out_path.display(),
     );
     assert!(

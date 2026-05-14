@@ -4,7 +4,7 @@
 //! stage (decode, quantise, format) check that stage in isolation
 //! against hand-picked inputs; this test plays the whole pipeline
 //! against a committed PNG fixture and byte-compares the resulting
-//! pack against a committed golden `.upack`.
+//! pack against a committed golden `.rawtiles`.
 //!
 //! What this catches that the per-stage tests don't:
 //!
@@ -38,8 +38,8 @@ use std::path::{Path, PathBuf};
 
 use slippypack_core::decode::decode_rgb888;
 use slippypack_core::format::{
-    AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, TileContent,
-    TileWriter, UpackReader, UpackWriter,
+    AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, RawtilesReader,
+    RawtilesWriter, TileContent, TileWriter,
 };
 use slippypack_core::identity::BoundingBox;
 use slippypack_core::quantise::quantise_rgb888;
@@ -169,18 +169,18 @@ fn decode_and_quantise() -> Vec<u8> {
 fn single_tile_pack_pipeline_round_trips() {
     // Pure 1-tile sanity test: smallest possible end-to-end shape.
     let quantised = decode_and_quantise();
-    let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+    let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
     w.begin_pack(metadata_for_2x2(0, 0)).unwrap();
     w.add_tile_ref(0, 0, 0, TileContent::Inline(quantised.clone()))
         .unwrap();
     let mut buf = Vec::new();
     w.finalize(&mut buf).unwrap();
 
-    assert_matches_golden(&buf, "golden-png-to-pack-1tile.upack");
+    assert_matches_golden(&buf, "golden-png-to-pack-1tile.rawtiles");
 
     // Reader round-trip confirms the pack opens and yields the same
     // quantised bytes back.
-    let r = UpackReader::open(&buf).expect("reader should open golden");
+    let r = RawtilesReader::open(&buf).expect("reader should open golden");
     assert_eq!(r.tile_count(), 1);
     assert_eq!(r.tile_bytes(0, 0, 0).unwrap(), quantised.as_slice());
 }
@@ -192,7 +192,7 @@ fn multi_zoom_pack_pipeline_round_trips() {
     // for a multi-zoom pack and verifies the same decoded+quantised
     // tile bytes can be referenced from multiple (z, x, y) coords.
     let quantised = decode_and_quantise();
-    let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+    let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
     w.begin_pack(metadata_for_2x2(0, 1)).unwrap();
     w.add_tile_ref(0, 0, 0, TileContent::Inline(quantised.clone()))
         .unwrap();
@@ -205,10 +205,10 @@ fn multi_zoom_pack_pipeline_round_trips() {
     let mut buf = Vec::new();
     w.finalize(&mut buf).unwrap();
 
-    assert_matches_golden(&buf, "golden-png-to-pack-5tiles.upack");
+    assert_matches_golden(&buf, "golden-png-to-pack-5tiles.rawtiles");
 
     // Reader round-trip.
-    let r = UpackReader::open(&buf).expect("reader should open golden");
+    let r = RawtilesReader::open(&buf).expect("reader should open golden");
     assert_eq!(r.tile_count(), 5);
     // Verify zoom_offsets directory.
     assert_eq!(r.header().derived.zoom_offsets[0].count, 1);
@@ -234,7 +234,7 @@ fn pipeline_is_deterministic_across_invocations() {
     // decode → quantise → format pipeline, not just any one stage.
     let bytes_a = {
         let q = decode_and_quantise();
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(metadata_for_2x2(0, 0)).unwrap();
         w.add_tile_ref(0, 0, 0, TileContent::Inline(q)).unwrap();
         let mut buf = Vec::new();
@@ -243,7 +243,7 @@ fn pipeline_is_deterministic_across_invocations() {
     };
     let bytes_b = {
         let q = decode_and_quantise();
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(metadata_for_2x2(0, 0)).unwrap();
         w.add_tile_ref(0, 0, 0, TileContent::Inline(q)).unwrap();
         let mut buf = Vec::new();

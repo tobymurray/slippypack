@@ -36,7 +36,7 @@ Nothing in slippypack's scope (format writer, integer math, JSON canonicalizatio
 **Commit:** `16ff518`.
 
 ### W-006 — `clippy::pedantic = warn` at workspace level
-Catches stylistic issues early. `module_name_repetitions = allow` because the workspace expects module names to echo their parent (e.g., `Mercator` in `mercator.rs`, `UpackWriter` in `format/mod.rs`).
+Catches stylistic issues early. `module_name_repetitions = allow` because the workspace expects module names to echo their parent (e.g., `Mercator` in `mercator.rs`, `RawtilesWriter` in `format/mod.rs`).
 **Manifests:** `Cargo.toml` `[workspace.lints.clippy]`.
 **Commit:** `16ff518`.
 
@@ -133,7 +133,7 @@ No state, but methods take `&self` to fit the trait shape that accommodates stat
 ## W — Workspace (continued)
 
 ### W-009 — `extern crate alloc;` added at the lib root
-Lets modules use the `alloc::*` path today (e.g. `alloc::collections::BTreeSet` in `UpackWriter`) even though slippypack-core is currently std-compiled. When W-008 closes (the no_std + alloc switch), code that already uses `alloc::*` paths needs no churn.
+Lets modules use the `alloc::*` path today (e.g. `alloc::collections::BTreeSet` in `RawtilesWriter`) even though slippypack-core is currently std-compiled. When W-008 closes (the no_std + alloc switch), code that already uses `alloc::*` paths needs no churn.
 **Manifests:** `crates/slippypack-core/src/lib.rs` (`extern crate alloc;`).
 **Commit:** to land with the format slice-B commit.
 
@@ -196,37 +196,37 @@ Local `Write` trait gets an impl for `Vec<u8>` (with `Infallible` error) — con
 
 ### F-012 — Tile blob starts at the first 4-byte-aligned offset after the index
 The header is 322 bytes; the index is `N × 24` bytes. `322 mod 4 = 2`, so after the index the cursor is at offset `322 + 24N`, which is also `≡ 2 (mod 4)`. The writer emits **2 bytes of zero padding** between the index and the first tile to bring the tile blob to a 4-byte boundary, then aligns each subsequent tile by zero-padding 0-3 bytes after the previous tile's bytes. Per una-sdk PLAN.md "4-byte aligned tiles" for the watch's memcpy-blit hot path.
-**Manifests:** `crates/slippypack-core/src/format/upack_writer.rs::finalize` (the `pad_after_index` calculation and the per-tile alignment padding loop).
+**Manifests:** `crates/slippypack-core/src/format/rawtiles_writer.rs::finalize` (the `pad_after_index` calculation and the per-tile alignment padding loop).
 **Commit:** to land with the format slice-B commit.
 
-### F-013 — `UpackWriter` state machine via single enum (`NotBegun` / `Building`)
+### F-013 — `RawtilesWriter` state machine via single enum (`NotBegun` / `Building`)
 Two states; transitions are NotBegun → Building (via begin_pack) and Building → consumed (via finalize). Each pre-build method (`add_tile_ref`, `add_extension`) checks state and returns `NotBegun` if begin_pack hasn't run. `register_byte_source` works in either state (byte sources are independent of pack metadata; SourceId is just an index into the Vec).
-**Manifests:** `crates/slippypack-core/src/format/upack_writer.rs::WriterState` and the `if let WriterState::Building(state) = ...` checks in each method.
+**Manifests:** `crates/slippypack-core/src/format/rawtiles_writer.rs::WriterState` and the `if let WriterState::Building(state) = ...` checks in each method.
 **Commit:** to land with the format slice-B commit.
 
-### F-014 — Sources held at `UpackWriter` level (not inside `Building`)
+### F-014 — Sources held at `RawtilesWriter` level (not inside `Building`)
 `byte_sources: Vec<Box<dyn TileByteSource<...>>>` lives at the writer level so `register_byte_source` can run before `begin_pack`. Alternative (sources inside Building) would force begin_pack-before-register or panic on pre-begin register. The current design is more flexible and matches the trait signature (register_byte_source doesn't return Result).
-**Manifests:** `crates/slippypack-core/src/format/upack_writer.rs::UpackWriter::byte_sources`.
+**Manifests:** `crates/slippypack-core/src/format/rawtiles_writer.rs::RawtilesWriter::byte_sources`.
 **Commit:** to land with the format slice-B commit.
 
 ### F-015 — `add_tile_ref` validates zoom against `zoom_range` from metadata
 A tile with `z < zoom_range.min` or `z > zoom_range.max` is rejected with `TileZoomOutOfRange`. Defensive: keeps the on-disk `zoom_offsets[18]` directory consistent with the header's declared range, and catches programmer mistakes early.
-**Manifests:** `crates/slippypack-core/src/format/upack_writer.rs::add_tile_ref` (the `if z < min || z > max` check).
+**Manifests:** `crates/slippypack-core/src/format/rawtiles_writer.rs::add_tile_ref` (the `if z < min || z > max` check).
 **Commit:** to land with the format slice-B commit.
 
 ### F-016 — Reader holds buffer reference; metadata/index/extensions owned
-`UpackReader<'a>` borrows the original buffer (so `tile_bytes` can return `&'a [u8]` zero-copy) but owns the parsed metadata, tile index, and extension sections (parsed once at `open`). The metadata struct's UUIDs etc. are 16-byte arrays — cheap to copy on parse, not worth chasing pointer-aliasing complexity for.
-**Manifests:** `crates/slippypack-core/src/format/reader.rs::UpackReader`.
+`RawtilesReader<'a>` borrows the original buffer (so `tile_bytes` can return `&'a [u8]` zero-copy) but owns the parsed metadata, tile index, and extension sections (parsed once at `open`). The metadata struct's UUIDs etc. are 16-byte arrays — cheap to copy on parse, not worth chasing pointer-aliasing complexity for.
+**Manifests:** `crates/slippypack-core/src/format/reader.rs::RawtilesReader`.
 **Commit:** to land with the format slice-B commit.
 
 ### F-017 — `tile_bytes` binary-search within zoom_offsets[z] range
 Lookup is O(log n) per the spec's mandatory binary-search rule (PLAN.md / una-sdk PLAN.md § Index lookup). `zoom_offsets[z]` gives the offset+count of tiles at zoom z; we binary-search within that range by `(x, y)`. Linear scan would be a spec conformance failure for the watch reader; slippypack-core's reader follows the same rule for consistency and as a behavioral reference.
-**Manifests:** `crates/slippypack-core/src/format/reader.rs::UpackReader::tile_bytes`.
+**Manifests:** `crates/slippypack-core/src/format/reader.rs::RawtilesReader::tile_bytes`.
 **Commit:** to land with the format slice-B commit.
 
-### F-018 — Spec-layout test uses raw `.upack` binary fixtures, not hex dumps
-PLAN.md § Test plan called for `golden-pack-*.upack.hex` text files. Implementation uses raw binary `.upack` files instead because (a) total fixture size is ~3.2 KB (tiny — no diff-visibility benefit from hex encoding), (b) the test code is simpler with `std::fs::read` + byte-equal comparison, (c) `xxd file.upack` is one command away when a diff is needed for forensics. Fixture-bootstrap is gated behind `BLESS_SPEC_LAYOUT=1 cargo test --test spec_layout` to prevent silent drift.
-**Manifests:** `crates/slippypack-core/tests/spec_layout.rs::assert_matches_golden`; `crates/slippypack-core/tests/fixtures/format/*.upack`.
+### F-018 — Spec-layout test uses raw `.rawtiles` binary fixtures, not hex dumps
+PLAN.md § Test plan called for `golden-pack-*.rawtiles.hex` text files. Implementation uses raw binary `.rawtiles` files instead because (a) total fixture size is ~3.2 KB (tiny — no diff-visibility benefit from hex encoding), (b) the test code is simpler with `std::fs::read` + byte-equal comparison, (c) `xxd file.rawtiles` is one command away when a diff is needed for forensics. Fixture-bootstrap is gated behind `BLESS_SPEC_LAYOUT=1 cargo test --test spec_layout` to prevent silent drift.
+**Manifests:** `crates/slippypack-core/tests/spec_layout.rs::assert_matches_golden`; `crates/slippypack-core/tests/fixtures/format/*.rawtiles`.
 **Commit:** to land with the spec-layout-test commit.
 
 ### F-019 — Pyramid spec-layout fixture trimmed to z=2..=4 (21 tiles), not the PLAN's z=2..=8 (5461 tiles)
@@ -241,7 +241,7 @@ The PLAN.md fixtures were sketched as PNG inputs producing ABGR2222 tile bytes. 
 
 ### F-021 — End-to-end pipeline test (PNG → decode → quantise → format)
 Complements F-020 with an integration test that exercises the full pipeline against a committed PNG fixture. PR-1's `--source synthetic` and `--source <url>` paths follow exactly this composition (decode bytes from a source → quantise to ABGR2222 → write to a pack), so this test catches regressions in inter-stage shape contracts that per-stage unit tests miss. Uses `tile_dim_px = 2` (not the spec-mandated 128) since the test verifies pipeline composition rather than watch-loadability of the produced packs; this avoids committing 16 KB of decoded tile content per fixture. Same `BLESS_E2E=1` bootstrap pattern as spec_layout. **PNG-only — JPEG decode is too lossy / decoder-version-sensitive to commit a stable golden for.**
-**Manifests:** `crates/slippypack-core/tests/end_to_end.rs`; `crates/slippypack-core/tests/fixtures/e2e/{input-2x2-rgb.png, golden-png-to-pack-*.upack}`.
+**Manifests:** `crates/slippypack-core/tests/end_to_end.rs`; `crates/slippypack-core/tests/fixtures/e2e/{input-2x2-rgb.png, golden-png-to-pack-*.rawtiles}`.
 **Commit:** to land with the e2e-test commit.
 
 ---
@@ -282,9 +282,9 @@ JPEG is lossy. The decoded fixture pixels for pure-channel inputs (R=255 → cha
 
 ## I — Identity module
 
-### I-001 — `SLIPPYPACK_NAMESPACE = 4e72f962-6632-4538-8e0a-7eab63350f3f`
+### I-001 — `RAWTILES_NAMESPACE = 4e72f962-6632-4538-8e0a-7eab63350f3f`
 Permanent UUIDv4 generated via `uuidgen` on macOS on 2026-05-13. Used as the seed for every UUIDv5 `pack_uuid` derivation. **Never changes** across slippypack versions — changing this value would alter every `pack_uuid` ever produced by slippypack and break the watch-side "is this pack already on the watch?" companion check.
-**Manifests:** `crates/slippypack-core/src/identity.rs::SLIPPYPACK_NAMESPACE`.
+**Manifests:** `crates/slippypack-core/src/identity.rs::RAWTILES_NAMESPACE`.
 **Commit:** to land with the identity module commit.
 
 ### I-002 — Hand-rolled canonical JSON serializer, not `serde_json`
@@ -342,12 +342,12 @@ The synthetic source is for **pipeline validation**, not watch-loadability. The 
 **Commit:** to land with the Phase 1 first-slice commit.
 
 ### C-003 — Synthetic `pack_uuid` is a fixed deterministic 16-byte stand-in
-~~"synthetic_pack!\0" — visibly test-like, never zero. Phase 1.x will swap this for the proper UUIDv5-from-canonical-descriptor derivation (per identity.rs). Pinned now so the golden-synthetic.upack test stays stable across the v1 lifetime; the bytes match an ASCII string so anyone inspecting the pack header recognises it as a fixture, not a real pack.~~
+~~"synthetic_pack!\0" — visibly test-like, never zero. Phase 1.x will swap this for the proper UUIDv5-from-canonical-descriptor derivation (per identity.rs). Pinned now so the golden-synthetic.rawtiles test stays stable across the v1 lifetime; the bytes match an ASCII string so anyone inspecting the pack header recognises it as a fixture, not a real pack.~~
 **Superseded by C-009** — pack_uuid for synthetic builds is now UUIDv5-derived from the canonical source descriptor, matching the production code path.
 **Commit:** to land with the Phase 1 first-slice commit.
 
-### C-004 — Atomic write via `<out>.upack.partial` → rename, with RAII cleanup
-Per PLAN.md § CLI cancellation and atomic write. The CLI writes to `<out>.upack.partial` first, then atomically renames on success. A `PartialFile` RAII struct deletes the partial file on drop if `commit()` wasn't called — so panics, error returns, and (Phase 1.x) SIGINT handlers all leave a clean filesystem.
+### C-004 — Atomic write via `<out>.rawtiles.partial` → rename, with RAII cleanup
+Per PLAN.md § CLI cancellation and atomic write. The CLI writes to `<out>.rawtiles.partial` first, then atomically renames on success. A `PartialFile` RAII struct deletes the partial file on drop if `commit()` wasn't called — so panics, error returns, and (Phase 1.x) SIGINT handlers all leave a clean filesystem.
 **Manifests:** `crates/slippypack-cli/src/build.rs::PartialFile`.
 **Commit:** to land with the Phase 1 first-slice commit.
 
@@ -372,7 +372,7 @@ The CLI dispatcher in `build()` matches `--source` against a small set of litera
 **Commit:** to land with the URL-template slice.
 
 ### C-009 — `pack_uuid` derived from canonical descriptor for all source kinds
-Both `synthetic` and URL-template builds construct a `PackDescriptor` and pass it through `slippypack_core::identity::derive_pack_uuid` (UUIDv5 against `SLIPPYPACK_NAMESPACE`). Production code path is identical for every source kind — `--pack-uuid` override remains for CI determinism. Supersedes C-003 (which used a fixed `synthetic_pack!\0` stand-in).
+Both `synthetic` and URL-template builds construct a `PackDescriptor` and pass it through `slippypack_core::identity::derive_pack_uuid` (UUIDv5 against `RAWTILES_NAMESPACE`). Production code path is identical for every source kind — `--pack-uuid` override remains for CI determinism. Supersedes C-003 (which used a fixed `synthetic_pack!\0` stand-in).
 **Manifests:** `crates/slippypack-cli/src/build.rs::build_metadata`, `synthetic_descriptor`, `url_template_descriptor`.
 **Commit:** to land with the URL-template slice.
 
@@ -458,10 +458,36 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ---
 
+## N — Naming
+
+### N-001 — Rename: `.upack` / `UPCK` → `.rawtiles` / `RAWT`
+The format extension was originally `.upack` (Una Pack), naming it after the una-sdk project that motivated the design. As scope broadened to "any low-resource device that can do a memcpy" (per V-003 zoom expansion, V-004 quantiser trait, V-001 C++ validator), the vendor-named extension stopped fitting. `.upack` also clashed with Inedo's UPack universal-package format.
+
+`.rawtiles` was chosen for naming what makes the format actually different: the tile bytes ARE raw pixel data, no decoder needed on the reader. Parallels `.mbtiles` (Mapbox) and `.pmtiles` (Protomaps) but emphasizes the property rather than the vendor. Magic bytes `RAWT` (4 ASCII).
+
+**Key invariant preserved**: the namespace UUID's *bytes* stay the same (`4e72f962-6632-4538-8e0a-7eab63350f3f`), only the constant name changed (`SLIPPYPACK_NAMESPACE` → `RAWTILES_NAMESPACE`). The format-as-byte-layout is unchanged, only the human-readable name shifted.
+
+**Mechanical scope**:
+- Magic bytes: `UPCK` → `RAWT` in `format::types::MAGIC` and C++ validator constants
+- File extension: `.upack` → `.rawtiles` across code, docs, fixtures, tests
+- Type names: `UpackWriter` / `UpackReader` → `RawtilesWriter` / `RawtilesReader`
+- Source file: `format/upack_writer.rs` → `format/rawtiles_writer.rs`
+- Spec doc: `spec/upack-v1.0.md` → `spec/rawtiles-v1.0.md`
+- All 6 golden fixtures renamed and re-blessed (CRC changes when magic does)
+- C++ validator binary: `upack_validate` → `rawtiles_validate`
+- Narrative: "una-sdk owns the format spec" → "`spec/rawtiles-v1.0.md` in this repo is authoritative; una-sdk is one reader implementation"
+
+slippypack stays as the toolkit/project name (the writer). `rawtiles` is the format the toolkit produces.
+
+**Manifests**: workspace-wide; `crates/slippypack-core/src/format/types.rs::MAGIC`; `crates/slippypack-core/src/identity.rs::RAWTILES_NAMESPACE`; all 6 `golden-*.rawtiles` fixtures; `spec/rawtiles-v1.0.md`.
+**Commit**: to land with the rename slice.
+
+---
+
 ## V — Cross-implementation validation
 
 ### V-001 — `spec-validator-cpp` exists as a second-opinion C++ reader
-Phase 1.x deliverable, prompted by the need to catch writer-side bugs (endianness, padding, offsets) that slippypack's own writer+reader pair would miss because they share logic. The validator re-derives byte decoding from PLAN.md + the in-tree `crates/slippypack-core/src/format/*.rs` layout tables; it does NOT call slippypack code. If the two implementations disagree on a `.upack`, the disagreement is the bug report.
+Phase 1.x deliverable, prompted by the need to catch writer-side bugs (endianness, padding, offsets) that slippypack's own writer+reader pair would miss because they share logic. The validator re-derives byte decoding from PLAN.md + the in-tree `crates/slippypack-core/src/format/*.rs` layout tables; it does NOT call slippypack code. If the two implementations disagree on a `.rawtiles`, the disagreement is the bug report.
 
 **Status**: passes against the synthetic-source pack and rejects byte-mutated packs via CRC-32 mismatch.
 **Manifests**: `spec-validator-cpp/src/validator.cpp`; `spec-validator-cpp/tests/run.sh`.
@@ -543,7 +569,7 @@ This is **not** a format-version bump (we're still v1.0): nothing has shipped, a
 **Manifests**: `crates/slippypack-core/src/format/header.rs::ZOOM_OFFSETS_COUNT`; `HEADER_BASE_SIZE` is now computed from it; `spec-validator-cpp/src/validator.cpp::kZoomOffsetsCount`.
 **Commit**: to land with the zoom-expansion slice.
 
-### V-002 — `.upack` is byte-oriented; multi-byte fields are NOT required to be naturally aligned in the file
+### V-002 — `.rawtiles` is byte-oriented; multi-byte fields are NOT required to be naturally aligned in the file
 The C++ validator initially assumed `index_offset` must be 4-byte aligned, which failed on the synthetic pack (322 % 4 = 2). On reflection: slippypack writes everything LE byte-by-byte and the Rust reader does byte-by-byte decoding. **No multi-byte field in the on-disk format requires natural alignment.** Readers that want aligned access `memcpy` to a local before decoding (cheap; matches what watch firmware would do anyway).
 
 **Caveat for watch firmware (ARM Cortex-M0/M0+):** unaligned `LDR` faults. Watch readers MUST do `memcpy`-then-decode, not direct dereference.

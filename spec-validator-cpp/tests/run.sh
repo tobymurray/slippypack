@@ -2,7 +2,7 @@
 # tests/run.sh — orchestrate the cross-implementation check.
 #
 # Builds slippypack (if needed) and the C++ validator, produces a
-# synthetic .upack, validates it. Also runs a corruption check to make
+# synthetic .rawtiles, validates it. Also runs a corruption check to make
 # sure the validator actually rejects bad bytes (not just everything).
 #
 # Usage:
@@ -17,12 +17,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALIDATOR_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$VALIDATOR_DIR/.." && pwd)"
 
-VALIDATOR_BIN="$VALIDATOR_DIR/build/upack_validate"
+VALIDATOR_BIN="$VALIDATOR_DIR/build/rawtiles_validate"
 TMP_DIR="$(mktemp -d -t slippypack-spec-validator.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-SYNTH_PACK="$TMP_DIR/synth.upack"
-CORRUPT_PACK="$TMP_DIR/synth-corrupt.upack"
+SYNTH_PACK="$TMP_DIR/synth.rawtiles"
+CORRUPT_PACK="$TMP_DIR/synth-corrupt.rawtiles"
 
 echo "=== Building slippypack CLI (release) ==="
 (cd "$REPO_ROOT" && cargo build --release --bin slippypack)
@@ -45,11 +45,11 @@ echo "=== 3. Validate all committed golden fixtures ==="
 # (one or both is wrong) — investigate before merging.
 FIXTURE_DIR="$REPO_ROOT/crates/slippypack-core/tests/fixtures"
 FIXTURES=(
-  "$FIXTURE_DIR/format/golden-grid.upack"      # 25 tiles, single-zoom
-  "$FIXTURE_DIR/format/golden-pyramid.upack"   # 21 tiles, z=2..=4, exercises zoom_offsets
-  "$FIXTURE_DIR/format/golden-attr.upack"      # 9 tiles + ATTR extension
-  "$FIXTURE_DIR/e2e/golden-png-to-pack-1tile.upack"   # smallest pack: 1 tile
-  "$FIXTURE_DIR/e2e/golden-png-to-pack-5tiles.upack"  # 5 tiles across z=0..=1
+  "$FIXTURE_DIR/format/golden-grid.rawtiles"      # 25 tiles, single-zoom
+  "$FIXTURE_DIR/format/golden-pyramid.rawtiles"   # 21 tiles, z=2..=4, exercises zoom_offsets
+  "$FIXTURE_DIR/format/golden-attr.rawtiles"      # 9 tiles + ATTR extension
+  "$FIXTURE_DIR/e2e/golden-png-to-pack-1tile.rawtiles"   # smallest pack: 1 tile
+  "$FIXTURE_DIR/e2e/golden-png-to-pack-5tiles.rawtiles"  # 5 tiles across z=0..=1
 )
 for fixture in "${FIXTURES[@]}"; do
   echo "  validating $(basename "$fixture")"

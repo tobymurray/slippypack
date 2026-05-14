@@ -1,15 +1,16 @@
 # spec-validator-cpp
 
-A standalone C++ utility that opens a slippypack-produced `.upack` and
+A standalone C++ utility that opens a slippypack-produced `.rawtiles` and
 checks every byte against the v1 layout, independently from the Rust
 writer/reader pair in `slippypack-core`.
 
 ## Why this exists
 
-slippypack is defining the `.upack` format. PLAN.md and the in-tree
-`crates/slippypack-core/src/format/*.rs` layout tables ARE the spec.
-This validator is **a second opinion on our own design**, not a check
-against an external specification.
+The authoritative `.rawtiles` v1.0 byte-level specification lives at
+`spec/rawtiles-v1.0.md` (repo root). This validator is **a second opinion
+on our own design**: it re-derives parsing from the spec doc without
+calling any slippypack code, which catches bugs the Rust writer +
+reader share by construction.
 
 Two purposes:
 
@@ -34,7 +35,7 @@ it does NOT call slippypack code.
 make
 ```
 
-Produces `build/upack_validate`. Requires a C++17 toolchain
+Produces `build/rawtiles_validate`. Requires a C++17 toolchain
 (`clang++` or `g++`); no external libraries. CMake support
 intentionally omitted for now — a Makefile is enough for a one-file
 project.
@@ -42,7 +43,7 @@ project.
 ## Usage
 
 ```sh
-build/upack_validate path/to/your.upack
+build/rawtiles_validate path/to/your.rawtiles
 ```
 
 Exit 0 if every check passes; non-zero with reasons on stderr if not.
@@ -67,18 +68,18 @@ together exercise every interesting v1 layout shape:
 | pack | what it stresses |
 |------|------------------|
 | `slippypack make --source synthetic` | the path the README points new users at |
-| `golden-grid.upack` (25 tiles, z=4) | largest single-zoom layout |
-| `golden-pyramid.upack` (21 tiles, z=2..=4) | multi-zoom `zoom_offsets[18]` directory |
-| `golden-attr.upack` (9 tiles + `ATTR` extension) | extension-section framing + padding |
-| `golden-png-to-pack-1tile.upack` | smallest non-empty pack |
-| `golden-png-to-pack-5tiles.upack` | end-to-end pipeline output |
+| `golden-grid.rawtiles` (25 tiles, z=4) | largest single-zoom layout |
+| `golden-pyramid.rawtiles` (21 tiles, z=2..=4) | multi-zoom `zoom_offsets[18]` directory |
+| `golden-attr.rawtiles` (9 tiles + `ATTR` extension) | extension-section framing + padding |
+| `golden-png-to-pack-1tile.rawtiles` | smallest non-empty pack |
+| `golden-png-to-pack-5tiles.rawtiles` | end-to-end pipeline output |
 
 All six pass independently in C++ — the byte-level format is
 unambiguous enough that two implementations agree.
 
 ## What it checks
 
-- Magic bytes `UPCK` at offset 0
+- Magic bytes `RAWT` at offset 0
 - Format version (1, 0)
 - `pack_uuid` non-zero; `parent_uuid` zero (reserved in v1)
 - All enum-typed bytes (pixel_format, projection, addressing_scheme,

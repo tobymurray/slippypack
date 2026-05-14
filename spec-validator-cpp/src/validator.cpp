@@ -1,12 +1,12 @@
-// Standalone C++ validator for slippypack `.upack` files.
+// Standalone C++ validator for slippypack `.rawtiles` files.
 //
-// Reads a `.upack` from disk and validates every byte against the v1
+// Reads a `.rawtiles` from disk and validates every byte against the v1
 // layout. Independent from slippypack's Rust reader — re-derives byte
 // decoding from the layout *tables* in `header.rs`, `tile_index.rs`,
 // `extensions.rs`, and `crc.rs` without calling slippypack code.
 //
 // **Status: this is a second opinion on *our* design, not a check
-// against an external spec.** slippypack is defining the `.upack`
+// against an external spec.** slippypack is defining the `.rawtiles`
 // format; PLAN.md + the in-tree `*.rs` layout tables ARE the spec.
 // This validator's purpose is twofold:
 //
@@ -41,7 +41,7 @@
 #include <string>
 #include <vector>
 
-namespace upack {
+namespace rawtiles {
 
 // -------- Spec constants --------------------------------------------
 
@@ -52,7 +52,7 @@ constexpr std::size_t kIndexEntrySize = 24;
 constexpr std::size_t kHeaderBaseSize = 98 + kZoomOffsetsCount * kZoomOffsetSize + 8;
 constexpr std::size_t kFooterCrcSize = 4;
 constexpr std::size_t kSectionHeaderSize = 8;  // tag(4) + len(4)
-constexpr std::array<std::uint8_t, 4> kMagic = {'U', 'P', 'C', 'K'};
+constexpr std::array<std::uint8_t, 4> kMagic = {'R', 'A', 'W', 'T'};
 constexpr std::uint8_t kFormatMajor = 1;
 constexpr std::uint8_t kFormatMinor = 0;
 
@@ -264,7 +264,7 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
   // ---- Magic + version ----
   if (!std::equal(bytes.begin() + kOffMagic, bytes.begin() + kOffMagic + 4,
                   kMagic.begin())) {
-    r.error("bad magic: expected 'UPCK' at offset 0");
+    r.error("bad magic: expected 'RAWT' at offset 0");
   }
   if (bytes[kOffVersion] != kFormatMajor) {
     r.error("unsupported major version: got " +
@@ -504,11 +504,11 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
   }
 }
 
-}  // namespace upack
+}  // namespace rawtiles
 
 int main(int argc, char **argv) {
   if (argc != 2) {
-    std::fprintf(stderr, "usage: upack_validate <path.upack>\n");
+    std::fprintf(stderr, "usage: rawtiles_validate <path.rawtiles>\n");
     return 2;
   }
   std::ifstream in(argv[1], std::ios::binary);
@@ -520,8 +520,8 @@ int main(int argc, char **argv) {
       (std::istreambuf_iterator<char>(in)),
       std::istreambuf_iterator<char>());
 
-  upack::Report r;
-  upack::validate(bytes, r);
+  rawtiles::Report r;
+  rawtiles::validate(bytes, r);
 
   for (const auto &w : r.warnings) {
     std::fprintf(stderr, "warning: %s\n", w.c_str());

@@ -3,7 +3,7 @@
 # rather than replacing it.
 #
 # Add proper-noun format / protocol names that look like Rust idents to clippy
-# but aren't. Rust identifiers in our own code (TileWriter, UpackWriter, etc.)
+# but aren't. Rust identifiers in our own code (TileWriter, RawtilesWriter, etc.)
 # should keep their backticks in docs — they're not exempted here.
 
 doc-valid-idents = [

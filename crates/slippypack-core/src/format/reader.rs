@@ -1,4 +1,4 @@
-//! `.upack` reader for round-trip tests and future "open existing pack"
+//! `.rawtiles` reader for round-trip tests and future "open existing pack"
 //! workflows.
 //!
 //! This is **not** the watch-side canonical reader (that lives in
@@ -14,14 +14,14 @@ use super::header::{HEADER_BASE_SIZE, HeaderError, ParsedHeader, read_header};
 use super::tile_index::{INDEX_ENTRY_SIZE, TileIndexEntry, TileIndexError, read_index_entry};
 use super::types::PackMetadata;
 
-/// Parsed view of a `.upack` byte buffer.
+/// Parsed view of a `.rawtiles` byte buffer.
 ///
 /// Holds a reference to the original buffer; tile-byte slices returned
-/// by [`UpackReader::tile_bytes`] borrow from it. Metadata, the parsed
+/// by [`RawtilesReader::tile_bytes`] borrow from it. Metadata, the parsed
 /// header, the tile index, and extension sections are owned (cheap to
 /// parse once at open time).
 #[derive(Debug)]
-pub struct UpackReader<'a> {
+pub struct RawtilesReader<'a> {
     bytes: &'a [u8],
     parsed_header: ParsedHeader,
     index: Vec<TileIndexEntry>,
@@ -75,8 +75,8 @@ impl core::fmt::Display for ReaderError {
 
 impl core::error::Error for ReaderError {}
 
-impl<'a> UpackReader<'a> {
-    /// Parse `bytes` as a `.upack` pack. Validates header invariants,
+impl<'a> RawtilesReader<'a> {
+    /// Parse `bytes` as a `.rawtiles` pack. Validates header invariants,
     /// every tile-index entry, every extension section, and the CRC
     /// footer.
     ///
@@ -231,12 +231,12 @@ impl<'a> UpackReader<'a> {
 mod tests {
     use core::convert::Infallible;
 
+    use super::super::rawtiles_writer::RawtilesWriter;
     use super::super::types::{
         AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection,
     };
-    use super::super::upack_writer::UpackWriter;
     use super::super::writer_trait::{TileContent, TileWriter};
-    use super::{ReaderError, UpackReader};
+    use super::{RawtilesReader, ReaderError};
     use crate::identity::BoundingBox;
 
     fn baseline_metadata() -> PackMetadata {
@@ -261,7 +261,7 @@ mod tests {
     }
 
     fn empty_pack_bytes() -> Vec<u8> {
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn open_empty_pack_succeeds() {
         let buf = empty_pack_bytes();
-        let r = UpackReader::open(&buf).expect("empty pack should parse");
+        let r = RawtilesReader::open(&buf).expect("empty pack should parse");
         assert_eq!(r.tile_count(), 0);
         assert_eq!(r.metadata(), &baseline_metadata());
         assert!(r.extensions().is_empty());
@@ -280,7 +280,10 @@ mod tests {
     #[test]
     fn open_too_short_returns_too_short() {
         let buf = vec![0_u8; 100];
-        assert_eq!(UpackReader::open(&buf).unwrap_err(), ReaderError::TooShort);
+        assert_eq!(
+            RawtilesReader::open(&buf).unwrap_err(),
+            ReaderError::TooShort
+        );
     }
 
     #[test]
@@ -288,7 +291,7 @@ mod tests {
         let mut buf = empty_pack_bytes();
         let last = buf.len() - 1;
         buf[last] = buf[last].wrapping_add(1); // corrupt the CRC
-        let err = UpackReader::open(&buf).unwrap_err();
+        let err = RawtilesReader::open(&buf).unwrap_err();
         assert!(
             matches!(err, ReaderError::CrcMismatch { .. }),
             "got: {err:?}"
@@ -300,7 +303,7 @@ mod tests {
         let mut buf = empty_pack_bytes();
         // Flip a non-magic, non-CRC byte; CRC must catch it.
         buf[100] = buf[100].wrapping_add(1);
-        let err = UpackReader::open(&buf).unwrap_err();
+        let err = RawtilesReader::open(&buf).unwrap_err();
         assert!(
             matches!(err, ReaderError::CrcMismatch { .. }),
             "got: {err:?}"
@@ -310,14 +313,14 @@ mod tests {
     #[test]
     fn round_trip_one_inline_tile() {
         let tile_bytes: Vec<u8> = (0..16_384_u32).map(|i| (i % 251) as u8).collect();
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         w.add_tile_ref(4, 0, 0, TileContent::Inline(tile_bytes.clone()))
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
 
-        let r = UpackReader::open(&buf).expect("round-trip parse");
+        let r = RawtilesReader::open(&buf).expect("round-trip parse");
         assert_eq!(r.tile_count(), 1);
         assert_eq!(r.tile_bytes(4, 0, 0), Some(tile_bytes.as_slice()));
         // Different (z, x, y) → None.
@@ -327,7 +330,7 @@ mod tests {
 
     #[test]
     fn round_trip_multiple_tiles_at_same_zoom() {
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         // Add tiles in arbitrary order; the writer must sort them.
         w.add_tile_ref(4, 5, 3, TileContent::Inline(vec![0x53; 64]))
@@ -339,7 +342,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
 
-        let r = UpackReader::open(&buf).expect("round-trip parse");
+        let r = RawtilesReader::open(&buf).expect("round-trip parse");
         assert_eq!(r.tile_count(), 3);
         assert_eq!(r.tile_bytes(4, 0, 0).unwrap(), &vec![0x00; 64][..]);
         assert_eq!(r.tile_bytes(4, 2, 1).unwrap(), &vec![0x21; 64][..]);
@@ -349,7 +352,7 @@ mod tests {
 
     #[test]
     fn round_trip_tiles_across_multiple_zooms() {
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         // Spread tiles across zooms 4, 5, 6.
         for z in 4..=6 {
@@ -359,7 +362,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
 
-        let r = UpackReader::open(&buf).expect("round-trip parse");
+        let r = RawtilesReader::open(&buf).expect("round-trip parse");
         assert_eq!(r.tile_count(), 3);
         for z in 4..=6 {
             assert_eq!(
@@ -374,7 +377,7 @@ mod tests {
 
     #[test]
     fn round_trip_with_extension_sections() {
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         w.add_extension(*b"NAME", b"Local trails").unwrap();
         w.add_extension(*b"ATTR", b"\xc2\xa9 OpenStreetMap contributors")
@@ -382,7 +385,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
 
-        let r = UpackReader::open(&buf).expect("round-trip parse");
+        let r = RawtilesReader::open(&buf).expect("round-trip parse");
         let exts = r.extensions();
         assert_eq!(exts.len(), 2);
         assert_eq!(exts[0].tag, *b"NAME");
@@ -393,7 +396,7 @@ mod tests {
 
     #[test]
     fn round_trip_tiles_and_extensions_together() {
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0xAB; 16_384]))
             .unwrap();
@@ -401,7 +404,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
 
-        let r = UpackReader::open(&buf).expect("round-trip parse");
+        let r = RawtilesReader::open(&buf).expect("round-trip parse");
         assert_eq!(r.tile_count(), 1);
         assert_eq!(r.extensions().len(), 1);
         assert_eq!(r.tile_bytes(4, 0, 0).unwrap(), &vec![0xAB; 16_384][..]);
@@ -412,7 +415,7 @@ mod tests {
     fn tile_lookup_with_odd_sized_tiles_round_trips() {
         // Tile sizes that aren't multiples of 4 — verifies the 4-byte
         // alignment padding doesn't corrupt the round-trip.
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0x01; 1]))
             .unwrap();
@@ -423,7 +426,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
 
-        let r = UpackReader::open(&buf).expect("round-trip parse");
+        let r = RawtilesReader::open(&buf).expect("round-trip parse");
         assert_eq!(r.tile_bytes(4, 0, 0).unwrap(), &[0x01_u8; 1][..]);
         assert_eq!(r.tile_bytes(4, 1, 0).unwrap(), &[0x02_u8; 7][..]);
         assert_eq!(r.tile_bytes(4, 2, 0).unwrap(), &[0x03_u8; 13][..]);
@@ -431,7 +434,7 @@ mod tests {
 
     #[test]
     fn iterating_tile_entries_yields_sorted_order() {
-        let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         // Insert out of order.
         w.add_tile_ref(6, 5, 5, TileContent::Inline(vec![0; 32]))
@@ -445,7 +448,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
 
-        let r = UpackReader::open(&buf).unwrap();
+        let r = RawtilesReader::open(&buf).unwrap();
         let entries: Vec<_> = r.tile_entries().map(|e| (e.z, e.x, e.y)).collect();
         assert_eq!(entries, vec![(4, 0, 0), (4, 1, 0), (5, 2, 2), (6, 5, 5)]);
     }
@@ -456,7 +459,7 @@ mod tests {
         // pack bytes. This is the load-bearing byte-determinism property
         // that lets the CLI and PWA produce bit-identical output.
         let build_pack = || {
-            let mut w: UpackWriter<Infallible, Infallible> = UpackWriter::new();
+            let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
             w.begin_pack(baseline_metadata()).unwrap();
             w.add_tile_ref(5, 3, 7, TileContent::Inline(vec![0x42; 16]))
                 .unwrap();

@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Shared library for building offline .upack tile packs (writer, reader, quantiser, projection math, UUIDv5 identity)"
+description = "Shared library for building offline .rawtiles tile packs (writer, reader, quantiser, projection math, UUIDv5 identity)"
 
 [lints]
 workspace = true

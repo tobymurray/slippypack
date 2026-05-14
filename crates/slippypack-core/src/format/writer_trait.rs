@@ -11,7 +11,7 @@
 //! - [`TileWriterError<SrcErr, OutErr>`]: generic error type so concrete
 //!   implementations keep their full error context.
 //!
-//! The concrete `UpackWriter` lives in [`super::upack_writer`].
+//! The concrete `RawtilesWriter` lives in [`super::rawtiles_writer`].
 
 use core::ops::Range;
 
@@ -162,7 +162,7 @@ pub enum TileWriterError<SrcErr, OutErr> {
 /// final pack bytes through the output `Write` while reading
 /// `External` tile content from the matching `TileByteSource`.
 ///
-/// Only one v1 implementation exists: [`super::upack_writer::UpackWriter`].
+/// Only one v1 implementation exists: [`super::rawtiles_writer::RawtilesWriter`].
 /// Future MBTiles or PMTiles writers are companion crates implementing
 /// this same trait — no `slippypack-core` change required.
 pub trait TileWriter {

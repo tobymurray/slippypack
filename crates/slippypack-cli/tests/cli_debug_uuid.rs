@@ -122,7 +122,7 @@ fn debug_uuid_uuid_matches_make_output_for_synthetic() {
     let debug_uuid = debug_uuid.trim_end();
 
     let tmp_pack = std::env::temp_dir().join(format!(
-        "slippypack-debug-uuid-cross-{}.upack",
+        "slippypack-debug-uuid-cross-{}.rawtiles",
         std::process::id(),
     ));
     let _ = std::fs::remove_file(&tmp_pack);

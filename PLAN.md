@@ -1,24 +1,26 @@
-# slippypack — Build offline `.upack` map packs
+# slippypack — Build offline `.rawtiles` map packs
 
 > Status: **plan**. No code yet. This document is the design and roadmap; concrete deliverables ship in slices, starting with [§ First Slice](#first-slice-phase-0--phase-1).
 
+> **Format spec is authoritative in [spec/rawtiles-v1.0.md](spec/rawtiles-v1.0.md).** This file describes the project plan, phasing, and rationale; where it discusses `.rawtiles` byte layout, the spec doc is the source of truth.
+
 ## What this is
 
-A Rust toolkit for building offline tile packs in the `.upack` format. One core library, two front-ends:
+A Rust toolkit for building offline tile packs in the `.rawtiles` format. One core library, two front-ends:
 
 - **`slippypack` CLI** — a native binary for desktop / CI / power-user workflows. The v1 CLI reads URL templates, `gdal2tiles`-style tile directories, MBTiles, PMTiles, GeoTIFF, OSM PBF (with vector rendering via MapLibre Native, with a `tilemaker`-shellout fallback — see [§ Phase 2](#phase-2--cli-vector-rendering-osm-pbf)), MapLibre style JSON, and a built-in synthetic fixture for first-run validation. Runs entirely offline when sources are local. The canonical tool.
 - **`slippypack-web` PWA** — a static browser app for users who can't or won't install a CLI. A strict subset of the CLI: **raster sources only, no in-browser vector rendering, BYO tile source**.
 
-Both write `.upack`. The format spec lives in a sibling project — the **una-sdk** watch firmware repo, at `Docs/Tutorials/MapTrack/PLAN.md` — and is the public byte contract that slippypack conforms to. slippypack is the canonical writer of `.upack`; the una-sdk firmware is the reference reader. **The format is the contract** — the two projects coordinate only through `.upack` bytes.
+Both write `.rawtiles`. The format spec is authoritative in [`spec/rawtiles-v1.0.md`](spec/rawtiles-v1.0.md) in this repo — it is the public byte contract that any conforming reader implements. slippypack is the canonical writer; the una-sdk watch firmware is one reference reader (others can follow). **The format is the contract** — producers and consumers coordinate only through `.rawtiles` bytes.
 
-The name picks up "slippy map" — the standard term for `{z}/{x}/{y}` tile schemes (OSM, MapLibre, Mapbox vocabulary). It signals the niche without claiming any particular consumer, device, or rendering style. The watch is one consumer; nothing about slippypack is watch-specific beyond the pixel format (ABGR2222, 128² tiles) baked into `.upack` itself.
+The project name picks up "slippy map" — the standard term for `{z}/{x}/{y}` tile schemes (OSM, MapLibre, Mapbox vocabulary). It signals the niche without claiming any particular consumer, device, or rendering style. The `rawtiles` format itself is independent of slippypack: anyone can build a conforming writer or reader from the spec alone.
 
 ## Why two front-ends over one Rust core
 
 The CLI serves developers, power users, and the offline-laptop case. The PWA serves the long tail — people who'd otherwise never build a pack at all because installing a CLI is a non-starter for them. Sharing a Rust core means:
 
 - **One implementation of the format writer and the ABGR2222 quantiser.** No drift between CLI and PWA, no per-front-end bug surface.
-- **Whole-file byte-identical output for the same inputs.** Both `pack_uuid` (UUIDv5 over the canonical source descriptor — see [§ Canonical source descriptor](#canonical-source-descriptor)) and `build_timestamp` (most-recent source mtime / `Last-Modified`, not build wall-clock) are deterministic functions of inputs. Two builds with identical inputs produce byte-identical `.upack` files across both front-ends and across browsers. CI overrides `--timestamp <unix>` and `--pack-uuid <hex>` exist for reproducibility testing where the "inputs" themselves need to vary; production builds derive both from inputs.
+- **Whole-file byte-identical output for the same inputs.** Both `pack_uuid` (UUIDv5 over the canonical source descriptor — see [§ Canonical source descriptor](#canonical-source-descriptor)) and `build_timestamp` (most-recent source mtime / `Last-Modified`, not build wall-clock) are deterministic functions of inputs. Two builds with identical inputs produce byte-identical `.rawtiles` files across both front-ends and across browsers. CI overrides `--timestamp <unix>` and `--pack-uuid <hex>` exist for reproducibility testing where the "inputs" themselves need to vary; production builds derive both from inputs.
 - **The format-as-API claim is real.** Two independent writers (native + WASM) conforming to one spec, plus a C++ reader on the watch side, is the kind of evidence that distinguishes "open" from "marketed as open." Round-trip tests against the watch's reader are the gate.
 
 **The PWA is intentionally a strict subset.** Vector rendering doesn't land in the browser because:
@@ -43,7 +45,7 @@ Desktop is the primary platform. Mobile works (Android Chrome, iPad/iPhone Safar
 
 ## The three axes this plan optimises
 
-1. **Output fidelity** — `.upack` bytes are bit-identical between CLI and PWA for the same inputs, including the `pack_uuid` (UUIDv5 over the canonical source descriptor) and `build_timestamp` (source-data freshness, not build wall-clock) header fields. Round-trip tests against the watch's reader are the gate.
+1. **Output fidelity** — `.rawtiles` bytes are bit-identical between CLI and PWA for the same inputs, including the `pack_uuid` (UUIDv5 over the canonical source descriptor) and `build_timestamp` (source-data freshness, not build wall-clock) header fields. Round-trip tests against the watch's reader are the gate.
 2. **No backend** — both front-ends are standalone artifacts (binary, static frontend). No project-hosted services means zero operational cost and zero telemetry surface. **BYO tile sources** — users pick where their tiles come from.
 3. **Reach** — the CLI runs on every desktop OS; the PWA runs in every evergreen browser. A user with a watch can always build a pack.
 
@@ -55,8 +57,8 @@ The CLI and the PWA are **two front-ends over one Rust library**. `slippypack-co
 
 - **`decode`** — PNG / JPEG → RGB888. Pure-Rust decoders (`png`, `jpeg-decoder` via the `image` crate with `default-features = false, features = ["png", "jpeg"]`). The PWA and CLI share this layer.
 - **`quantise`** — RGB888 → ABGR2222, integer-only arithmetic for cross-platform determinism. Bypassable (the pipeline composes it; `slippypack-core` does not force it).
-- **`format`** — a `TileWriter` trait + the `.upack` implementation (see [§ TileWriter trait](#tilewriter-trait--the-format-pluggability-seam) for the trait shape and its streaming model).
-- **`reader`** — `.upack` parser for round-trip tests and future "open existing pack" workflows.
+- **`format`** — a `TileWriter` trait + the `.rawtiles` implementation (see [§ TileWriter trait](#tilewriter-trait--the-format-pluggability-seam) for the trait shape and its streaming model).
+- **`reader`** — `.rawtiles` parser for round-trip tests and future "open existing pack" workflows.
 - **`projection`** — Web Mercator / Local Linear math (pyramid generation, tile coordinate computation).
 - **`identity`** — UUIDv5 derivation from the canonical source descriptor (see [§ Canonical source descriptor](#canonical-source-descriptor)); source-mtime / `Last-Modified` accumulator for `build_timestamp`.
 
@@ -74,8 +76,8 @@ The CLI imports `slippypack-core` and adds filesystem I/O, async HTTP, GDAL bind
 | Decision | Choice | Rationale |
 |---|---|---|
 | Workspace shape | Single Cargo workspace; `core`, `cli`, `web` crates + `www` TS shell | One repo, one core, multiple build targets |
-| Core language | **Rust**, shared crate `slippypack-core` | Single source of truth for `.upack` bytes; type safety on byte-layout work |
-| Output format | **`.upack` only in v1**, behind a `TileWriter` trait + a `--format <upack>` flag that accepts one value | Names the format-pluggability seam in Phase 0 (hours of work) without paying for MBTiles/PMTiles v1 ship cost (which would duplicate `mb-util` / `tilemaker`); future-format writers are companion crates implementing the trait, no `slippypack-core` change required |
+| Core language | **Rust**, shared crate `slippypack-core` | Single source of truth for `.rawtiles` bytes; type safety on byte-layout work |
+| Output format | **`.rawtiles` only in v1**, behind a `TileWriter` trait + a `--format <rawtiles>` flag that accepts one value | Names the format-pluggability seam in Phase 0 (hours of work) without paying for MBTiles/PMTiles v1 ship cost (which would duplicate `mb-util` / `tilemaker`); future-format writers are companion crates implementing the trait, no `slippypack-core` change required |
 | Pack identity | **`pack_uuid` is UUIDv5(slippypack_namespace, canonical_source_descriptor)**; `build_timestamp` is most-recent source mtime / `Last-Modified` | Whole-file byte-identical output for the same inputs; companion can de-dup against the watch by recomputing the UUID without tracking build history out-of-band |
 | WASM toolchain | **`wasm-bindgen` + `wasm-pack`** | Standard, well-supported, bundler-agnostic |
 | TS shell framework | **Vanilla TypeScript + MapLibre GL JS** (open: revisit if UI complexity grows) | MapLibre is JS-native and dominant for browser maps; glue stays thin |
@@ -103,24 +105,24 @@ graph LR
         Core --> Web
     end
     subgraph unaSDK["una-sdk (separate repo)"]
-        Spec[".upack format spec<br/>(canonical)"]
+        Spec[".rawtiles format spec<br/>(canonical)"]
         Reader["TilePack reader<br/>(C++ on watch)"]
         Spec --> Reader
     end
     Spec -.-> Core
-    Pack[".upack bytes"]
+    Pack[".rawtiles bytes"]
     CLI --> Pack
     Web --> Pack
     Pack --> Reader
 ```
 
-slippypack writes `.upack`; una-sdk reads it. The spec lives with the reader (una-sdk owns the format definition because the watch firmware is the constraint that shaped it). slippypack conforms to the spec; conformance is tested by round-tripping bytes through the watch reader (either a real watch, or the una-sdk simulator's host-filesystem-backed `IFileSystem`).
+slippypack writes `.rawtiles`; una-sdk (and any other reader implementer) reads it. The spec is owned by this repo at [`spec/rawtiles-v1.0.md`](spec/rawtiles-v1.0.md). Conformance is tested two ways: round-tripping bytes through slippypack's own reader (self-consistency), and round-tripping through independent readers (cross-implementation conformance — currently the C++ second-opinion validator at `spec-validator-cpp/`, and eventually the una-sdk simulator).
 
-**Spec changes flow una-sdk → slippypack.** When the format gains a new extension tag, a new pixel format, or a new projection enum, the watch plan changes first; slippypack picks up the change in a follow-up. The reverse direction (slippypack wants a new field) goes through a PR against una-sdk's plan.
+**Spec changes are proposed against [`spec/rawtiles-v1.0.md`](spec/rawtiles-v1.0.md).** New extension tags, pixel formats, or projection enums get a PR here; downstream consumers (slippypack writer, una-sdk reader, third-party implementations) adopt at their own pace. Minor version bumps (additive, backward-compatible) are accepted by older readers per the forward-compat contract; major bumps are coordinated through the spec's CHANGELOG.
 
 ## TileWriter trait — the format-pluggability seam
 
-`slippypack-core`'s `format` module exposes a `TileWriter` trait that separates "I have a stream of decoded-and-quantised tiles plus metadata, produce a tile pack" from "this is what `.upack` bytes look like." Only `UpackWriter` implements it in v1; future MBTiles / PMTiles writers (if they ever ship) are companion crates implementing the same trait, with no `slippypack-core` change required.
+`slippypack-core`'s `format` module exposes a `TileWriter` trait that separates "I have a stream of decoded-and-quantised tiles plus metadata, produce a tile pack" from "this is what `.rawtiles` bytes look like." Only `RawtilesWriter` implements it in v1; future MBTiles / PMTiles writers (if they ever ship) are companion crates implementing the same trait, with no `slippypack-core` change required.
 
 The trait must support **two scales**: small in-RAM packs (Phase 0 tests, < 25 tiles) and country-scale streamed packs (Phase 8 PWA OPFS, 30K–80K tiles × 16 KB raw = 0.5–1.2 GB). Naïvely passing `Vec<u8>` per tile and buffering until `finalize()` blows up at the second scale. The shape:
 
@@ -141,7 +143,7 @@ pub trait TileWriter {
         -> Result<(), TileWriterError<Self::SourceError, Self::OutputError>>;
 }
 
-/// Caller-supplied data for `.upack` header fields the writer cannot derive itself.
+/// Caller-supplied data for `.rawtiles` header fields the writer cannot derive itself.
 /// (`tile_count`, `index_offset`, `zoom_offsets[18]`, `extensions_offset` are derived
 /// inside the writer from `add_tile_ref` and `add_extension` calls.)
 pub struct PackMetadata {
@@ -202,7 +204,7 @@ pub type SourceId = u32;
 
 `add_tile_ref` records the tile's identity (z, x, y) and where its bytes live; it does NOT buffer the bytes themselves in the External case. `finalize` walks the recorded tiles in `(z, x, y)` order, reads each tile's bytes via the matching `TileByteSource`, and streams them into `output` as the writer assembles header → index → tile blob → extension sections → CRC.
 
-The CLI registers a `TileByteSource` backed by the temp file that holds decoded tiles; it passes a separate `Write` impl (a `std::fs::File` opened on the `<out>.upack.partial` path) to `finalize`. The PWA worker analogously registers an OPFS-backed `TileByteSource` for the decoded-tile staging area and passes a separate OPFS `Write` impl pointing at the partial output handle. Both produce identical bytes from identical inputs.
+The CLI registers a `TileByteSource` backed by the temp file that holds decoded tiles; it passes a separate `Write` impl (a `std::fs::File` opened on the `<out>.rawtiles.partial` path) to `finalize`. The PWA worker analogously registers an OPFS-backed `TileByteSource` for the decoded-tile staging area and passes a separate OPFS `Write` impl pointing at the partial output handle. Both produce identical bytes from identical inputs.
 
 `TileWriterError` is deliberately small and `#[non_exhaustive]`; the generic parameters let concrete impls keep their full error context (a `std::io::Error`, a path, an OPFS error code) without forcing it through a lossy enum. Phase 0 may evolve the variants but the shape (a small enum + two generic error params) is the contract.
 
@@ -223,7 +225,7 @@ The descriptor keys, in alphabetical order (the sorted-key encoding produces thi
 | Key | Type | Source |
 |---|---|---|
 | `bbox` | `[min_lon_µ°, min_lat_µ°, max_lon_µ°, max_lat_µ°]` | from `--bbox` |
-| `format_version` | `[major, minor]` | from `.upack` spec; bumped only on spec changes |
+| `format_version` | `[major, minor]` | from `.rawtiles` spec; bumped only on spec changes |
 | `pixel_format` | int | from spec enum; `1` (ABGR2222) in v1 |
 | `projection` | int | from spec enum; `1` Mercator or `3` Local Linear |
 | `quantiser_version` | int | a slippypack-core constant; bumped on any quantiser-byte-output change |
@@ -281,7 +283,7 @@ graph TB
 
     subgraph External["External (user-chosen)"]
         Tiles["Tile source<br/>(MapTiler / Stadia / URL template /<br/>user-uploaded MBTiles or PMTiles /<br/>built-in synthetic)"]
-        Watch[".upack file<br/>→ user → USB-MSC → watch"]
+        Watch[".rawtiles file<br/>→ user → USB-MSC → watch"]
     end
 
     Worker -->|fetch / read| Tiles
@@ -305,8 +307,8 @@ slippypack/
             Cargo.toml
             src/
                 lib.rs                # public API: re-exports format, decode, quantise, identity, projection
-                format/               # .upack writer + reader + TileWriter trait
-                    mod.rs            # UpackWriter (TileWriter impl)
+                format/               # .rawtiles writer + reader + TileWriter trait
+                    mod.rs            # RawtilesWriter (TileWriter impl)
                     writer_trait.rs   # TileWriter trait — the format-pluggability seam
                     header.rs
                     tile_index.rs
@@ -374,15 +376,15 @@ slippypack make \
     [--auth-query "key=value" ...] \
     [--input-y-axis xyz|tms|auto] \
     [--style watch.json] \
-    [--format upack] \
+    [--format rawtiles] \
     [--attribution "..."] \
     [--config slippypack.toml] \
     [--timestamp <unix>] \
     [--pack-uuid <hex>] \
-    --out trail.upack
+    --out trail.rawtiles
 ```
 
-Defaults: `--input-y-axis auto`; `--format upack` (the only legal v1 value — see below).
+Defaults: `--input-y-axis auto`; `--format rawtiles` (the only legal v1 value — see below).
 
 **`--source` accepts eight forms**, distinguished by scheme / prefix. Each maps to a **canonical kind name** used in error messages, TOML config, and the canonical source descriptor:
 
@@ -397,7 +399,7 @@ Defaults: `--input-y-axis auto`; `--format upack` (the only legal v1 value — s
 | `style:///path/to/style.json` | `style` | MapLibre Style Spec JSON (Phase 2; requires `--features vector` since the style is rendered to raster tiles) |
 | `synthetic` (the literal word, no path) | `synthetic` | built-in fixture for first-run validation |
 
-**`--format` accepts only `upack` in v1.** The flag exists from day one as the surface of `slippypack-core`'s `TileWriter` trait. Other formats (MBTiles, PMTiles) are reserved as future companion crates implementing the same trait. The flag's presence is the user-facing half of the architectural seam; the trait is the implementation-facing half. v1 ship is `.upack`-only — see [§ What this plan is *not* trying to do](#what-this-plan-is-not-trying-to-do).
+**`--format` accepts only `rawtiles` in v1.** The flag exists from day one as the surface of `slippypack-core`'s `TileWriter` trait. Other formats (MBTiles, PMTiles) are reserved as future companion crates implementing the same trait. The flag's presence is the user-facing half of the architectural seam; the trait is the implementation-facing half. v1 ship is `.rawtiles`-only — see [§ What this plan is *not* trying to do](#what-this-plan-is-not-trying-to-do).
 
 **`--input-y-axis auto`** detects the Y-axis convention per source kind: URL templates → XYZ; `dir://` (gdal2tiles output) → TMS (matching `gdal2tiles --profile mercator`'s default); MBTiles → read from the source's `metadata` table's `scheme` row (defined by MBTiles spec 1.3); PMTiles → XYZ (the PMTiles spec mandates XYZ). `auto` is the default; `xyz` and `tms` are explicit overrides for cases where the source metadata is wrong or absent.
 
@@ -421,7 +423,7 @@ Multiple `--source` invocations layer by zoom level (e.g. satellite at z≥14, O
 [build]
 bbox = [-1.2, 51.3, 0.5, 51.9]  # London-ish: [minLon, minLat, maxLon, maxLat]
 zoom = [6, 16]
-out = "london.upack"
+out = "london.rawtiles"
 # attribution = "..." here would override per-source defaults for the whole pack
 
 [[source]]
@@ -444,7 +446,7 @@ zoom_max = 13
 - **Source-shape flags conflict with `--config`** and produce a hard error: `--source`, `--auth-header`, `--auth-query`, `--attribution`. Mixing them with `--config` is rejected with `error: --source/--auth-*/--attribution conflict with --config; put sources in the TOML's [[source]] tables or drop --config`.
 - **Build-shape flags override the corresponding `[build]` table entries** when both are present: `--bbox`, `--zoom`, `--input-y-axis`, `--style`, `--format`, `--out`, `--timestamp`, `--pack-uuid`. Override is silent (no warning) — the documented expectation is "config sets defaults; flags override for ad-hoc runs."
 
-TMS-indexed sources — the `dir` kind (gdal2tiles directory trees) and any `mbtiles` source whose `metadata` table carries `scheme = tms` — are first-class. The `.upack` header carries one `tile_axis_convention` byte for the whole pack, so the rule for mixed-input builds is concrete:
+TMS-indexed sources — the `dir` kind (gdal2tiles directory trees) and any `mbtiles` source whose `metadata` table carries `scheme = tms` — are first-class. The `.rawtiles` header carries one `tile_axis_convention` byte for the whole pack, so the rule for mixed-input builds is concrete:
 
 - **Single-source XYZ input** → pack declares `tile_axis_convention = 1` (XYZ). No per-tile transform.
 - **Single-source TMS input** → pack declares `tile_axis_convention = 2` (TMS). No per-tile transform. The watch normalises Y at query time per the una-sdk spec.
@@ -491,23 +493,23 @@ The setup step is a one-time gate. Subsequent launches go straight to the build 
 - Zero ongoing infrastructure cost.
 - No account system, no payment processing, no project ToS for tile usage.
 - The user owns their own quota and their own data.
-- The `.upack` format's "no central authority" pitch stays true — there's no slippypack server in the loop anywhere.
+- The `.rawtiles` format's "no central authority" pitch stays true — there's no slippypack server in the loop anywhere.
 - Tier-0-style "one-tap on the watch to download nearby maps" becomes "one-tap on the watch *after* the user has done one-time setup in the companion PWA." That's how every modern map app actually works.
 
-**What this gives up:** the frictionless first-launch demo. A new user can't try slippypack without first signing up for MapTiler (or uploading a file, or pasting a URL). Mitigation: a `--source synthetic` CLI flag (also exposed in the PWA as a "Try without a tile source" link on the welcome screen) builds a small `.upack` from a committed gradient-pattern fixture — no network, no API key — so developers and tyre-kickers can verify the toolchain end-to-end before doing tile-source setup. The README has a clear "to try the real flow, get a MapTiler key" callout pointing past this debug path.
+**What this gives up:** the frictionless first-launch demo. A new user can't try slippypack without first signing up for MapTiler (or uploading a file, or pasting a URL). Mitigation: a `--source synthetic` CLI flag (also exposed in the PWA as a "Try without a tile source" link on the welcome screen) builds a small `.rawtiles` from a committed gradient-pattern fixture — no network, no API key — so developers and tyre-kickers can verify the toolchain end-to-end before doing tile-source setup. The README has a clear "to try the real flow, get a MapTiler key" callout pointing past this debug path.
 
 ## OPFS-streamed build pipeline (PWA)
 
 The build runs entirely in a Web Worker, structured as a streaming pipeline rather than load-everything-into-RAM:
 
 1. **Plan** — given a bbox + zoom range, generate the list of `(z, x, y)` tile coordinates. Pure math, fast.
-2. **Open OPFS handles** — create `working/tiles/` and `working/output.upack` in OPFS via `FileSystemSyncAccessHandle` (synchronous Worker access).
+2. **Open OPFS handles** — create `working/tiles/` and `working/output.rawtiles` in OPFS via `FileSystemSyncAccessHandle` (synchronous Worker access).
 3. **Fetch loop** — for each tile, `fetch()` from the configured source. Body comes back as `ArrayBuffer`.
 4. **Decode + quantise** — pass each tile's bytes into the WASM core: decode PNG/JPEG via the `image` crate (configured with `default-features = false, features = ["png", "jpeg"]` to keep the WASM binary lean), quantise to ABGR2222. Write 16 KB result into `working/tiles/{z}_{x}_{y}.raw`.
-5. **Index** — generate `.upack` header + tile index + zoom directory in memory (small).
-6. **Concatenate** — write header + index + each tile's bytes into `working/output.upack` sequentially. CRC accumulates as bytes are written.
+5. **Index** — generate `.rawtiles` header + tile index + zoom directory in memory (small).
+6. **Concatenate** — write header + index + each tile's bytes into `working/output.rawtiles` sequentially. CRC accumulates as bytes are written.
 7. **Finalise** — write the CRC footer.
-8. **Hand off to UI** — read `working/output.upack` as a Blob; `postMessage` to UI thread; UI triggers download.
+8. **Hand off to UI** — read `working/output.rawtiles` as a Blob; `postMessage` to UI thread; UI triggers download.
 9. **Cleanup** — delete `working/` entries from OPFS.
 
 **Why streaming.** A country-scale pack at 1–3 GB cannot be held as a single Blob in RAM. OPFS lets the build write the file incrementally; only the final read-back-as-Blob hits memory at full size, and even then the browser can usually map it lazily.
@@ -538,23 +540,23 @@ Standard PWA stack:
 
 ## Watch transfer
 
-slippypack writes `.upack` to the user's download folder. From there:
+slippypack writes `.rawtiles` to the user's download folder. From there:
 
 1. User connects watch via USB. Watch presents as a USB Mass Storage device.
-2. User drags `.upack` into `/maps/active.upack` (or `/maps/overlay.upack` for overlay-only packs — see the una-sdk watch plan's storage decisions).
+2. User drags `.rawtiles` into `/maps/active.rawtiles` (or `/maps/overlay.rawtiles` for overlay-only packs — see the una-sdk watch plan's storage decisions).
 3. Eject. Watch picks up the new pack on next boot or via a Settings → Refresh Maps action.
 
 This is the same flow Garmin has used since ~2010 — universal, no app store, no platform lottery. The UX cost is one extra step versus Web Bluetooth; the benefit is "works on every device with a USB port, no install, no permissions dance."
 
 **Open dependency: the una-sdk watch firmware must support USB-MSC Device Mode** (not just Host Mode). The architecture deep-dive shows the watch's USB stack supports both, but the configured volume topology suggests Host Mode is the wired-up path today. The slippypack PWA's transfer story depends on Device Mode being available; verify with the firmware team before the PWA's first user-facing release ships text claiming "connect your watch via USB."
 
-Future native bridges (post-v1, optional, per-platform): a thin iOS Swift app + an Android Kotlin app that import a downloaded `.upack` from the OS file picker and push via Core Bluetooth. ~1–2 person-weeks each. Wrappers around slippypack's output, not replacements for it.
+Future native bridges (post-v1, optional, per-platform): a thin iOS Swift app + an Android Kotlin app that import a downloaded `.rawtiles` from the OS file picker and push via Core Bluetooth. ~1–2 person-weeks each. Wrappers around slippypack's output, not replacements for it.
 
 ## Phasing
 
 | Phase | Deliverable | Depends on | Mergeable? | Time est |
 |---|---|---|---|---|
-| 0 | `slippypack-core`: `decode` + `quantise` + `format` (incl. `TileWriter` trait + `UpackWriter`) + `reader` + `projection` + `identity` (UUIDv5 derivation); fixture-based round-trip, determinism, and byte-layout-against-spec tests | — | Yes — standalone | 1.5–2 weeks |
+| 0 | `slippypack-core`: `decode` + `quantise` + `format` (incl. `TileWriter` trait + `RawtilesWriter`) + `reader` + `projection` + `identity` (UUIDv5 derivation); fixture-based round-trip, determinism, and byte-layout-against-spec tests | — | Yes — standalone | 1.5–2 weeks |
 | 1 (first slice) | `slippypack-cli` MVP: `--source synthetic` (committed gradient fixture, no network) and `--source https://.../{z}/{x}/{y}.png`; `make` subcommand; raster path; SIGINT-cancellation + `.partial` atomic write | Phase 0 | Yes — single PR | 1 week |
 | 1.x | `slippypack-cli`: add `dir` (gdal2tiles directory trees), `mbtiles`, and `pmtiles` source kinds; `slippypack debug uuid` helper; multi-source layering exercised end-to-end (URL + MBTiles + dir layered) | Phase 1 | Yes — single PR | 1 week |
 | 2 | CLI: `pbf` and `style` source kinds via `maplibre_native` Rust binding (or `tilemaker` shellout per spike); watch-tuned default style JSON; `--features vector` Cargo split | Phase 1.x | Yes — single PR | 4–6 weeks (see Phase 2 detail for the per-tile-API spike) |
@@ -587,7 +589,7 @@ A working CLI that:
 2. For URL templates, fetches a small bbox at a small zoom range.
 3. Decodes PNG/JPEG → RGB888 via `slippypack-core::decode`.
 4. Quantises each tile to ABGR2222 via `slippypack-core::quantise`.
-5. Writes a valid `.upack` via `slippypack-core::format::UpackWriter` (the v1 `TileWriter` impl), atomically via `.upack.partial` → rename.
+5. Writes a valid `.rawtiles` via `slippypack-core::format::RawtilesWriter` (the v1 `TileWriter` impl), atomically via `.rawtiles.partial` → rename.
 6. The output `pack_uuid` is UUIDv5 over the canonical source descriptor (see [§ Canonical source descriptor](#canonical-source-descriptor)); `build_timestamp` is the max `Last-Modified` observed across fetches (or 0 if absent — i.e. for `--source synthetic`, which has no `Last-Modified`).
 
 The una-sdk watch firmware (when MapTrack Phase 2 ships) reads the same bytes and renders correctly. Until then, the byte-layout-against-spec test (test 4) in `slippypack-core` is the spec-conformance gate; the round-trip test (test 1) is the self-consistency gate.
@@ -597,13 +599,13 @@ The una-sdk watch firmware (when MapTrack Phase 2 ships) reads the same bytes an
 **`slippypack-core`:**
 - `crates/slippypack-core/Cargo.toml`
 - `crates/slippypack-core/src/lib.rs` — public API
-- `crates/slippypack-core/src/format/mod.rs` — `.upack` writer
+- `crates/slippypack-core/src/format/mod.rs` — `.rawtiles` writer
 - `crates/slippypack-core/src/format/header.rs` — header layout
 - `crates/slippypack-core/src/format/tile_index.rs` — index entries
 - `crates/slippypack-core/src/format/extensions.rs` — `ATTR`, `NAME`, `SRCD`, `AFFN`, etc.
 - `crates/slippypack-core/src/format/crc.rs` — CRC32
-- `crates/slippypack-core/src/format/reader.rs` — `.upack` reader (for round-trip)
-- `crates/slippypack-core/src/format/writer_trait.rs` — `TileWriter` trait (the format-pluggability seam; the `.upack` writer in `format/mod.rs` implements it)
+- `crates/slippypack-core/src/format/reader.rs` — `.rawtiles` reader (for round-trip)
+- `crates/slippypack-core/src/format/writer_trait.rs` — `TileWriter` trait (the format-pluggability seam; the `.rawtiles` writer in `format/mod.rs` implements it)
 - `crates/slippypack-core/src/decode.rs` — PNG / JPEG → RGB888 via `image` (default-features off; `png` + `jpeg` only)
 - `crates/slippypack-core/src/quantise.rs` — RGB → ABGR2222 (integer-only arithmetic for cross-platform determinism)
 - `crates/slippypack-core/src/identity.rs` — UUIDv5 derivation from canonical source descriptor; source-mtime / `Last-Modified` accumulator for `build_timestamp`
@@ -612,17 +614,17 @@ The una-sdk watch firmware (when MapTrack Phase 2 ships) reads the same bytes an
 - `crates/slippypack-core/src/projection/local_linear.rs` — Local Linear (corner affine)
 - `crates/slippypack-core/tests/roundtrip.rs` — write a pack, read it back, compare bytes
 - `crates/slippypack-core/tests/determinism.rs` — two invocations with identical inputs produce byte-identical output
-- `crates/slippypack-core/tests/spec_layout.rs` — pack bytes match the committed `golden-pack-*.upack.hex` fixtures, asserting byte-offset conformance against the spec
+- `crates/slippypack-core/tests/spec_layout.rs` — pack bytes match the committed `golden-pack-*.rawtiles.hex` fixtures, asserting byte-offset conformance against the spec
 - `crates/slippypack-core/tests/fixtures/` — committed deterministic input + output fixtures (see [§ Test plan](#test-plan-first-slice) for the list)
 
 **`slippypack-cli`:**
 - `crates/slippypack-cli/Cargo.toml` — default features = raster-only; `--features vector` reserved (no-op in Phase 1)
-- `crates/slippypack-cli/src/main.rs` — `clap` entry, `make` subcommand, SIGINT handler + `.upack.partial` → atomic rename
+- `crates/slippypack-cli/src/main.rs` — `clap` entry, `make` subcommand, SIGINT handler + `.rawtiles.partial` → atomic rename
 - `crates/slippypack-cli/src/sources/url_template.rs` — `fetch` from `{z}/{x}/{y}.png`-style URLs; tracks max `Last-Modified` for `build_timestamp`
 - `crates/slippypack-cli/src/sources/synthetic.rs` — emits the gradient-pattern fixture tiles for `--source synthetic`; reads bytes from the embedded `fixtures/synthetic-pattern/` via `include_bytes!`
 - `crates/slippypack-cli/fixtures/synthetic-pattern/` — committed gradient-pattern PNG tiles (no network, no key); `include_bytes!`-embedded into the binary at compile time
-- `crates/slippypack-cli/tests/fixtures/golden-synthetic.upack.hex` — committed hex dump of the expected `.upack` produced by `slippypack make --source synthetic --timestamp 0 --pack-uuid <fixed>`; the synthetic-smoke test (test 5b) byte-compares against this
-- `crates/slippypack-cli/src/tile_source.rs` — `TileByteSource` impl backed by a temp file (the writer's external-tile-content read path) and a separate `Write` impl on the `<out>.upack.partial` file (the writer's output sink)
+- `crates/slippypack-cli/tests/fixtures/golden-synthetic.rawtiles.hex` — committed hex dump of the expected `.rawtiles` produced by `slippypack make --source synthetic --timestamp 0 --pack-uuid <fixed>`; the synthetic-smoke test (test 5b) byte-compares against this
+- `crates/slippypack-cli/src/tile_source.rs` — `TileByteSource` impl backed by a temp file (the writer's external-tile-content read path) and a separate `Write` impl on the `<out>.rawtiles.partial` file (the writer's output sink)
 
 ### Test plan (first slice)
 
@@ -631,7 +633,7 @@ The una-sdk watch firmware (when MapTrack Phase 2 ships) reads the same bytes an
 - `synthetic-grid-z4/` — 25 PNG tiles forming a 5×5 z=4 region with known RGB values (corner colors encode `(z, x, y)`). Small fixture for the round-trip and basic-determinism tests.
 - `synthetic-pyramid/` — a multi-zoom fixture covering z=2..z=8, 1+4+16+64+256+1024+4096 = 5461 tiles. Exercises the per-zoom `zoom_offsets[18]` directory, the binary-search range bounds, and tile counts that approach 16-bit boundaries (intentionally not crossing them — see below).
 - `synthetic-with-attr/` — 9 tiles at z=3 plus an `ATTR` extension section. Exercises the extension-section iterator's offset arithmetic.
-- `golden-pack-grid.upack.hex`, `golden-pack-pyramid.upack.hex`, `golden-pack-attr.upack.hex` — committed hex dumps of the expected `.upack` bytes produced from the corresponding fixtures with the fixed-mtime helper and `--pack-uuid <fixed-from-canonical-descriptor>`. Fixtures regenerate only on explicit spec changes (CHANGELOG entry required); routine PRs that diff against them fail loudly.
+- `golden-pack-grid.rawtiles.hex`, `golden-pack-pyramid.rawtiles.hex`, `golden-pack-attr.rawtiles.hex` — committed hex dumps of the expected `.rawtiles` bytes produced from the corresponding fixtures with the fixed-mtime helper and `--pack-uuid <fixed-from-canonical-descriptor>`. Fixtures regenerate only on explicit spec changes (CHANGELOG entry required); routine PRs that diff against them fail loudly.
 
 The CLI's `--source synthetic` runtime fixture (`crates/slippypack-cli/fixtures/synthetic-pattern/`, 4×4 single-zoom gradient tiles) is a different, separately-versioned asset — it's embedded into the CLI binary via `include_bytes!` and is exercised by test 5b below, not the core's `tests/spec_layout.rs`.
 
@@ -639,29 +641,29 @@ Tests:
 
 1. **Round-trip unit test** (`cargo test`): the writer produces a pack from `synthetic-grid-z4/`, the reader parses it back, byte-compared against the source tiles.
 2. **Quantisation determinism test**: the integer quantiser produces byte-identical output for the same RGB input across `cargo test` on x86_64 and aarch64 (run in CI on both).
-3. **Full-file determinism test**: two CLI invocations against `synthetic-grid-z4/` with identical args produce byte-identical `.upack` files, including `pack_uuid` and `build_timestamp` header fields. The fixed-mtime fixture helper makes this test exercise the real mtime-accumulator code path (not bypass it via `--timestamp 0`). Uses the local-file source kind, not URL templates, so the test does not depend on a live server.
-4. **Byte-layout-against-spec test**: three sub-tests, one per fixture, each byte-comparing the writer's output against the corresponding `golden-pack-*.upack.hex`. **This is the test that catches off-by-one header errors, wrong endianness, mis-sized zoom_offsets entries, broken extension-section iteration, etc.** — round-trip alone (test 1) doesn't, because a writer with a subtly-wrong layout and its own reader making the same mistake passes round-trip cleanly. The three fixtures cover: single-zoom (grid), multi-zoom with non-trivial `zoom_offsets[18]` (pyramid), and extension-section layout (attr). Until the una-sdk simulator round-trip (test 7) exists, this is the only test that proves spec conformance.
+3. **Full-file determinism test**: two CLI invocations against `synthetic-grid-z4/` with identical args produce byte-identical `.rawtiles` files, including `pack_uuid` and `build_timestamp` header fields. The fixed-mtime fixture helper makes this test exercise the real mtime-accumulator code path (not bypass it via `--timestamp 0`). Uses the local-file source kind, not URL templates, so the test does not depend on a live server.
+4. **Byte-layout-against-spec test**: three sub-tests, one per fixture, each byte-comparing the writer's output against the corresponding `golden-pack-*.rawtiles.hex`. **This is the test that catches off-by-one header errors, wrong endianness, mis-sized zoom_offsets entries, broken extension-section iteration, etc.** — round-trip alone (test 1) doesn't, because a writer with a subtly-wrong layout and its own reader making the same mistake passes round-trip cleanly. The three fixtures cover: single-zoom (grid), multi-zoom with non-trivial `zoom_offsets[18]` (pyramid), and extension-section layout (attr). Until the una-sdk simulator round-trip (test 7) exists, this is the only test that proves spec conformance.
 5. **CLI smoke test (URL-template)**: build a small pack from a hosted test tile server (e.g. a temporary local `tileserver-gl`), verify the output file parses; non-deterministic (live source) so excluded from the determinism gate but useful for end-to-end coverage.
-5b. **CLI smoke test (synthetic)**: invoke `slippypack make --source synthetic --out test.upack` against the binary's embedded `synthetic-pattern/` fixture, verify the file parses via the core's reader and matches a committed `golden-synthetic.upack.hex`. Fully deterministic (no network); guards the path the README points new users at.
-6. **Mid-build cancellation test**: send SIGINT to a running build; verify the partial-file path (`<out>.upack.partial`) is removed and the final `<out>.upack` is absent.
-7. **Simulator round-trip** (when una-sdk MapTrack Phase 2 ships): mount the una-sdk simulator's `Mock::FileSystem` (host-backed via `<filesystem>`, `Libs/Source/Simulator/Kernel/Mock/FileSystem.cpp`) against a host directory; copy slippypack's output `.upack` there; load it through una-sdk's `TilePack` reader; verify it parses, every tile lookup returns the expected bytes, and the projection round-trips. **This is the actual cross-implementation conformance gate** — test 4 proves we match our own committed hex; this proves we match the firmware reader's interpretation of the spec.
-8. **Watch hardware round-trip** (when a watch is available): copy `test.upack` to a watch, confirm tiles render.
+5b. **CLI smoke test (synthetic)**: invoke `slippypack make --source synthetic --out test.rawtiles` against the binary's embedded `synthetic-pattern/` fixture, verify the file parses via the core's reader and matches a committed `golden-synthetic.rawtiles.hex`. Fully deterministic (no network); guards the path the README points new users at.
+6. **Mid-build cancellation test**: send SIGINT to a running build; verify the partial-file path (`<out>.rawtiles.partial`) is removed and the final `<out>.rawtiles` is absent.
+7. **Simulator round-trip** (when una-sdk MapTrack Phase 2 ships): mount the una-sdk simulator's `Mock::FileSystem` (host-backed via `<filesystem>`, `Libs/Source/Simulator/Kernel/Mock/FileSystem.cpp`) against a host directory; copy slippypack's output `.rawtiles` there; load it through una-sdk's `TilePack` reader; verify it parses, every tile lookup returns the expected bytes, and the projection round-trips. **This is the actual cross-implementation conformance gate** — test 4 proves we match our own committed hex; this proves we match the firmware reader's interpretation of the spec.
+8. **Watch hardware round-trip** (when a watch is available): copy `test.rawtiles` to a watch, confirm tiles render.
 
 ### CLI cancellation and atomic write
 
-The CLI writes to `<out>.upack.partial` during the build and renames atomically to `<out>.upack` on successful completion. Ctrl-C (SIGINT) mid-build removes the partial file. Crashed runs leave the partial file behind for diagnosis; the next invocation refuses to start unless `--force` is passed or the file is removed. This shape is established in the first slice so subsequent phases inherit it; it's the CLI's equivalent of Phase 8's PWA cancellation/cleanup.
+The CLI writes to `<out>.rawtiles.partial` during the build and renames atomically to `<out>.rawtiles` on successful completion. Ctrl-C (SIGINT) mid-build removes the partial file. Crashed runs leave the partial file behind for diagnosis; the next invocation refuses to start unless `--force` is passed or the file is removed. This shape is established in the first slice so subsequent phases inherit it; it's the CLI's equivalent of Phase 8's PWA cancellation/cleanup.
 
 ### Acceptance criteria
 
 - ✅ `cargo test --workspace` passes.
-- ✅ `slippypack make --source synthetic --out test.upack` produces a valid file (matches the committed `golden-synthetic.upack.hex`).
-- ✅ `slippypack make --bbox <small> --zoom <small> --source 'https://.../{z}/{x}/{y}.png' --out test.upack` produces a valid file.
+- ✅ `slippypack make --source synthetic --out test.rawtiles` produces a valid file (matches the committed `golden-synthetic.rawtiles.hex`).
+- ✅ `slippypack make --bbox <small> --zoom <small> --source 'https://.../{z}/{x}/{y}.png' --out test.rawtiles` produces a valid file.
 - ✅ The round-trip reader parses the written file and the byte-compared content matches the writer's input.
 - ✅ **Byte-layout-against-spec test (test 4)** passes for all three fixtures (`synthetic-grid-z4/`, `synthetic-pyramid/`, `synthetic-with-attr/`). This is the load-bearing spec-conformance gate until the una-sdk simulator round-trip lands.
 - ✅ Output is byte-identical when produced on Linux / macOS / Windows for the same inputs (CI matrix), including the `pack_uuid` (UUIDv5 over canonical descriptor) and `build_timestamp` (most-recent source mtime / `Last-Modified`) header fields.
 - ✅ Quantiser uses integer-only arithmetic; no float operations in the RGB→ABGR2222 path.
-- ✅ SIGINT during a build removes the `.partial` file and leaves no `.upack` artifact behind.
-- ✅ Once una-sdk MapTrack Phase 2 ships: the una-sdk simulator's `Mock::FileSystem` + `TilePack` reader successfully opens a slippypack-produced `.upack` and the per-tile byte content matches what slippypack wrote.
+- ✅ SIGINT during a build removes the `.partial` file and leaves no `.rawtiles` artifact behind.
+- ✅ Once una-sdk MapTrack Phase 2 ships: the una-sdk simulator's `Mock::FileSystem` + `TilePack` reader successfully opens a slippypack-produced `.rawtiles` and the per-tile byte content matches what slippypack wrote.
 
 ### Explicitly out of scope for the first slice
 
@@ -679,7 +681,7 @@ The CLI writes to `<out>.upack.partial` during the build and renames atomically 
 
 ### Phase 2 — CLI vector rendering (OSM PBF)
 
-Add MapLibre Native bindings so the CLI can render watch-tuned tiles directly from a Geofabrik regional PBF. This is the canonical offline-laptop workflow: a user grabs `europe-latest.osm.pbf` before a trip and runs `slippypack make --source pbf:///path/to/europe-latest.osm.pbf --style watch.json --bbox ... --out trip.upack` with no network.
+Add MapLibre Native bindings so the CLI can render watch-tuned tiles directly from a Geofabrik regional PBF. This is the canonical offline-laptop workflow: a user grabs `europe-latest.osm.pbf` before a trip and runs `slippypack make --source pbf:///path/to/europe-latest.osm.pbf --style watch.json --bbox ... --out trip.rawtiles` with no network.
 
 **Substrate choice and live risks (read before scheduling):**
 
@@ -757,16 +759,16 @@ slippypack draw \
     --image <path-to-image> \
     --corners <lat1,lon1>,<lat2,lon2>,<lat3,lon3>,<lat4,lon4>  \
     [--name "Display name"] \
-    --out trail.upack
+    --out trail.rawtiles
 ```
 
-The four `--corners` points define the affine transform (image-pixel coordinates of the corners → lat/lon). The CLI computes the six affine coefficients, packages the image as a single-image pack, writes `AFFN`. Output: a `.upack` with `projection = 3` (Local Linear) and `tile_addressing_scheme = 2` (single image), `AFFN` extension section carrying the affine matrix. Depends on una-sdk's MapTrack Phase 2b runtime support.
+The four `--corners` points define the affine transform (image-pixel coordinates of the corners → lat/lon). The CLI computes the six affine coefficients, packages the image as a single-image pack, writes `AFFN`. Output: a `.rawtiles` with `projection = 3` (Local Linear) and `tile_addressing_scheme = 2` (single image), `AFFN` extension section carrying the affine matrix. Depends on una-sdk's MapTrack Phase 2b runtime support.
 
 **`pack_uuid` derivation for hand-drawn packs** (see [§ Canonical source descriptor](#canonical-source-descriptor)): `sources` is one entry of `{kind: "image", content_hash: "<sha256-hex-of-image-bytes>"}`; a top-level `affn` key carries the six affine coefficients as integer microunits; `bbox` is derived from applying the affine to the image's corners; `tile_addressing_scheme = 2`; `projection = 3`. Two builds from the same image + same corner pins produce the same `pack_uuid`. Cropping the image, repositioning a corner, or changing the projection enum produces a new UUID.
 
 ### Phase 11 — CI, deployment, polish
 
-Playwright tests on Chrome and Firefox (Safari best-effort if WebKit-on-Linux works in CI). **Four committed golden packs** (`golden-pack-grid.upack.hex`, `golden-pack-pyramid.upack.hex`, `golden-pack-attr.upack.hex` under `slippypack-core/tests/fixtures/`, plus `golden-synthetic.upack.hex` under `slippypack-cli/tests/fixtures/`); CI rebuilds and diffs each on every PR — any byte change is a load-bearing spec-or-writer event and must be paired with a CHANGELOG entry. Cloudflare Pages auto-deploy on `main`. Lighthouse audit gate: Performance ≥ 90, Best Practices ≥ 90, PWA ✓.
+Playwright tests on Chrome and Firefox (Safari best-effort if WebKit-on-Linux works in CI). **Four committed golden packs** (`golden-pack-grid.rawtiles.hex`, `golden-pack-pyramid.rawtiles.hex`, `golden-pack-attr.rawtiles.hex` under `slippypack-core/tests/fixtures/`, plus `golden-synthetic.rawtiles.hex` under `slippypack-cli/tests/fixtures/`); CI rebuilds and diffs each on every PR — any byte change is a load-bearing spec-or-writer event and must be paired with a CHANGELOG entry. Cloudflare Pages auto-deploy on `main`. Lighthouse audit gate: Performance ≥ 90, Best Practices ≥ 90, PWA ✓.
 
 ## Open decisions
 
@@ -783,7 +785,7 @@ Playwright tests on Chrome and Firefox (Safari best-effort if WebKit-on-Linux wo
 - **Account systems.** No backend means no accounts, no logins, no payment.
 - **Client-side telemetry of any kind.** No analytics SDK (Google Analytics, Plausible, Fathom). No error-reporting service (Sentry, Bugsnag). No Web Vitals beacons. No `navigator.sendBeacon` calls to project-owned endpoints. No "anonymous usage" pings. This is a hard project commitment, restated wherever it's plausible to ask. Whatever telemetry the user's browser sends to its own vendor is out of scope and the project does not amplify it.
 - **In-browser vector rendering.** Use the CLI for that path. The PWA stays raster-only.
-- **Multi-format output in v1.** The `--format` flag accepts only `upack`; the `TileWriter` trait surface in `slippypack-core` reserves the seam for post-v1 MBTiles / PMTiles writer crates (no `slippypack-core` change required to add them). v1 ship is `.upack`-only because (a) the raster URL → MBTiles use case is already covered by `mb-util` and similar tools, (b) the PBF → raster MBTiles use case is `tilemaker`'s exact value prop, and (c) the slippypack-specific value (ABGR2222 quantiser, 128² tiles, watch-tuned style, `ATTR` extension) is all `.upack`-specific.
+- **Multi-format output in v1.** The `--format` flag accepts only `rawtiles`; the `TileWriter` trait surface in `slippypack-core` reserves the seam for post-v1 MBTiles / PMTiles writer crates (no `slippypack-core` change required to add them). v1 ship is `.rawtiles`-only because (a) the raster URL → MBTiles use case is already covered by `mb-util` and similar tools, (b) the PBF → raster MBTiles use case is `tilemaker`'s exact value prop, and (c) the slippypack-specific value (ABGR2222 quantiser, 128² tiles, watch-tuned style, `ATTR` extension) is all `.rawtiles`-specific.
 - **Editing existing packs.** The tools produce packs; opening packs for round-trip editing is feasible (the core has a reader) but out of v1 scope.
 - **Multi-user collaboration on a pack.** Not a thing anyone has asked for.
 - **Internationalisation.** UI strings English-only for v1. The pack format already supports localised `NAME` sections — writer-side, exposed via a "pack name (per locale)" UI field in a later phase.
@@ -791,6 +793,6 @@ Playwright tests on Chrome and Firefox (Safari best-effort if WebKit-on-Linux wo
 ## What this plan is *not* trying to do
 
 - Re-implement MapLibre GL JS in Rust. It's a great library; embed it for the region picker and move on.
-- Be a generic tile-pack builder for arbitrary devices. The output format is `.upack`, defined by una-sdk. Other devices fork the spec (and slippypack-core, if they want).
-- Compete with full GIS tools (QGIS, ArcGIS). This toolkit does one thing — build `.upack` files from common tile sources — and aims to do it well.
+- Be a generic tile-pack builder for arbitrary devices. The output format is `.rawtiles`, defined by una-sdk. Other devices fork the spec (and slippypack-core, if they want).
+- Compete with full GIS tools (QGIS, ArcGIS). This toolkit does one thing — build `.rawtiles` files from common tile sources — and aims to do it well.
 - Host tiles, render tiles in the browser, or process payments. The infrastructure cost is the user's, in the form of a MapTiler/Stadia account or their own tile server.

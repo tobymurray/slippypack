@@ -1,8 +1,8 @@
-//! CRC-32/ISO-HDLC (the "PNG/zlib" CRC) for the `.upack` footer.
+//! CRC-32/ISO-HDLC (the "PNG/zlib" CRC) for the `.rawtiles` footer.
 //!
-//! The `.upack` format ends with a 4-byte little-endian CRC-32 over
+//! The `.rawtiles` format ends with a 4-byte little-endian CRC-32 over
 //! every byte of the file up to (but not including) the CRC itself.
-//! See PLAN.md and the una-sdk `.upack` spec.
+//! See PLAN.md and the una-sdk `.rawtiles` spec.
 //!
 //! This is the standard polynomial used by PNG, gzip, zip, zlib — the
 //! one most often called just "CRC-32". Polynomial `0xEDB88320`

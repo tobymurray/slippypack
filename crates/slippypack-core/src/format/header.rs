@@ -1,10 +1,10 @@
-//! Fixed-size `.upack` header serialization and parsing.
+//! Fixed-size `.rawtiles` header serialization and parsing.
 //!
 //! Layout (all multi-byte integers little-endian):
 //!
 //! | Offset | Size  | Field                       |
 //! |-------:|------:|-----------------------------|
-//! |   0    |    4  | `magic` (`"UPCK"`)          |
+//! |   0    |    4  | `magic` (`"RAWT"`)          |
 //! |   4    |    1  | `format_version.major`      |
 //! |   5    |    1  | `format_version.minor`      |
 //! |   6    |   16  | `pack_uuid`                 |
@@ -87,7 +87,7 @@ pub struct DerivedHeaderFields {
     pub extensions_offset: u64,
 }
 
-/// Result of parsing a `.upack` header back into typed fields.
+/// Result of parsing a `.rawtiles` header back into typed fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedHeader {
     pub format_version: FormatVersion,
@@ -101,7 +101,7 @@ pub struct ParsedHeader {
 pub enum HeaderError {
     /// Input slice shorter than [`HEADER_BASE_SIZE`].
     TooShort,
-    /// First 4 bytes aren't `b"UPCK"`.
+    /// First 4 bytes aren't `b"RAWT"`.
     BadMagic,
     /// Major version differs from this build's [`FORMAT_VERSION`].
     /// Higher *minor* versions are accepted per the format's
@@ -131,7 +131,7 @@ impl core::fmt::Display for HeaderError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match *self {
             Self::TooShort => write!(f, "header input is shorter than {HEADER_BASE_SIZE} bytes"),
-            Self::BadMagic => f.write_str("magic bytes are not \"UPCK\""),
+            Self::BadMagic => f.write_str("magic bytes are not \"RAWT\""),
             Self::UnsupportedMajorVersion { got, supported } => {
                 write!(
                     f,
@@ -221,7 +221,7 @@ pub fn write_header(
     buf
 }
 
-/// Parse the first [`HEADER_BASE_SIZE`] bytes of `input` as a `.upack`
+/// Parse the first [`HEADER_BASE_SIZE`] bytes of `input` as a `.rawtiles`
 /// header, validating spec invariants.
 ///
 /// Returns `Err(HeaderError::TooShort)` if `input.len() < HEADER_BASE_SIZE`;
@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn magic_is_first_four_bytes() {
         let buf = write_header(&baseline_metadata(), &baseline_derived());
-        assert_eq!(&buf[0..4], b"UPCK");
+        assert_eq!(&buf[0..4], b"RAWT");
     }
 
     #[test]

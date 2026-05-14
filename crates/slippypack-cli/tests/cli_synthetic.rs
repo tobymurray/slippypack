@@ -1,12 +1,12 @@
 //! Integration test: `slippypack make --source synthetic` produces the
-//! committed `golden-synthetic.upack` and the output round-trips through
-//! `slippypack_core::format::UpackReader`.
+//! committed `golden-synthetic.rawtiles` and the output round-trips through
+//! `slippypack_core::format::RawtilesReader`.
 //!
 //! This is PLAN.md's test 5b: "CLI smoke test (synthetic). Invoke
-//! `slippypack make --source synthetic --out test.upack` against the
+//! `slippypack make --source synthetic --out test.rawtiles` against the
 //! binary's embedded `synthetic-pattern/` fixture, verify the file
 //! parses via the core's reader and matches a committed
-//! `golden-synthetic.upack.hex`. Fully deterministic (no network);
+//! `golden-synthetic.rawtiles.hex`. Fully deterministic (no network);
 //! guards the path the README points new users at."
 //!
 //! ## Bootstrap / re-bless
@@ -23,7 +23,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use slippypack_core::format::UpackReader;
+use slippypack_core::format::RawtilesReader;
 
 /// Path to the `slippypack` binary produced by Cargo's test harness.
 fn binary_path() -> &'static str {
@@ -85,7 +85,7 @@ fn assert_matches_golden(actual: &[u8], name: &str) {
 fn temp_pack_path(test_name: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
     let pid = std::process::id();
-    p.push(format!("slippypack-test-{pid}-{test_name}.upack"));
+    p.push(format!("slippypack-test-{pid}-{test_name}.rawtiles"));
     // Ensure no stale leftover from a prior run.
     let _ = std::fs::remove_file(&p);
     let _ = std::fs::remove_file(p.with_extension("upack.partial"));
@@ -109,7 +109,7 @@ fn cli_synthetic_produces_golden_pack() {
     );
 
     let bytes = std::fs::read(&out).expect("read built pack");
-    assert_matches_golden(&bytes, "golden-synthetic.upack");
+    assert_matches_golden(&bytes, "golden-synthetic.rawtiles");
 
     // Cleanup.
     let _ = std::fs::remove_file(&out);
@@ -132,7 +132,7 @@ fn cli_synthetic_pack_round_trips_through_reader() {
     );
 
     let bytes = std::fs::read(&out).expect("read built pack");
-    let reader = UpackReader::open(&bytes).expect("pack should parse");
+    let reader = RawtilesReader::open(&bytes).expect("pack should parse");
     // 4×4 grid of tiles at zoom 2.
     assert_eq!(reader.tile_count(), 16);
     let header = reader.header();
@@ -209,7 +209,7 @@ fn cli_with_pack_uuid_override_uses_provided_uuid() {
     assert!(status.success());
 
     let bytes = std::fs::read(&out).expect("read built pack");
-    let reader = UpackReader::open(&bytes).expect("parse");
+    let reader = RawtilesReader::open(&bytes).expect("parse");
     // Check the pack_uuid header bytes match the override.
     let expected = [
         0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE, 0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD,

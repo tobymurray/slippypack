@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Native CLI for building offline .upack tile packs"
+description = "Native CLI for building offline .rawtiles tile packs"
 
 [lints]
 workspace = true
