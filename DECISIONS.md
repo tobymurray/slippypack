@@ -631,6 +631,42 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-045 — § 11 completeness + 9 related spec gaps (final pre-freeze conformance pass)
+Pre-1.0-freeze closure of nine ways a § 11-driven reader implementer could ship code that silently accepts malformed packs or traps on Cortex-M alignment.
+
+**(1) § 11 is now actually complete.** The previous § 11 had 19 numbered MUSTs that did NOT cover several field-level invariants. A reader implementing the 19 was non-conforming for several real classes of malformed pack. Added rules:
+- **#9** `tile_dim_px == 0` — was MUST in § 4.7 only. A pack with `tile_dim_px = 0` would slip through every previous § 11 rule.
+- **#10** `zoom_max ≥ 24` or `zoom_min > zoom_max` — was MUST in § 4.8 only. `zoom_max = 25` is an actual buffer overrun: it lets a tile-index entry's `z = 25` index into `zoom_offsets[25]`, past the 24-entry array bound. Load-bearing safety check.
+- **#11** `bbox` out of µdeg range or with min > max — was MUST in § 4.9 only. A pack with `min_lon = INT_MIN` would slip through.
+- **#15** per-entry `z` within `[zoom_min, zoom_max]` — was MUST in § 5.2 only. Combined with #10 this bounds `z < 24`.
+- **#16** v1 tile-length matches format-implied size: `length == tile_dim_px²` for every entry under `ABGR2222 + None`. Previously a pack with `length = 1` slipped through entirely and the reader returned 1 byte of "tile data" to a caller expecting 16,384 bytes.
+- **#23** SingleImage shape contract: `tile_count == 1`, lone `z == 0`, `zoom_min == zoom_max == 0`, `zoom_offsets[1..24]` all-zero, `zoom_offsets[0] == (index_offset, 1)`. Was MUST in § 8.6 only.
+
+§ 11 promotion of writer-MUST counterparts already mirrored in § 12 (F-040) — the two checklists are now genuine mirrors. Total MUSTs in § 11 grew from 19 to 25 (plus 2 SHOULDs).
+
+**(2) § 11 rejection-timing pinned.** Previously § 10 said no tile bytes return while CRC mismatch possible, but the spec was silent on when other § 11 rejections fire. A lazy-validating reader (defer rejection to first lookup) was arguably conforming. New: "All rejection rules in § 11 MUST be enforced before any tile bytes, extension-payload bytes, or extension-tag information are returned to the caller." Streaming verify (§ 10) can interleave structural rejections with the CRC fold; lazy validation is non-conforming.
+
+**(3) § 11 #14 + #19 overflow-safe arithmetic.** The bounds checks `offset + length ≤ extensions_offset` (tile-index) and `section_start + 8 + length ≤ file_size − 4` (extension-section walk) both wrap on 32-bit hosts for `length` near `u32::MAX`. A reader transcribing the spec literally into C fails the check exactly when it most needs to. Restated as subtraction: `length ≤ extensions_offset − offset` and `length ≤ (file_size − 4) − section_start − 8`.
+
+**(4) Extension-payload alignment / AFFN-on-Cortex-M4 trap.** § 3's alignment guarantee covers only header and tile-index fields. Extension sections start at 4-aligned offsets, so a section's payload begins at `section_start + 8` — which is 4-aligned-not-8-aligned when `section_start mod 8 == 4`. AFFN's six `f64`s within the payload are then 4-aligned-not-8-aligned. Cortex-M4 in default config permits unaligned `LDR` for u32 but traps on misaligned `VLDR.64` / `LDRD`. A reader pointer-casting AFFN `f64`s (mirroring § 11 #20's previous permission for header u64 access) would fault on a subset of conforming packs. New § 11 #27 (SHOULD): readers MUST `memcpy` 64-bit values within extension payloads regardless of buffer base alignment. The previous SHOULD (#20 → #26) clarified that its alignment guarantee is scoped to header + tile-index fields only.
+
+**(5) § 3 align4 contradiction with § 4.11 / § 11 #25 resolved.** Previous wording: "readers MUST compute via align4 to handle conforming packs that for some reason place the index further into the file" — but § 4.11 and § 11 #19 (now #25) say `index_offset == 292` is normative, so no such packs exist. Cut the "for some reason" half-sentence. The `align4` formulation is retained but reframed as forward-compatibility for a possible future major version with a non-multiple-of-4 header.
+
+**(6) § 7.1 padding-byte reader verification stated explicitly.** § 7.1 said padding bytes MUST be `0x00`; § 11 didn't say readers verify it. New § 11 #19(a) folds the padding-zero check into the extension-section walk: "verify that the section's padding bytes (0–3 bytes between `payload` and the next 4-byte boundary) are all `0x00` — readers MUST reject non-zero padding."
+
+**(7) § 5.3 lookup is now defensive against unconstrained caller input.** The lookup *algorithm* is well-defined for conforming packs, but the caller's `(z, x, y)` is unconstrained — a caller passing `z = 30` MUST NOT cause the reader to read `zoom_offsets[30]` past the 24-entry array bound. Step 1 (new) treats `z ≥ 24` as out-of-range and returns the absent outcome. Step 2 (rewritten) explicitly returns absent on `count == 0` without proceeding to binary search (a search over zero entries can read adjacent-entry bytes as garbage). § 5.3 is now phrased as MUST, not SHOULD — the algorithm's correctness underpins § 11 #17's invariants.
+
+**(8) § 4.10 build_timestamp offset typo.** "different bytes at offset 78 → different CRC" — `build_timestamp` is at offset 80 per the § 4 header table. Cosmetic but the kind of mistake that bites a reader implementer hand-computing a CRC mismatch.
+
+**(9) § 11 #13 strengthened to forbid duplicate `(z, x, y)` triples explicitly.** The "no duplicates" invariant was implicit in § 5.2 and the binary-search ordering but not in § 11's text. Now explicit.
+
+Numbering ripple: § 11 grew from 20 items (19 MUSTs + 1 SHOULD) to 27 items (25 MUSTs + 2 SHOULDs). Internal `§ 11 #N` cross-references updated: `§ 3` (#19 → #25), `§ 10 streaming verify` (#9–#14 → #12–#19), `§ 11 #14` self-reference renumbered to #19. § 12 cross-references unchanged (§ 12 numbering unchanged).
+
+No wire-format change. No constant change. No fixture rotation. The new rejection rules cover *malformed* packs that no conforming writer would have produced anyway, so existing valid packs are unaffected. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets --workspace -D warnings` clean, 281 tests passing.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 3, 4.10, 5.3, 11 (heavy revision).
+**Commit**: to land with the § 11 completeness slice.
+
 ### F-044 — Spec scrub: remove all implementation ties (slippypack, una-sdk, TilePack)
 Final implementation-decoupling pass. After F-041 cut slippypack-internal references (file paths, test names, env vars), 13 narrative-level references remained where the spec said "slippypack does X" or "una-sdk's watch firmware TilePack" or "byte-identical packs to slippypack". A wire-format spec should describe the format, not name its reference implementations.
 

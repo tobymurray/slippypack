@@ -57,7 +57,7 @@ A pack is at most **4 GiB** in total size. All on-disk offsets (`index_offset`, 
 tile_blob_start := align4(index_offset + 20 × tile_count)
 ```
 
-where `align4(n) := (n + 3) & ~3` rounds up to a 4-byte boundary. With `index_offset = 292` (the v1 default), and any `tile_count`, `index_offset + 20 × tile_count` is already 4-aligned, so `tile_blob_start = index_offset + 20 × tile_count` in practice — but readers MUST compute via `align4` to handle conforming packs that for some reason place the index further into the file. Anywhere in this specification (§§ 5, 6, 11, 12) that refers to "the start of the tile blob" means this value.
+where `align4(n) := (n + 3) & ~3` rounds up to a 4-byte boundary. With `index_offset = 292` (normative in v1, § 4.11 + § 11 #25), `index_offset + 20 × tile_count` is already 4-aligned for any `tile_count`, so in v1 `tile_blob_start = index_offset + 20 × tile_count`. The `align4` formulation is kept for forward compatibility with future major versions that might allow a non-multiple-of-4 header size. Anywhere in this specification (§§ 5, 6, 11, 12) that refers to "the start of the tile blob" means this value.
 
 ## 4. Header (offset 0, 292 bytes)
 
@@ -139,7 +139,7 @@ The value SHOULD represent the freshness of the underlying source data (e.g. mos
 **Determinism status.** `build_timestamp` occupies an unusual position in the pack: it sits *inside* the CRC scope (§ 10) but *outside* the canonical descriptor (§ A.3). That asymmetry is load-bearing — and dangerous if misused:
 
 - Two builds with the same logical inputs and the same `build_timestamp` → byte-identical packs → same `pack_uuid` and same CRC. (The dedup contract holds.)
-- Two builds with the same logical inputs and different `build_timestamp` (e.g. wall-clock time on two consecutive runs) → byte-different packs (different bytes at offset 78 → different CRC) → **same `pack_uuid`** (Appendix A doesn't include `build_timestamp`). The recipient that cached the first pack sees the announcement of the second, matches the cached UUID, and never downloads the byte-different data. **This is the worst-case dedup failure for offline-delivery readers.**
+- Two builds with the same logical inputs and different `build_timestamp` (e.g. wall-clock time on two consecutive runs) → byte-different packs (different bytes at offset 80 → different CRC) → **same `pack_uuid`** (Appendix A doesn't include `build_timestamp`). The recipient that cached the first pack sees the announcement of the second, matches the cached UUID, and never downloads the byte-different data. **This is the worst-case dedup failure for offline-delivery readers.**
 
 Writers that advertise round-trip-byte-identical reproducibility to their consumers (the dedup contract) MUST set `build_timestamp` deterministically from the logical inputs — § 12 #20 promotes the SHOULD here to a MUST for that class of writer. Writers that do not claim reproducibility MAY use wall-clock time but MUST NOT then advertise `pack_uuid` equality as implying byte equality. § 14.1's round-trip property is the conformance gate that distinguishes the two classes.
 
@@ -203,11 +203,12 @@ A conforming pack satisfies all of:
 
 ### 5.3 Tile lookup
 
-A reader looking up the bytes for `(z, x, y)` SHOULD:
+A reader looking up the bytes for `(z, x, y)` MUST:
 
-1. Read `zoom_offsets[z]`. If `count == 0`, the tile is absent.
-2. Binary-search the `count` entries starting at `offset` for the `(x, y)` key. The within-zoom ordering by `(x, y)` guarantees a well-defined ordering.
-3. If found, read `length` bytes at the entry's `offset` from the file.
+1. Treat `z ≥ 24` as out-of-range and return the absent outcome without indexing into `zoom_offsets`. (§ 4.12 fixes the array at 24 entries; § 11 #10 ensures every conforming pack has `zoom_max < 24`, but the lookup's *caller* is unconstrained — a caller passing `z = 30` MUST NOT cause the reader to read past the array bound.)
+2. Read `zoom_offsets[z]`. If `count == 0`, return the absent outcome — do NOT proceed to the binary search (a search over zero entries can read adjacent-entry bytes as garbage). § 11 #17 guarantees `offset == 0` whenever `count == 0`, so the absence test is independent of `offset`.
+3. Binary-search the `count` entries starting at `offset` for the `(x, y)` key. The within-zoom ordering by `(x, y)` guarantees a well-defined search.
+4. If found, read `length` bytes at the entry's `offset` from the file. If not found, return the absent outcome.
 
 **Reader API surface for the "absent" outcome is implementation-defined.** Readers MAY surface absence as a nullable return, a sentinel value, a distinguished error variant, or any other idiomatic shape for the host language. The spec mandates only the lookup *algorithm* and that absent tiles never return arbitrary bytes; it does not prescribe an API signature. A panic/exception-throwing API is non-conforming — it conflates "not in this pack" with "malformed pack".
 
@@ -427,12 +428,16 @@ The last 4 bytes of the file are a u32 little-endian **CRC-32/ISO-HDLC** value �
 Readers MUST verify the CRC and reject the pack on mismatch. The verification window is conditional, not strict:
 
 - **Eager verify** (default): compute the CRC at open time, before any reader API returns success. Simplest; appropriate when open-time latency is not a constraint.
-- **Streaming verify** (MAY): a reader MAY return from open before the CRC is fully computed, provided the verification runs in parallel with structural checks (§ 11 #9–#14, all of which already require a full-byte pass) and completes BEFORE any tile or extension bytes are returned to the caller. A reader that detects mismatch via streaming verify MUST surface the error on the next tile-or-extension read and invalidate any data already exposed. This converts a single open-time stall into work that overlaps with whatever the caller does after open.
+- **Streaming verify** (MAY): a reader MAY return from open before the CRC is fully computed, provided the verification runs in parallel with structural checks (§ 11 #12–#19, all of which already require a full-byte pass) and completes BEFORE any tile or extension bytes are returned to the caller. A reader that detects mismatch via streaming verify MUST surface the error on the next tile-or-extension read and invalidate any data already exposed. This converts a single open-time stall into work that overlaps with whatever the caller does after open.
 - **Caller-asserted trust** (MAY): a reader MAY skip the CRC entirely when the caller has provided integrity assurance through a separate channel (a signed installer, content-addressed storage, a previously-verified cache, …). The trust assertion is the caller's responsibility, not the reader's. Readers exposing this mode MUST require an explicit opt-in (e.g., a constructor flag, a "trusted source" capability token); the default reader path MUST verify.
 
 **Implementation note for resource-constrained readers** (Cortex-M and similar): on a 100 MHz M4 with SPI flash at ~50 MB/s and software CRC-32/ISO-HDLC (slicing-by-4, 1 KB table), opening a 50 MiB pack costs ~2 s of wall-clock under eager verify. Streaming verify lets the reader fold that work into structural-check passes that would happen anyway, eliminating it as a user-visible latency. Multi-pack boot scenarios (e.g. 5 packs at startup → 10 s eager penalty) are exactly what the streaming-verify carve-out targets.
 
 ## 11. Reader requirements
+
+This section is the complete reader-side conformance checklist. Every byte-format MUST defined in §§ 4–10 that a reader is responsible for verifying is restated or cross-referenced here, so a reader-implementer can validate against this single list without back-deriving requirements from prose in §§ 4–10.
+
+**Rejection timing.** All rejection rules below (#1 – #28) MUST be enforced before any tile bytes, extension-payload bytes, or extension-tag information are returned to the caller. A reader that interleaves these checks with the CRC verification window of § 10 — i.e. structural rejections folded into the same byte pass as the CRC fold — is conforming. A reader that defers structural rejections to first-lookup time (lazy validation) is NOT conforming: it would let a caller hold a "successfully opened" handle to a structurally malformed pack and observe undefined behavior on the first malformed entry.
 
 A conforming v1 reader MUST:
 
@@ -444,21 +449,28 @@ A conforming v1 reader MUST:
 6. Reject `parent_uuid` not equal to all-zero.
 7. Reject any unknown `pixel_format`, `projection`, `tile_addressing_scheme`, `tile_axis_convention`, or `compression` byte (§ 8).
 8. Reject any `projection` × `tile_addressing_scheme` combination outside the legal v1 pairs in § 8.6.
-9. Reject any tile-index entry with non-zero `flags` or non-zero `reserved`.
-10. Reject the pack if entries are not sorted ascending by `(z, x, y)`, including the within-zoom `(x, y)` lexicographic order that § 5.3's binary search depends on.
-11. Reject any tile-index entry whose `offset` is not 4-byte aligned, lies before `tile_blob_start` (§ 3), or whose `offset + length` exceeds `extensions_offset`.
-12. Reject the pack if `zoom_offsets[z].count` does not equal the actual count of tile-index entries at zoom `z` for any `z`, or if `zoom_offsets[z].offset` does not equal the byte offset of the first index entry at zoom `z` (when `count > 0`) or is non-zero (when `count == 0`).
-13. Reject the pack if `extensions_offset` is not 4-byte aligned, or if `extensions_offset > file_size − 4` (a value past the CRC footer is structurally invalid). The upper-bound check is necessary because § 11 #14's section-walk loop (`while pos < file_size − 4`) starts from `extensions_offset` and would silently conclude "no extensions" instead of rejecting if the start pointer already overshoots the footer.
-14. Reject any extension section whose extent (`tag + length + payload + alignment padding`) is not contained in `[extensions_offset, file_size − 4)` (§ 7.1). Additionally, after the section-walk loop terminates, reject the pack if the walk's terminal position does not equal `file_size − 4` — i.e., stranded bytes exist between the last section's padded end and the CRC footer. The "no extensions" case (`extensions_offset == file_size − 4`) is the loop's zero-iteration form of this same invariant.
-15. Reject any pack containing an unknown extension tag whose first byte is upper-case ASCII (`A–Z`).
-16. Accept and MAY ignore any unknown extension tag whose first byte is lower-case ASCII.
-17. Reject `projection = LocalLinear` packs that do not contain an `AFFN` extension.
-18. Verify the CRC-32 footer per § 10 (eager, streaming, or caller-asserted-trust) and reject the pack on mismatch. Whichever window the reader chooses, no tile or extension bytes MUST be returned to the caller while a mismatch is possible.
-19. Reject any pack where `index_offset != 292` (§ 4.11). Restated here from § 4.11 so readers can validate it as part of the standard rejection sweep. (The extensions-offset bound on the tile blob is already covered by #11's per-entry `offset + length ≤ extensions_offset` check; restating it as a global condition was tautological since the spec defines no separate `tile_blob_size` variable.)
+9. Reject `tile_dim_px == 0` (§ 4.7).
+10. Reject `zoom_max ≥ 24` or `zoom_min > zoom_max` (§ 4.8). The `zoom_max ≥ 24` bound is load-bearing: it bounds the per-entry `z` byte (#16) and prevents an out-of-range index into the 24-entry `zoom_offsets` array (§ 4.12) — `zoom_max = 25` would otherwise let a tile-index entry index `zoom_offsets[25]`, a buffer overrun.
+11. Reject `bbox` values outside the integer-microdegree ranges of § 4.9: `min_lon` and `max_lon` outside `[−180_000_000, 180_000_000]`, or `min_lat` and `max_lat` outside `[−90_000_000, 90_000_000]`. Reject `min_lon > max_lon` or `min_lat > max_lat`.
+12. Reject any tile-index entry with non-zero `flags` or non-zero `reserved` (§ 5.2).
+13. Reject the pack if entries are not sorted ascending by `(z, x, y)` — `z` non-decreasing across all entries; within each zoom, `(x, y)` strictly ascending lexicographically. The strict-within-zoom property forbids duplicate `(z, x, y)` triples and is what § 5.3's binary search depends on.
+14. Reject any tile-index entry whose `offset` is not 4-byte aligned, lies before `tile_blob_start` (§ 3), or whose `offset + length` exceeds `extensions_offset`. Compute the upper-bound check overflow-safely as `length ≤ extensions_offset − offset` (subtraction; u32-safe) rather than `offset + length ≤ extensions_offset` (addition; can wrap on 32-bit hosts when `length` is near `u32::MAX`).
+15. Reject any tile-index entry with `z > zoom_max` or `z < zoom_min` (§ 4.8). With #10 in force, `z` is bounded by `zoom_max < 24`, so the `z` byte safely indexes into the 24-entry `zoom_offsets` directory.
+16. Reject any tile-index entry whose `length` does not match the format-implied tile-bytes size. For v1's only pixel/compression pair (`pixel_format = ABGR2222`, `compression = None`), `length MUST equal tile_dim_px × tile_dim_px` for every entry. Future minor versions that add compression schemes (LZ4, QOI) will relax this to "length is the bound on the compressed payload"; v1 readers MUST reject any other length under `compression = None`.
+17. Reject the pack if `zoom_offsets[z].count` does not equal the actual count of tile-index entries at zoom `z` for any `z`, or if `zoom_offsets[z].offset` does not equal the byte offset of the first index entry at zoom `z` (when `count > 0`) or is non-zero (when `count == 0`).
+18. Reject the pack if `extensions_offset` is not 4-byte aligned, or if `extensions_offset > file_size − 4` (a value past the CRC footer is structurally invalid). The upper-bound check is necessary because § 11 #19's section-walk loop (`while pos < file_size − 4`) starts from `extensions_offset` and would silently conclude "no extensions" instead of rejecting if the start pointer already overshoots the footer.
+19. Reject any extension section whose extent (`tag + length + payload + alignment padding`) is not contained in `[extensions_offset, file_size − 4)` (§ 7.1). Compute the upper-bound check overflow-safely as `length ≤ (file_size − 4) − section_start − 8` (subtraction; u32-safe), not `section_start + 8 + length ≤ file_size − 4` (addition; wraps for large `length`). Additionally: (a) verify that the section's padding bytes (0–3 bytes between `payload` and the next 4-byte boundary) are all `0x00` (§ 7.1) — readers MUST reject non-zero padding; (b) after the section-walk loop terminates, reject the pack if the walk's terminal position does not equal `file_size − 4` — i.e., stranded bytes exist between the last section's padded end and the CRC footer. The "no extensions" case (`extensions_offset == file_size − 4`) is the loop's zero-iteration form of this same invariant.
+20. Reject any pack containing an unknown extension tag whose first byte is upper-case ASCII (`A–Z`).
+21. Accept and MAY ignore any unknown extension tag whose first byte is lower-case ASCII.
+22. Reject `projection = LocalLinear` packs that do not contain an `AFFN` extension.
+23. When `tile_addressing_scheme = SingleImage`, reject the pack unless ALL of the following hold (§ 8.6): `tile_count == 1`; the lone tile-index entry has `z == 0`; `zoom_min == 0`; `zoom_max == 0`; `zoom_offsets[0].count == 1` and `zoom_offsets[0].offset == index_offset`; every `zoom_offsets[z]` for `z ∈ [1, 23]` is `(0, 0)`.
+24. Verify the CRC-32 footer per § 10 (eager, streaming, or caller-asserted-trust) and reject the pack on mismatch. Whichever window the reader chooses, no tile or extension bytes MUST be returned to the caller while a mismatch is possible.
+25. Reject any pack where `index_offset != 292` (§ 4.11).
 
 A conforming v1 reader SHOULD:
 
-20. Choose an alignment strategy that matches how the pack bytes were loaded. Every multi-byte header field and every multi-byte field within a tile-index entry is naturally aligned at its *file offset* (§ 3). Readers that load the pack into an 8-byte-aligned buffer (e.g. via `malloc` / `aligned_alloc` and `fread`) MAY do native pointer-cast loads — those file offsets translate directly into aligned memory addresses. Readers reading from `mmap`-mapped memory whose mapping base is not 8-byte aligned, or reading from byte buffers at arbitrary offsets, MUST `memcpy` each multi-byte field into a properly-aligned local before decoding. The format guarantees file-offset alignment, not memory-address alignment of any particular load.
+26. Choose an alignment strategy that matches how the pack bytes were loaded. The format's alignment guarantee is bounded: it covers every multi-byte field in the **header** and every multi-byte field within a **tile-index entry** — both at their *file offsets* (§ 3). Readers that load the pack into an 8-byte-aligned buffer MAY do native pointer-cast loads for those fields. Readers reading from `mmap`-mapped memory whose mapping base is not 8-byte aligned, or reading from byte buffers at arbitrary offsets, MUST `memcpy` each multi-byte field into a properly-aligned local before decoding.
+27. **Extension-payload fields are NOT covered by the file-offset alignment guarantee.** An extension section's start is only 4-byte aligned (§ 7.1), so the section header occupies bytes `[section_start, section_start + 8)` and the payload starts at `section_start + 8`. If `section_start mod 8 == 4`, the payload start is 4-aligned-not-8-aligned, and any 64-bit field within the payload (notably `AFFN`'s six `f64`s, § 7.3) is misaligned for an 8-byte native load. Cortex-M4 in default configuration permits unaligned `LDR` for u32 but traps on misaligned `VLDR.64` / `LDRD`. Readers MUST `memcpy` 64-bit values within extension payloads into 8-aligned locals regardless of whether the pack buffer's base is 8-aligned. 32-bit fields within extension payloads may still be pointer-cast-loaded on platforms tolerating unaligned `LDR`, but the safe portable path is `memcpy` for all multi-byte extension-payload fields.
 
 ## 12. Writer requirements
 
