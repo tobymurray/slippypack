@@ -1,18 +1,16 @@
 # rawtiles format specification — version 1.0-rc1
 
-**Status:** Release candidate. The byte layout is frozen pending real-world validation against an independent reader (currently slated for the una-sdk MapTrack simulator round-trip). Wire-format-affecting changes between rc1 and the eventual 1.0 release would invalidate any `pack_uuid` derived under rc1; pre-rc1 implementers should treat fixtures as provisional until 1.0 ships.
+**Status:** Release candidate. The byte layout is frozen pending real-world validation against an independent reader. Wire-format-affecting changes between rc1 and the eventual 1.0 release would invalidate any `pack_uuid` derived under rc1; pre-rc1 implementers should treat fixtures as provisional until 1.0 ships.
 **Date:** 2026-05-14.
 **Wire format version**: the `format_version` bytes in conforming packs remain `(1, 0)`. The `-rc1` marker is on this *specification document*, not on the on-disk format — see § 13 for the version semantics.
 
-This document defines the `.rawtiles` binary file format. It is the byte-level contract between writers (e.g. [slippypack](https://github.com/tobymurray/slippypack)) and readers (e.g. una-sdk's watch firmware `TilePack`, or any future device-side consumer). Conforming implementations on either side need only this document.
-
-The format's design home is this slippypack repository. The format name **rawtiles** is independent of any specific producer or consumer. The una-sdk watch firmware is one reader; future consumers (other watches, embedded displays, kiosks, e-readers) implement the same spec.
+This document defines the `.rawtiles` binary file format: a byte-level contract between writers (tile-pack builders) and readers (firmware, validators, debug tools, future device-side consumers). Conforming implementations on either side need only this document. The format is intended for offline tile delivery to constrained devices — watches, embedded displays, kiosks, e-readers — where bandwidth and decode budgets are tight.
 
 ## Scope and audience
 
-- **Writers** (slippypack, third-party builders) need every section.
-- **Readers** (firmware, validators, debug tools) need §§ 4–13.
-- **Appendix A** is normative only for writers that need to produce byte-identical `.rawtiles` files to slippypack for the same logical inputs. Writers without that goal MAY pick any non-zero `pack_uuid`.
+- **Writers** need every section.
+- **Readers** need §§ 4–13.
+- **Appendix A** is normative only for writers that need to produce byte-identical `.rawtiles` files across implementations given the same logical inputs (the offline-delivery dedup contract). Writers without that goal MAY pick any non-zero `pack_uuid`.
 
 ## 1. Conventions
 
@@ -116,11 +114,7 @@ A `(major, minor)` pair. This specification defines `(1, 0)`. The fixed-size hea
 
 ### 4.7 `tile_dim_px`
 
-u16 little-endian. Pixel side length of one (square) tile.
-
-- MUST be non-zero.
-- For `addressing_scheme = Quadtree`, slippypack writes `128`.
-- For `addressing_scheme = SingleImage`, slippypack writes a value ≤ 240.
+u16 little-endian. Pixel side length of one (square) tile. MUST be non-zero.
 
 ### 4.8 `zoom_min` / `zoom_max`
 
@@ -215,7 +209,7 @@ A reader looking up the bytes for `(z, x, y)` SHOULD:
 2. Binary-search the `count` entries starting at `offset` for the `(x, y)` key. The within-zoom ordering by `(x, y)` guarantees a well-defined ordering.
 3. If found, read `length` bytes at the entry's `offset` from the file.
 
-**Reader API surface for the "absent" outcome is implementation-defined.** Readers MAY surface absence as a nullable / `Option`-typed return, a sentinel value, a distinguished error variant, or any other idiomatic shape for the host language. The spec mandates only the lookup *algorithm* and that absent tiles never return arbitrary bytes; it does not prescribe an API signature. (For reference, slippypack's Rust reader uses `Option<&[u8]>`; a C reader might use a `bool out_present` parameter; a panic/exception-throwing API would be non-conforming because it conflates "not in this pack" with "malformed pack.")
+**Reader API surface for the "absent" outcome is implementation-defined.** Readers MAY surface absence as a nullable return, a sentinel value, a distinguished error variant, or any other idiomatic shape for the host language. The spec mandates only the lookup *algorithm* and that absent tiles never return arbitrary bytes; it does not prescribe an API signature. A panic/exception-throwing API is non-conforming — it conflates "not in this pack" with "malformed pack".
 
 ## 6. Tile blob
 
@@ -278,7 +272,7 @@ Tag bytes 2–4 MAY be any printable ASCII; their case has no normative meaning.
 | Tag | Meaning | Payload |
 |---|---|---|
 | `NAME` | Pack display name | Length-prefixed BCP-47 tag + UTF-8 name; see § 7.4. Multiple `NAME` sections MAY appear (one per locale). |
-| `SRCD` | Source description | Free-form UTF-8 provenance text (e.g. *"OSM 2026-04 Geofabrik Italy extract, MapLibre watch-tuned style v2"*). |
+| `SRCD` | Source description | Free-form UTF-8 provenance text (e.g. *"OSM 2026-04 Geofabrik Italy extract, MapLibre style v2"*). |
 | `ATTR` | Attribution | UTF-8; newline-separated attribution strings, one per active source, no trailing newline. **For byte-identical reproducibility across writers, the strings MUST be ordered to match the canonical `sources` array order defined in Appendix A.4** (sorted by `(zoom_min, zoom_max, kind, identity)`). |
 | `PLET` | Palette | Packed pixel-format bytes (one per palette entry). Required when `pixel_format` is an indexed format; reserved for future use in v1. |
 | `AFFN` | Affine matrix | 48 bytes: six little-endian IEEE-754 `f64` values `(a, b, c, d, e, f)` defining the 2×3 affine `[a b c; d e f]` that maps image-pixel coordinates `(u, v)` to geographic coordinates `(lon, lat)` in decimal degrees: `lon = a·u + b·v + c`, `lat = d·u + e·v + f`. Required when `projection = LocalLinear`. |
@@ -409,7 +403,7 @@ bit:   7  6   5  4   3  2   1  0
 
 #### 9.1.1 Canonical quantisation from RGB888
 
-Slippypack's canonical quantisation maps each 8-bit channel to a 2-bit quantum via thresholds at the midpoints between displayed levels:
+The canonical quantisation maps each 8-bit channel to a 2-bit quantum via thresholds at the midpoints between displayed levels:
 
 | Input range | Output quantum | Displayed level |
 |---:|---:|---:|
@@ -433,7 +427,7 @@ The last 4 bytes of the file are a u32 little-endian **CRC-32/ISO-HDLC** value �
 Readers MUST verify the CRC and reject the pack on mismatch. The verification window is conditional, not strict:
 
 - **Eager verify** (default): compute the CRC at open time, before any reader API returns success. Simplest; appropriate when open-time latency is not a constraint.
-- **Streaming verify** (MAY): a reader MAY return from open before the CRC is fully computed, provided the verification runs in parallel with structural checks (§ 11 #9–#14, all of which already require a full-byte pass) and completes BEFORE any tile or extension bytes are returned to the caller. A reader that detects mismatch via streaming verify MUST surface the error on the next tile-or-extension read and invalidate any data already exposed. This converts a single open-time stall into work that overlaps with whatever the caller does after open, which on a watch / SPI-flash combination can hide the verification latency entirely.
+- **Streaming verify** (MAY): a reader MAY return from open before the CRC is fully computed, provided the verification runs in parallel with structural checks (§ 11 #9–#14, all of which already require a full-byte pass) and completes BEFORE any tile or extension bytes are returned to the caller. A reader that detects mismatch via streaming verify MUST surface the error on the next tile-or-extension read and invalidate any data already exposed. This converts a single open-time stall into work that overlaps with whatever the caller does after open.
 - **Caller-asserted trust** (MAY): a reader MAY skip the CRC entirely when the caller has provided integrity assurance through a separate channel (a signed installer, content-addressed storage, a previously-verified cache, …). The trust assertion is the caller's responsibility, not the reader's. Readers exposing this mode MUST require an explicit opt-in (e.g., a constructor flag, a "trusted source" capability token); the default reader path MUST verify.
 
 **Implementation note for resource-constrained readers** (Cortex-M and similar): on a 100 MHz M4 with SPI flash at ~50 MB/s and software CRC-32/ISO-HDLC (slicing-by-4, 1 KB table), opening a 50 MiB pack costs ~2 s of wall-clock under eager verify. Streaming verify lets the reader fold that work into structural-check passes that would happen anyway, eliminating it as a user-visible latency. Multi-pack boot scenarios (e.g. 5 packs at startup → 10 s eager penalty) are exactly what the streaming-verify carve-out targets.
@@ -628,17 +622,17 @@ Drift in any hash table requires either re-blessing under the implementation's d
 
 ## Appendix A — Canonical `pack_uuid` derivation
 
-This appendix defines slippypack's `pack_uuid` derivation. It is normative for writers that need to produce byte-identical packs to slippypack for the same logical inputs. Writers without that goal MAY choose any non-zero 16-byte value for `pack_uuid`.
+This appendix defines the canonical `pack_uuid` derivation. It is normative for writers that need to produce byte-identical packs across implementations given the same logical inputs (the offline-delivery dedup contract). Writers without that goal MAY choose any non-zero 16-byte value for `pack_uuid`.
 
 ### A.1 Namespace
 
-The slippypack UUID namespace is the constant:
+The rawtiles UUID namespace is the constant:
 
 ```
 RAWTILES_NAMESPACE = 4e72f962-6632-4538-8e0a-7eab63350f3f
 ```
 
-This value MUST NOT vary across writer versions. Changing it would invalidate every `pack_uuid` ever produced and break the "did the watch already receive this pack?" deduplication check.
+This value MUST NOT vary across implementations or spec versions. Changing it would invalidate every `pack_uuid` ever produced and break the recipient-side deduplication check ("does the device already have this pack?").
 
 ### A.2 Derivation
 
@@ -652,7 +646,7 @@ where `canonical_descriptor_bytes` is defined in § A.3 and UUIDv5 is the SHA-1-
 
 `canonical_descriptor_bytes` is the UTF-8 encoding of a JSON object **canonicalized per [RFC 8785 (JCS)](https://www.rfc-editor.org/rfc/rfc8785)**. Conforming writers MAY use any off-the-shelf JCS library; the canonical-bytes output is required to be byte-identical to what JCS produces.
 
-Two slippypack-specific rules apply *on top of* JCS — both about content shape, not JSON canonicalization:
+Two rawtiles-specific rules apply *on top of* JCS — both about content shape, not JSON canonicalization:
 
 1. **File-content hashes** are emitted as lowercase hex SHA-256 (64 chars).
 2. **Numeric coordinates** are integer microdegrees (= decimal degrees × 10⁶) using banker's rounding (round-half-to-even). Two inputs produce equivalent descriptors **iff they round to the same integer microdegrees under banker's rounding** — not "iff they differ by less than 10⁻⁶ degrees", since two inputs differing by `2×10⁻⁷` can still straddle a rounding boundary and produce different microdegrees. Banker's rounding matters because language defaults diverge: Python 3's `round()` is banker's; C's `lround()` is round-half-away-from-zero; many JavaScript paths are round-half-up. Writers MUST use banker's rounding for descriptor canonicalisation regardless of host-language default. Worked examples:
@@ -661,7 +655,7 @@ Two slippypack-specific rules apply *on top of* JCS — both about content shape
   - `0.0000006°` → `1 µ°` (rounds up; not a tie)
   - `0.0000004°` → `0 µ°` (rounds down; not a tie)
 
-For reference, the JCS canonicalization rules slippypack relies on are: UTF-8 encoding, no whitespace, top-level keys sorted by UTF-16 codepoint order, no trailing newline, ECMAScript `Number.toString` for numeric values (which for the integers we use is just the decimal representation, no leading zeros, no `+`/`.0`), and ECMAScript `JSON.stringify` string escape rules (`\"`, `\\`, `\b`, `\t`, `\n`, `\f`, `\r` for the five shortcut control chars; `\u00XX` for other control chars below U+0020; non-ASCII chars emitted as UTF-8 bytes verbatim). slippypack's descriptor schema (integers, strings, arrays, nulls — no floats) lands cleanly in the subset of JSON values for which JCS is fully deterministic.
+The JCS canonicalization rules this spec relies on are: UTF-8 encoding, no whitespace, top-level keys sorted by UTF-16 codepoint order, no trailing newline, ECMAScript `Number.toString` for numeric values (for the integers used by this descriptor, just the decimal representation: no leading zeros, no `+`/`.0`), and ECMAScript `JSON.stringify` string escape rules (`\"`, `\\`, `\b`, `\t`, `\n`, `\f`, `\r` for the five shortcut control chars; `\u00XX` for other control chars below U+0020; non-ASCII chars emitted as UTF-8 bytes verbatim). The descriptor schema (integers, strings, arrays, nulls — no floats) lands cleanly in the subset of JSON values for which JCS is fully deterministic.
 
 Top-level keys, in lex order:
 
@@ -772,6 +766,6 @@ All other byte values for the listed enums are unallocated; future spec versions
 
 | Spec version | Date | Notes |
 |---|---|---|
-| 1.0-rc1 | 2026-05-14 | First release candidate. Byte layout pinned; awaiting independent-reader validation (una-sdk MapTrack simulator round-trip) before promotion to 1.0. Any wire-format-affecting change between rc1 and 1.0 invalidates `pack_uuid`s derived under rc1. |
+| 1.0-rc1 | 2026-05-14 | First release candidate. Byte layout pinned; awaiting independent-reader validation before promotion to 1.0. Any wire-format-affecting change between rc1 and 1.0 invalidates `pack_uuid`s derived under rc1. |
 
 Note: the *spec document* version (`1.0-rc1`, `1.0-rc2`, `1.0`, `1.1`, …) is distinct from the *wire format* `format_version` bytes in the header. Multiple spec-document revisions can describe the same wire format `(1, 0)` if the changes are editorial or normative-clarification only.

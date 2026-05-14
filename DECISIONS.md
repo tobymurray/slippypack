@@ -631,6 +631,37 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-044 — Spec scrub: remove all implementation ties (slippypack, una-sdk, TilePack)
+Final implementation-decoupling pass. After F-041 cut slippypack-internal references (file paths, test names, env vars), 13 narrative-level references remained where the spec said "slippypack does X" or "una-sdk's watch firmware TilePack" or "byte-identical packs to slippypack". A wire-format spec should describe the format, not name its reference implementations.
+
+For each reference, decided: (1) is the content needed by a conforming impl? If yes, rephrase generically. (2) If not, cut.
+
+Cuts:
+
+- **Status note**: "validation against an independent reader (currently slated for the una-sdk MapTrack simulator round-trip)" → "validation against an independent reader". The una-sdk slating is project planning, not spec content.
+- **Intro (paragraphs 1 + 2 of body)**: "writers (e.g. slippypack)" / "readers (e.g. una-sdk's watch firmware TilePack, or any future device-side consumer)" / "The format's design home is this slippypack repository. The una-sdk watch firmware is one reader" — all collapsed into a single intro that names *categories* of consumer (firmware, validators, debug tools) and *device categories* (watches, embedded displays, kiosks, e-readers) without binding to any specific project.
+- **Scope and audience**: "Writers (slippypack, third-party builders) need every section" → "Writers need every section". "Appendix A is normative only for writers that need to produce byte-identical .rawtiles files to slippypack for the same logical inputs" → "byte-identical .rawtiles files across implementations given the same logical inputs (the offline-delivery dedup contract)".
+- **§ 4.7**: "For Quadtree, slippypack writes 128. For SingleImage, slippypack writes a value ≤ 240" — cut entirely. These are implementation choices; the spec only requires `tile_dim_px` non-zero.
+- **§ 5.3**: "(For reference, slippypack's Rust reader uses Option<&[u8]>; a C reader might use a bool out_present parameter…)" — cut; the absent-tile contract is "implementation-defined except panic/exception throwers are non-conforming," which doesn't need Rust/C examples.
+- **§ 9.1.1**: "Slippypack's canonical quantisation maps…" → "The canonical quantisation maps…". The quantisation IS the spec's canonical method; attributing it to slippypack was the wrong frame.
+- **Appendix A header**: "This appendix defines slippypack's pack_uuid derivation. It is normative for writers that need to produce byte-identical packs to slippypack" → "This appendix defines the canonical pack_uuid derivation. It is normative for writers that need to produce byte-identical packs across implementations". Same pattern.
+- **§ A.1**: "The slippypack UUID namespace" → "The rawtiles UUID namespace". "Changing it would break the 'did the watch already receive this pack?' deduplication check" → "Changing it would break the recipient-side deduplication check ('does the device already have this pack?')".
+- **§ A.3**: "Two slippypack-specific rules apply on top of JCS" → "Two rawtiles-specific rules apply on top of JCS". "the JCS canonicalization rules slippypack relies on are…" / "slippypack's descriptor schema…" → "the JCS canonicalization rules this spec relies on are…" / "the descriptor schema…".
+- **§ 10 streaming-verify**: "…which on a watch / SPI-flash combination can hide the verification latency entirely" — implementation-context tail cut. The carve-out's normative content stands without the watch/SPI-flash flavor.
+- **§ 7.3 SRCD example**: "OSM 2026-04 Geofabrik Italy extract, MapLibre watch-tuned style v2" → "OSM 2026-04 Geofabrik Italy extract, MapLibre style v2". "Watch-tuned" was illustrative but device-specific.
+- **Appendix C changelog**: "(una-sdk MapTrack simulator round-trip)" cut.
+
+Kept on purpose:
+- "watches, embedded displays, kiosks, e-readers" as a generic device-category list in the intro — describes the spec's target use case, not a specific implementation.
+- "(some Cortex-M configurations)" in § 3 alignment note — describes a class of strict-alignment platforms, not a specific impl.
+- "MapLibre style JSON" in § 7.3 and § A.4 — MapLibre Style Spec is a published external standard, not slippypack-internal. Coupling style_hash's domain to MapLibre is a deliberate spec choice (the renderer-style identity needs *some* concrete grammar).
+- § 10 "Implementation note for resource-constrained readers (Cortex-M and similar)" perf paragraph — rationale, but cited as illustrative of the kind of consumer the streaming-verify carve-out targets. Borderline; left in for now. Same flavor as F-043 cuts; a follow-on slice could move it to DECISIONS.
+
+Net spec change: 22 lines removed, 16 added (net −6). No wire-format change. No semantic change. The format is now self-contained: a third-party reader/writer/validator can read this document end-to-end without needing to know what "slippypack" is. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets --workspace -D warnings` clean, 281 tests passing.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ status note, intro, Scope and audience, 4.7, 5.3, 7.3, 9.1.1, 10, A header, A.1, A.3, Appendix C changelog.
+**Commit**: to land with the implementation-decoupling slice.
+
 ### F-043 — Spec scrub: cut rationale/commentary
 Pre-freeze cleanup. The spec had accumulated nine sites of design-rationale text — paragraphs explaining *why* a choice was made rather than *what bytes the wire format defines*. A reader implementer doesn't need to know why length-prefix was chosen over a delimiter; they need to know the bytes. The rationale for each cut design choice is preserved in this file (F-022 through F-040) where it belongs.
 
