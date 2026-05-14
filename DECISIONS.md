@@ -460,6 +460,25 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ## N — Naming
 
+### F-034 — Canonicalisation aligned to RFC 8785 (JCS)
+Pre-1.0-freeze fix. Spec § A.3 was hand-rolling a partial restatement of RFC 8785's JSON Canonicalization Scheme: no whitespace, lex key order, no trailing newline, integer formatting rules, string escape rules, control-char `\uXXXX`. JCS already specifies all of that. Third-party writers should be able to use any off-the-shelf JCS library (Rust, Go, Python, JS, …) instead of re-implementing.
+
+**One real divergence found** between our previous hand-rolled rule and JCS: control characters. We were emitting all U+0000–U+001F as `\u00XX`. JCS uses the ECMAScript `JSON.stringify` shortcuts for five of them — `\b \t \n \f \r` for U+0008 / 0009 / 000A / 000C / 000D — and `\u00XX` for the rest. Slippypack's canonicalizer is now aligned: shortcuts for those five, `\u00XX` otherwise.
+
+**No `pack_uuid` drift** on any committed fixture: the baseline, synthetic, and all five spec_layout / e2e fixtures use ASCII-printable strings (no control chars in URLs, names, attribution text, etc.). Verified by running a Python `jcs` library against the synthetic descriptor's canonical bytes and confirming byte-equality with slippypack's output.
+
+The `url_template_with_control_char_uses_u_escape` test was split into two: `url_template_with_shortcut_control_char_uses_shortcut` (verifies `\t` for tab) and `url_template_with_non_shortcut_control_char_uses_u_escape` (verifies `` for SOH). Both paths covered.
+
+Spec § A.3 rewritten to reference RFC 8785 directly, with only two slippypack-specific rules layered on top (both content-shape, not JSON canonicalisation): SHA-256 content hashes as lowercase hex; microdegree integer rounding via banker's. The JCS reference paragraph was kept as informational for readers who want to verify slippypack output without pulling in a JCS library.
+
+**Wins**:
+- Third-party writers in any language get canonicalization for free from an existing JCS lib.
+- Trims ~10 lines of spec prose that was duplicating RFC 8785.
+- The "did I implement § A.3 correctly?" class of bugs reduces to "did the JCS library work" — a much smaller and externally-validated surface.
+
+**Manifests**: `crates/slippypack-core/src/identity.rs::write_json_string` (added five shortcut branches); test renames + addition; `spec/rawtiles-v1.0.md` § A.3 rewritten.
+**Commit**: to land with the JCS-alignment slice.
+
 ### F-033 — Eight more pre-1.0 spec refinements
 Pure-doc batch closing eight more rough spots flagged by review. One small Rust + C++ change for the `index_offset` symmetry.
 

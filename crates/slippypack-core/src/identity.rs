@@ -344,17 +344,29 @@ fn write_affn_bits(bits: &[u64; 6], buf: &mut String) {
     buf.push(']');
 }
 
+/// JCS (RFC 8785) string escape, matching ECMAScript `JSON.stringify`.
+///
+/// - `"` → `\"`, `\` → `\\`.
+/// - U+0008 → `\b`, U+0009 → `\t`, U+000A → `\n`, U+000C → `\f`, U+000D → `\r`.
+/// - Other control chars (U+0000–U+001F minus the shortcuts above) → `\u00XX`.
+/// - Non-ASCII chars (≥ U+0080): emitted as their UTF-8 byte sequence verbatim.
+///
+/// This matches what an off-the-shelf RFC 8785 implementation would
+/// produce, so third-party writers can use any JCS library and get
+/// byte-identical canonical bytes.
 fn write_json_string(s: &str, buf: &mut String) {
     buf.push('"');
     for c in s.chars() {
         match c {
             '"' => buf.push_str("\\\""),
             '\\' => buf.push_str("\\\\"),
-            // All control chars get the \u00XX form for one canonical
-            // representation (no mix of \n / \t shortcuts).
+            '\u{0008}' => buf.push_str("\\b"),
+            '\u{0009}' => buf.push_str("\\t"),
+            '\u{000A}' => buf.push_str("\\n"),
+            '\u{000C}' => buf.push_str("\\f"),
+            '\u{000D}' => buf.push_str("\\r"),
             c if (c as u32) < 0x20 => {
                 use core::fmt::Write;
-                // Buffer is local; `write!` to a String never fails.
                 write!(buf, "\\u{:04x}", c as u32).unwrap();
             }
             c => buf.push(c),
@@ -742,11 +754,10 @@ mod tests {
     }
 
     #[test]
-    fn url_template_with_control_char_uses_u_escape() {
+    fn url_template_with_shortcut_control_char_uses_shortcut() {
+        // Per JCS (RFC 8785), tab (U+0009) MUST escape as `\t`, not
+        // `	`. Same for `\b`, `\n`, `\f`, `\r`.
         let mut d = baseline_descriptor();
-        // U+0009 (HT tab) is a control char. The serializer must emit it as
-        // the six-character sequence "\\u0009" (backslash, u, 0, 0, 0, 9)
-        // rather than the raw tab byte.
         d.sources = vec![Source::Url {
             template: "https://example.com/\t{z}/{x}/{y}.png".to_string(),
             auth_kinds: vec![],
@@ -755,15 +766,32 @@ mod tests {
         }];
         let bytes = canonical_descriptor_bytes(&d);
         let s = core::str::from_utf8(&bytes).unwrap();
-        // Use a non-raw string for the expected substring so the literal
-        // backslash is unambiguous: \\u0009 in source means the 6 chars
-        // `	` in the assertion target.
-        let expected_substring = "\"template\":\"https://example.com/\\u0009{z}/{x}/{y}.png\"";
+        let expected_substring = "\"template\":\"https://example.com/\\t{z}/{x}/{y}.png\"";
         assert!(s.contains(expected_substring), "got: {s}");
-        // Negative check: the raw tab byte must not appear in the output.
         assert!(
             !bytes.contains(&0x09),
             "raw tab byte leaked into canonical output",
+        );
+    }
+
+    #[test]
+    fn url_template_with_non_shortcut_control_char_uses_u_escape() {
+        // Control chars without an ECMAScript shortcut (e.g. U+0001 SOH)
+        // MUST use the `\u00XX` form per JCS § 3.2.2.2.
+        let mut d = baseline_descriptor();
+        d.sources = vec![Source::Url {
+            template: "https://example.com/\u{0001}{z}/{x}/{y}.png".to_string(),
+            auth_kinds: vec![],
+            zoom_min: 6,
+            zoom_max: 12,
+        }];
+        let bytes = canonical_descriptor_bytes(&d);
+        let s = core::str::from_utf8(&bytes).unwrap();
+        let expected_substring = "\"template\":\"https://example.com/\\u0001{z}/{x}/{y}.png\"";
+        assert!(s.contains(expected_substring), "got: {s}");
+        assert!(
+            !bytes.contains(&0x01),
+            "raw SOH byte leaked into canonical output",
         );
     }
 

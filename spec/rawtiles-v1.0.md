@@ -609,19 +609,18 @@ where `canonical_descriptor_bytes` is defined in § A.3 and UUIDv5 is the SHA-1-
 
 ### A.3 Canonical source descriptor
 
-`canonical_descriptor_bytes` is the UTF-8 encoding of a JSON object with these strict canonicalisation rules:
+`canonical_descriptor_bytes` is the UTF-8 encoding of a JSON object **canonicalized per [RFC 8785 (JCS)](https://www.rfc-editor.org/rfc/rfc8785)**. Conforming writers MAY use any off-the-shelf JCS library; the canonical-bytes output is required to be byte-identical to what JCS produces.
 
-- No whitespace anywhere.
-- Top-level keys in lexicographic codepoint order.
-- No trailing newline.
-- Integers in decimal; no leading zeros; no `+`/`.0`.
-- File-content hashes as lowercase hex SHA-256.
-- String escapes: `"` → `\"`, `\` → `\\`, any control character (codepoint < `0x20`) → `\uXXXX` (four lowercase hex digits). No other escape forms (`\n`, `\t`, `\/`, etc.) appear.
-- All numeric coordinates are integer microdegrees (= decimal degrees × 10⁶) using banker's rounding (half-to-even). Two inputs produce equivalent descriptors **iff they round to the same integer microdegrees under banker's rounding** — not "iff they differ by less than 10⁻⁶ degrees", since two inputs differing by `2×10⁻⁷` can still straddle a rounding boundary and produce different microdegrees. Banker's rounding (round-half-to-even) matters here because language defaults diverge: Python 3's `round()` is banker's; C's `lround()` is round-half-away-from-zero; many JavaScript paths are round-half-up. Writers MUST use banker's rounding for descriptor canonicalisation regardless of host-language default. Worked examples:
+Two slippypack-specific rules apply *on top of* JCS — both about content shape, not JSON canonicalization:
+
+1. **File-content hashes** are emitted as lowercase hex SHA-256 (64 chars).
+2. **Numeric coordinates** are integer microdegrees (= decimal degrees × 10⁶) using banker's rounding (round-half-to-even). Two inputs produce equivalent descriptors **iff they round to the same integer microdegrees under banker's rounding** — not "iff they differ by less than 10⁻⁶ degrees", since two inputs differing by `2×10⁻⁷` can still straddle a rounding boundary and produce different microdegrees. Banker's rounding matters because language defaults diverge: Python 3's `round()` is banker's; C's `lround()` is round-half-away-from-zero; many JavaScript paths are round-half-up. Writers MUST use banker's rounding for descriptor canonicalisation regardless of host-language default. Worked examples:
   - `0.0000005°` → `0 µ°` (the exact-half `0.5` rounds toward even, which is `0`)
   - `0.0000015°` → `2 µ°` (the exact-half `1.5` rounds toward even, which is `2`)
   - `0.0000006°` → `1 µ°` (rounds up; not a tie)
   - `0.0000004°` → `0 µ°` (rounds down; not a tie)
+
+For reference, the JCS canonicalization rules slippypack relies on are: UTF-8 encoding, no whitespace, top-level keys sorted by UTF-16 codepoint order, no trailing newline, ECMAScript `Number.toString` for numeric values (which for the integers we use is just the decimal representation, no leading zeros, no `+`/`.0`), and ECMAScript `JSON.stringify` string escape rules (`\"`, `\\`, `\b`, `\t`, `\n`, `\f`, `\r` for the five shortcut control chars; `\u00XX` for other control chars below U+0020; non-ASCII chars emitted as UTF-8 bytes verbatim). slippypack's descriptor schema (integers, strings, arrays, nulls — no floats) lands cleanly in the subset of JSON values for which JCS is fully deterministic.
 
 Top-level keys, in lex order:
 
