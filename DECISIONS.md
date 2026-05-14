@@ -224,6 +224,21 @@ Lookup is O(log n) per the spec's mandatory binary-search rule (PLAN.md / una-sd
 **Manifests:** `crates/slippypack-core/src/format/reader.rs::UpackReader::tile_bytes`.
 **Commit:** to land with the format slice-B commit.
 
+### F-018 — Spec-layout test uses raw `.upack` binary fixtures, not hex dumps
+PLAN.md § Test plan called for `golden-pack-*.upack.hex` text files. Implementation uses raw binary `.upack` files instead because (a) total fixture size is ~3.2 KB (tiny — no diff-visibility benefit from hex encoding), (b) the test code is simpler with `std::fs::read` + byte-equal comparison, (c) `xxd file.upack` is one command away when a diff is needed for forensics. Fixture-bootstrap is gated behind `BLESS_SPEC_LAYOUT=1 cargo test --test spec_layout` to prevent silent drift.
+**Manifests:** `crates/slippypack-core/tests/spec_layout.rs::assert_matches_golden`; `crates/slippypack-core/tests/fixtures/format/*.upack`.
+**Commit:** to land with the spec-layout-test commit.
+
+### F-019 — Pyramid spec-layout fixture trimmed to z=2..=4 (21 tiles), not the PLAN's z=2..=8 (5461 tiles)
+PLAN.md sketched the synthetic-pyramid fixture as z=2..=8 with 5461 tiles. The smaller z=2..=4 form (1 + 4 + 16 = 21 tiles) is functionally equivalent for byte-layout coverage — it exercises the `zoom_offsets[18]` directory across three populated zooms (enough to verify the per-zoom offset arithmetic and the per-zoom count fields) without committing a ~150 KB golden file. Larger pyramids stress the watch reader's `O(log n)` lookup performance, but that's runtime correctness, not byte-layout correctness; spec_layout tests the latter.
+**Manifests:** `crates/slippypack-core/tests/spec_layout.rs::build_pyramid_pack`.
+**Commit:** to land with the spec-layout-test commit.
+
+### F-020 — Spec-layout fixture tiles are 16-byte deterministic patterns, not real ABGR2222
+The PLAN.md fixtures were sketched as PNG inputs producing ABGR2222 tile bytes. The spec_layout test instead uses 16-byte deterministic patterns keyed on `(z, x, y)` — no PNG decode involved. Rationale: spec_layout tests the **format module's** byte output, not the decode module's; using raw deterministic tile bytes keeps the test focused. The header still declares `tile_dim_px = 128` (no enforcement that actual tile content matches dim²) — the test exercises the on-disk header bytes, not the on-disk tile-content semantics. The decode module is tested separately (D-series).
+**Manifests:** `crates/slippypack-core/tests/spec_layout.rs::synth_tile_content`.
+**Commit:** to land with the spec-layout-test commit.
+
 ---
 
 ## D — Decode module

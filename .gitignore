@@ -19,8 +19,11 @@ debug/
 *.swp
 *.swo
 
-# Build artifacts the CLI writes; the .hex fixtures under tests/fixtures/ are kept.
+# Build artifacts the CLI writes; the .hex and .upack fixtures under
+# tests/fixtures/ are kept.
 *.upack
 *.upack.partial
 !/crates/slippypack-cli/tests/fixtures/*.upack.hex
 !/crates/slippypack-core/tests/fixtures/*.upack.hex
+!/crates/slippypack-core/tests/fixtures/format/*.upack
+!/crates/slippypack-cli/tests/fixtures/*.upack
