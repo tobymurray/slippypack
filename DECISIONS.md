@@ -631,6 +631,46 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-047 — Cross-writer determinism: 13 derivation/format gaps
+Pre-1.0-freeze closure of 13 places where the spec let two "conforming" writers produce byte-different packs from the same logical inputs — the same load-bearing concern as F-040 (preprocessing pipeline) and F-042 (`build_timestamp`). Each gap broke the offline-delivery dedup contract that recipients depend on.
+
+**Pinned canonical derivations (§§ 4.8, 4.9, 4.10, 8.4):**
+
+- **§ 4.9 `bbox`** — was previously a writer parameter with no derivation rule. Now: for Quadtree with `tile_count > 0`, `bbox` is the tight i32-µdeg bounding box of the lon/lat patches covered by all tile-index entries, clipped to projection limits; for Quadtree with `tile_count == 0`, `bbox` is `(0, 0, 0, 0)` (origin sentinel); for SingleImage with LocalLinear, `bbox` is the bounding box of the four image-corner points transformed by `AFFN`.
+- **§ 4.8 `zoom_min` / `zoom_max`** — was implicit. Now: the actual min/max `z` byte values present in the tile-index (so a writer that internally targets "5–15" but only finds source tiles at "6–12" emits `(6, 12)`); `(0, 0)` for `tile_count == 0`.
+- **§ 4.10 `build_timestamp`** — was "most recent source mtime or HTTP Last-Modified", gestural. Now: max over sources of each source's freshness timestamp; absent freshness contributes `0` and does NOT count in the max; `0` overall if no source carries freshness.
+- **§ 8.4 `tile_axis_convention` for SingleImage** — was "readers MUST accept any of 1 or 2" with no writer constraint. Now: writers MUST emit `1` (`XYZ`) for SingleImage. The byte appears in the canonical descriptor (§ A.3), so SingleImage writers emitting different values would yield different `pack_uuid`s for the same logical inputs.
+- **§ 7.3 AFFN-derived bbox** — added the explicit derivation rule referenced from § 4.9: the four corners `(0, 0)`, `(W, 0)`, `(0, H)`, `(W, H)` transform through `AFFN`, the bounding box of those four lon/lat points becomes the pack `bbox`, rounded to nearest microdegree per § A.3's banker's rounding.
+
+**Declared writer parameters (not derived):**
+
+- **§ 4.7 `tile_dim_px`** — explicitly a writer parameter, not derived from inputs. Different `tile_dim_px` correctly yields different `pack_uuid` (it's in the descriptor); cross-writer dedup requires writers to agree on `tile_dim_px` out-of-band (a consumer-profile constant).
+- **§ 7.4 NAME locale set** — explicitly writer parameter from caller input. Different locale sets between two writers yield byte-different extension content with the same `pack_uuid` (NAME isn't in the canonical descriptor) — which means metadata can legitimately vary between packs sharing UUID. Cross-writer dedup compatibility requires writers to agree on the locale set out-of-band.
+
+**Pinned payload formats:**
+
+- **§ 7.3 ATTR newline** — pinned to LF (`0x0A`) only. CRLF, bare CR, and embedded `\r` anywhere in the payload are forbidden. Writers MUST reject; readers MAY reject or strip.
+- **§ 7.4 BCP-47 subset** — restricted to `lang[-REGION]`: two lowercase ASCII letters for language, optional hyphen + two uppercase ASCII letters for region. Closes the RFC 5646 parser-divergence trap (full BCP-47 ABNF is non-trivial; library implementations diverge). Case is normative: `en-us` is non-conforming. A future minor MAY relax the subset.
+- **§ 7.3 SRCD status** — explicitly optional and advisory. Cross-writer-reproducible writers MUST either omit SRCD entirely OR document their canonical SRCD-derivation function and produce byte-identical SRCD across runs. v1 does NOT define a canonical SRCD-derivation function.
+
+**Conflict resolution (§ 12 #6):**
+
+- **Duplicate `(z, x, y)` across sources** — was "Reject duplicate inputs at write time," ambiguous for multi-source writers. Now: canonical policy is **later-source-wins** per § A.4's canonical sources ordering. Two sources supplying the same `(z, x, y)` yield the later source's tile; earlier is silently dropped. After this resolution pass, no two tile-index entries share `(z, x, y)`. Writers that apply a different policy (first-wins, alpha-blend, strict-reject) MUST NOT claim cross-writer reproducibility. Single-source writers' behavior unchanged (the policy is a no-op).
+
+**Clarification (§ 12.1 NAME sort):**
+
+- The previous claim "naturally orders the NAME sections by locale tag (alphabetical order)" was misleading for mixed-length tag lists. The sort is byte-order over the raw payload, dominated by the leading `tag_length` byte. New text + worked example: `tag_length=0` first, then 2-letter tags (alphabetical within length 2), then 5-letter `lang-REGION` tags (alphabetical within length 5). A 2-letter `zh` correctly sorts before a 5-letter `en-US` despite `zh` > `en` alphabetically.
+
+**§ 12 #6 + § 12 #19 updates:**
+
+- § 12 #6 now references the canonical conflict-resolution policy.
+- § 12 #19 (SingleImage writer rules) now includes `tile_axis_convention = 1`.
+
+No wire-format change. No constant change. No fixture rotation. The new rules constrain writer behavior to a canonical surface; existing valid packs (single-source, simple metadata) are unaffected. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets --workspace -D warnings` clean, 281 tests passing.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 4.7, 4.8, 4.9, 4.10, 7.3, 7.4, 8.4, 12 (#6, #19), 12.1.
+**Commit**: to land with the cross-writer-determinism slice.
+
 ### F-046 — § 13.1: pin `reserved_v1_0` forward-compat hole as additive-only
 Pre-freeze closure of one remaining silent-render trap. The `reserved_v1_0` bytes at header offset 6 are a forward-compat hole — v1.0 readers MUST accept any value. The implicit contract was "future v1.x will use these bytes additively, not to repurpose existing v1.0 field semantics," but the contract was social, not specified.
 

@@ -116,11 +116,15 @@ A `(major, minor)` pair. This specification defines `(1, 0)`. The fixed-size hea
 
 u16 little-endian. Pixel side length of one (square) tile. MUST be non-zero.
 
+`tile_dim_px` is a **writer parameter**, not derived from the logical inputs. Two writers given the same logical inputs MAY emit different `tile_dim_px` values (e.g. one targeting 128² for a watch profile, another 256² for a kiosk profile) — and the resulting packs correctly produce different `pack_uuid`s because `tile_dim_px` is in the canonical descriptor (§ A.3). Cross-writer dedup compatibility requires writers to agree on `tile_dim_px` out-of-band (a consumer-profile constant), not in the spec.
+
 ### 4.8 `zoom_min` / `zoom_max`
 
 Inclusive on both ends. `zoom_max ≥ zoom_min`. `zoom_max < 24` (the size of the per-zoom directory, § 4.12).
 
 For `addressing_scheme = SingleImage` the pack has only one logical image and both fields are 0.
+
+**Canonical derivation (Quadtree).** For cross-writer-reproducible packs, `zoom_min` and `zoom_max` are the actual minimum and maximum `z` byte values present in the tile-index. The fields are derived from the tile data, not from a writer parameter — a writer that internally targets "zooms 5–15" but only finds source tiles at zooms 6–12 MUST emit `(zoom_min, zoom_max) = (6, 12)`. For `tile_count == 0` metadata-only Quadtree packs (§ 8.6), both fields MUST be `0`.
 
 ### 4.9 `bbox`
 
@@ -129,6 +133,12 @@ Four `i32` little-endian values, in this byte order: `min_lon`, `min_lat`, `max_
 - Units: integer microdegrees (= decimal degrees × 10⁶).
 - Range: `lon ∈ [−180_000_000, 180_000_000]`; `lat ∈ [−90_000_000, 90_000_000]`. For `projection = WebMercator` the latitude range is further restricted by the Mercator pole limit (~±85.051129°, i.e. ±85_051_129 microdegrees); readers MAY use this to validate but MUST NOT reject packs solely on the basis of latitudes slightly outside that range.
 - `min_lon ≤ max_lon`, `min_lat ≤ max_lat`.
+
+**Canonical derivation.** `bbox` is derived from the pack's tile content, not a writer parameter. Two writers given the same logical inputs MUST emit byte-identical `bbox`:
+
+- **Quadtree, `tile_count > 0`**: `bbox` is the tight i32-microdegree bounding box of the lon/lat patches covered by all tile-index entries. Each tile `(z, x, y)` covers a known lon/lat region under WebMercator (§ 8.2); the writer computes the union's bounds, rounds to the nearest microdegree per § A.3's banker's rounding rule, and clips to the WebMercator pole limits.
+- **Quadtree, `tile_count == 0`** (metadata-only packs, § 8.6): `bbox` is `(0, 0, 0, 0)`. With no tiles there is no tile-coverage region to bound; the canonical sentinel is the origin point. A writer that needs to advertise a different bbox on a zero-tile pack falls outside cross-writer-reproducible packs and MUST document its own convention.
+- **SingleImage with `projection = LocalLinear`**: `bbox` is the tight i32-microdegree bounding box of the four image-corner points `(0, 0)`, `(W, 0)`, `(0, H)`, `(W, H)` transformed by the AFFN matrix (§ 7.3), where `W = H = tile_dim_px`. Each corner maps to `(lon, lat) = (a·u + b·v + c, d·u + e·v + f)`; the four results' componentwise min/max give `bbox`, rounded to the nearest microdegree.
 
 ### 4.10 `build_timestamp`
 
@@ -142,6 +152,8 @@ The value SHOULD represent the freshness of the underlying source data (e.g. mos
 - Two builds with the same logical inputs and different `build_timestamp` (e.g. wall-clock time on two consecutive runs) → byte-different packs (different bytes at offset 80 → different CRC) → **same `pack_uuid`** (Appendix A doesn't include `build_timestamp`). The recipient that cached the first pack sees the announcement of the second, matches the cached UUID, and never downloads the byte-different data. **This is the worst-case dedup failure for offline-delivery readers.**
 
 Writers that advertise round-trip-byte-identical reproducibility to their consumers (the dedup contract) MUST set `build_timestamp` deterministically from the logical inputs — § 12 #20 promotes the SHOULD here to a MUST for that class of writer. Writers that do not claim reproducibility MAY use wall-clock time but MUST NOT then advertise `pack_uuid` equality as implying byte equality. § 14.1's round-trip property is the conformance gate that distinguishes the two classes.
+
+**Canonical derivation (reproducibility-claiming writers).** `build_timestamp` is the **maximum** over all sources of each source's freshness-timestamp (Unix epoch seconds). The per-source freshness is the source's filesystem `mtime` (file-backed kinds) or HTTP `Last-Modified` (URL kinds) at the time the writer ingested it; sources for which no freshness signal is available (HTTP responses lacking `Last-Modified`, the `synthetic` kind, etc.) contribute `0` and do NOT count in the max. If no source carries a freshness signal, `build_timestamp` is `0`. Max-over-sources matches the field's semantic ("how fresh is this pack's content?"); a single stale source MUST NOT drag the timestamp below a fresher source's freshness.
 
 The value `0` is the sentinel for *"no freshness information available."* Writers needing to express exactly the Unix epoch SHOULD use `1` to avoid collision with the sentinel.
 
@@ -274,14 +286,22 @@ Tag bytes 2–4 MAY be any printable ASCII; their case has no normative meaning.
 |---|---|---|
 | `NAME` | Pack display name | Length-prefixed BCP-47 tag + UTF-8 name; see § 7.4. Multiple `NAME` sections MAY appear (one per locale). |
 | `SRCD` | Source description | Free-form UTF-8 provenance text (e.g. *"OSM 2026-04 Geofabrik Italy extract, MapLibre style v2"*). |
-| `ATTR` | Attribution | UTF-8; newline-separated attribution strings, one per active source, no trailing newline. **For byte-identical reproducibility across writers, the strings MUST be ordered to match the canonical `sources` array order defined in Appendix A.4** (sorted by `(zoom_min, zoom_max, kind, identity)`). |
+| `ATTR` | Attribution | UTF-8; LF-separated attribution strings (one per active source, no trailing LF). See ATTR rules below. |
 | `PLET` | Palette | Packed pixel-format bytes (one per palette entry). Required when `pixel_format` is an indexed format; reserved for future use in v1. |
 | `AFFN` | Affine matrix | 48 bytes: six little-endian IEEE-754 `f64` values `(a, b, c, d, e, f)` defining the 2×3 affine `[a b c; d e f]` that maps image-pixel coordinates `(u, v)` to geographic coordinates `(lon, lat)` in decimal degrees: `lon = a·u + b·v + c`, `lat = d·u + e·v + f`. Required when `projection = LocalLinear`. |
 
 Conditional requirements:
 
-- `AFFN` MUST be present when `projection = LocalLinear`. Readers MUST reject LocalLinear packs without `AFFN`.
+- `AFFN` MUST be present when `projection = LocalLinear`. Readers MUST reject LocalLinear packs without `AFFN`. The pack's `bbox` MUST be derived from `AFFN` per § 4.9.
 - `PLET` MUST be present when `pixel_format` is an indexed format (none in v1; reserved).
+
+**ATTR payload rules.**
+
+- Lines are separated by a single LF byte (`0x0A`, U+000A). CRLF and bare CR are NOT permitted. Embedded `\r` (`0x0D`) anywhere in the payload is forbidden (writers MUST reject; readers MAY reject or strip).
+- No trailing LF after the last string.
+- For byte-identical reproducibility across writers, the strings MUST be ordered to match the canonical `sources` array order defined in Appendix A.4 (sorted by `(zoom_min, zoom_max, kind, identity)`).
+
+**SRCD payload status.** `SRCD` is OPTIONAL and ADVISORY. Writers that claim cross-writer reproducibility (the dedup contract) MUST either omit `SRCD` entirely from v1 packs, OR document their canonical SRCD-derivation function and produce byte-identical SRCD across runs. v1 does NOT define a canonical SRCD-derivation function; a future minor version MAY define one. Writers that emit a writer-specific SRCD MUST treat their `SRCD` bytes as part of the writer's deterministic surface: same writer + same inputs → same SRCD bytes (§ 14.1's intra-writer round-trip). Different writers' SRCD bytes diverging is acceptable as long as those writers do NOT claim cross-writer reproducibility to each other's consumers.
 
 ### 7.4 `NAME` payload layout
 
@@ -296,8 +316,19 @@ The `NAME` section's payload is length-prefixed, not delimiter-separated:
 Rules:
 
 - `tag_length` MAY be `0`, indicating "no locale specified". A pack with multiple `NAME` sections SHOULD include exactly one section with `tag_length = 0` as the unlocalized fallback name.
-- `bcp47_tag` MUST be a syntactically valid BCP-47 language tag per RFC 5646. Readers SHOULD NOT validate the semantic correctness of the tag (e.g. whether a region subtag is registered) — that's the writer's responsibility.
+- `bcp47_tag` MUST conform to the **v1 restricted BCP-47 subset** (see below). The full RFC 5646 grammar is not in scope for v1 — its ABNF is non-trivial enough that BCP-47 libraries across languages implement it partially, which would let two writers given the same locale tag produce different acceptance behavior (cross-writer divergence trap).
 - `name` MUST be valid UTF-8 and SHOULD NOT be empty.
+
+**v1 restricted BCP-47 subset.** A `bcp47_tag` byte sequence in a v1 pack MUST match one of:
+
+- `language` — exactly two ASCII letters, lowercase (`[a-z]{2}`). Example: `en`, `it`, `ja`.
+- `language-REGION` — two lowercase ASCII letters, a hyphen `0x2D`, two uppercase ASCII letters (`[a-z]{2}-[A-Z]{2}`). Example: `en-US`, `pt-BR`.
+
+Writers MUST emit only these two shapes. Readers MUST accept these two shapes and MAY reject any other shape. The case requirement (lowercase language, uppercase region) is normative: `en-us` is non-conforming in v1, as is `EN-US`. This matches the BCP-47 conventional case but is a strict requirement for byte-identical cross-writer output.
+
+A future minor version MAY relax the subset (e.g. to include script subtags `language-Scrp-REGION` or 3-letter ISO 639-3 language codes); v1 readers will reject such packs per § 7.2's case-bifurcation rule — which is the intended forward-compatible behavior.
+
+**NAME locale set as writer parameter.** The set of locales for which a writer emits NAME sections is a **writer parameter** (typically a caller-supplied locale-to-name map), not derived from logical inputs. Two writers given different locale sets MAY produce different NAME extension content; this changes the on-disk extension bytes and therefore the CRC, but does NOT affect `pack_uuid` (NAME content is not in the canonical descriptor of § A.3). Cross-writer dedup compatibility requires writers to agree on the locale set out-of-band, the same way they must agree on `tile_dim_px` (§ 4.7).
 - The total payload length is `1 + tag_length + name.len()`; the section header's `length` field carries this total.
 
 Readers selecting a `NAME` section for display:
@@ -351,7 +382,7 @@ In every enum, readers MUST reject any unknown value encountered in the header o
 | 2 | `TMS` | v1 (`gdal2tiles --profile mercator` default; Y increases northward) |
 | 3–255 | reserved | reader MUST reject |
 
-Meaningful only when `addressing_scheme = Quadtree`. For `SingleImage`, readers MUST accept the byte at face value (treating any of `1` or `2` as valid) and SHOULD ignore it for rendering.
+Meaningful only when `addressing_scheme = Quadtree`. For `SingleImage`, readers MUST accept the byte at face value (treating any of `1` or `2` as valid) and SHOULD ignore it for rendering. **Writers MUST emit `1` (`XYZ`) for SingleImage packs** — the canonical default. The byte appears in the canonical descriptor (§ A.3), so a SingleImage writer emitting `2` would yield a different `pack_uuid` than one emitting `1` for the same logical inputs, breaking cross-writer dedup. Pinning the SingleImage value to `1` closes that gap.
 
 ### 8.5 `compression` (tile-index byte 1)
 
@@ -483,7 +514,11 @@ A conforming v1 writer MUST:
 3. Set `parent_uuid` to all-zero.
 4. Place the tile index immediately after the header (`index_offset = 292`).
 5. Sort the tile index ascending by `(z, x, y)`. The within-zoom `(x, y)` ordering MUST be strictly ascending lexicographic — § 5.3's binary search depends on it (§ 5.2).
-6. Reject duplicate `(z, x, y)` tile inputs at write time.
+6. Reject duplicate `(z, x, y)` tile inputs at write time, **after** applying the canonical conflict-resolution policy below. The policy applies to multi-source writers where two or more sources supply the same `(z, x, y)`:
+
+   **Canonical conflict resolution (later-source-wins).** Apply § A.4's canonical `sources` ordering to the writer's source list. When two sources supply the same `(z, x, y)` tile, the tile from the source that appears LATER in § A.4's canonical ordering wins; earlier-source tiles for that `(z, x, y)` are silently dropped. After this resolution pass, no two tile-index entries share `(z, x, y)`. If the writer's source list collapses to a single source, the policy is a no-op.
+
+   Writers that apply a different conflict policy (e.g. first-source-wins, alpha-blend, or strict-reject-any-conflict) MUST NOT claim cross-writer reproducibility — their pack bytes will differ from canonical-policy writers given the same multi-source input. Writers that do NOT accept multi-source input (e.g. only ever one source) need not implement the policy; § 12 #6's strict-reject-duplicate-input rule covers their case directly.
 7. Pad the tile index to a 4-byte boundary before the tile blob.
 8. Place each tile at a 4-byte-aligned offset and pad with 0–3 zero bytes between tiles.
 9. Place each extension section starting at a 4-byte-aligned offset; pad each payload to a 4-byte boundary with zero bytes.
@@ -496,7 +531,7 @@ A conforming v1 writer MUST:
 16. Emit `NAME` payloads under the length-prefixed layout of § 7.4: 1-byte `tag_length`, `tag_length` bytes of BCP-47 tag (UTF-8/ASCII), then the UTF-8 pack name occupying the remainder of the payload. The section header's `length` carries `1 + tag_length + name.len()`.
 17. Emit `bbox` per § 4.9: four `i32` LE values in the byte order `min_lon, min_lat, max_lon, max_lat` in integer microdegrees, with `min_lon ≤ max_lon` and `min_lat ≤ max_lat`. Longitudes MUST lie in `[−180_000_000, 180_000_000]`; latitudes MUST lie in `[−90_000_000, 90_000_000]`.
 18. Honour the `projection × tile_addressing_scheme` legality table of § 8.6 — emit only the v1-legal pairs `(WebMercator, Quadtree)` or `(LocalLinear, SingleImage)`. The header bytes at offsets 57 and 58 MUST encode one of these two pairs and no other.
-19. When `tile_addressing_scheme = SingleImage` (§ 8.6), emit exactly **one** tile-index entry whose `z = 0`; set `zoom_min = zoom_max = 0` in the header; populate `zoom_offsets[0]` only — `zoom_offsets[1..24]` MUST be all-zero.
+19. When `tile_addressing_scheme = SingleImage` (§ 8.6), emit exactly **one** tile-index entry whose `z = 0`; set `zoom_min = zoom_max = 0` in the header; populate `zoom_offsets[0]` only — `zoom_offsets[1..24]` MUST be all-zero; emit `tile_axis_convention = 1` (`XYZ`, the canonical SingleImage value per § 8.4).
 
 A conforming v1 writer MUST (reproducibility-claiming subset):
 
@@ -519,7 +554,7 @@ A conforming v1 writer MUST NOT:
 For § 14.1's writer-round-trip property to hold, the order in which extension sections are emitted MUST be a deterministic function of the logical inputs. A conforming v1 writer MUST emit extension sections in this order:
 
 1. **Primary sort: ascending by the 4-byte tag**, compared as unsigned bytes. This puts reserved tags before ancillary ones (`A–Z` < `a–z` in ASCII) and orders within each group lexicographically. For the v1-reserved tags this happens to give the canonical order **`AFFN, ATTR, NAME, PLET, SRCD`**.
-2. **Secondary sort: for tags with multiple legal instances**, ascending by payload bytes (compared as unsigned bytes, shorter-payload-first when one is a prefix of the other). In v1 only `NAME` has multiple instances, ordered by their length-prefixed payloads — which, since the payload's first byte is `tag_length` and BCP-47 tags sort lexicographically as ASCII, naturally orders the `NAME` sections by locale tag (`tag_length=0` unlocalized first, then locale-tagged variants in alphabetical order).
+2. **Secondary sort: for tags with multiple legal instances**, ascending by payload bytes (compared as unsigned bytes, shorter-payload-first when one is a prefix of the other). In v1 only `NAME` has multiple instances, ordered by their length-prefixed payloads. Because the payload's first byte is `tag_length`, the sort is dominated by tag length first, then by tag content within the same length. **This is byte-order on the raw payload, not alphabetical order on BCP-47 tags.** For an example pack with locales `tag_length=0` (fallback), `en`, `en-US`, `it`, and `pt-BR`: the order is `tag_length=0` (length 0, sorts first), then `en` and `it` (length 2, alphabetical among themselves: `en` < `it`), then `en-US` and `pt-BR` (length 5, alphabetical among themselves: `en-US` < `pt-BR`). A tag like `zh` (length 2) would correctly sort before `en-US` (length 5), even though `zh` > `en` alphabetically — the leading `tag_length` byte dominates the comparison.
 
 This rule is what makes the round-trip property of § 14.1 actually enforceable. Two writers applied to the same logical inputs (same metadata + same tiles + same set of `NAME` locales + same `ATTR` text + same `AFFN` matrix, etc.) MUST emit the extension sections in the same byte order.
 
