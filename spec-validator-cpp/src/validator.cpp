@@ -45,10 +45,11 @@ namespace upack {
 
 // -------- Spec constants --------------------------------------------
 
-constexpr std::size_t kHeaderBaseSize = 322;
-constexpr std::size_t kIndexEntrySize = 24;
-constexpr std::size_t kZoomOffsetsCount = 18;
+constexpr std::size_t kZoomOffsetsCount = 24;
 constexpr std::size_t kZoomOffsetSize = 12;  // u64 offset + u32 count
+constexpr std::size_t kIndexEntrySize = 24;
+// 98 fixed-field bytes + 24 * 12 zoom-directory bytes + 8 extensions_offset = 394.
+constexpr std::size_t kHeaderBaseSize = 98 + kZoomOffsetsCount * kZoomOffsetSize + 8;
 constexpr std::size_t kFooterCrcSize = 4;
 constexpr std::size_t kSectionHeaderSize = 8;  // tag(4) + len(4)
 constexpr std::array<std::uint8_t, 4> kMagic = {'U', 'P', 'C', 'K'};
@@ -76,8 +77,8 @@ constexpr std::size_t kOffBbox = 62;              // 4 × i32 LE
 constexpr std::size_t kOffBuildTimestamp = 78;
 constexpr std::size_t kOffTileCount = 86;
 constexpr std::size_t kOffIndexOffset = 90;
-constexpr std::size_t kOffZoomOffsets = 98;       // 18 × 12 bytes = 216
-constexpr std::size_t kOffExtensionsOffset = 314;
+constexpr std::size_t kOffZoomOffsets = 98;       // 24 × 12 bytes = 288
+constexpr std::size_t kOffExtensionsOffset = kOffZoomOffsets + kZoomOffsetsCount * kZoomOffsetSize;
 
 // -------- Little-endian decoders ------------------------------------
 
@@ -311,7 +312,7 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
         "bbox min_lat must be < max_lat");
 
   // index_offset must point past the header. In v1 the index sits
-  // immediately after the 322-byte header (index_offset == 322); the
+  // immediately after the 394-byte header (index_offset == 394); the
   // format is byte-oriented (LE-encoded with no native struct dumps),
   // so multi-byte fields don't require alignment in the file. Readers
   // that want aligned reads `memcpy` to a local before decoding.

@@ -1,6 +1,6 @@
 //! Fixed-size `.upack` header serialization and parsing.
 //!
-//! Layout (all multi-byte integers little-endian per the una-sdk spec):
+//! Layout (all multi-byte integers little-endian):
 //!
 //! | Offset | Size  | Field                       |
 //! |-------:|------:|-----------------------------|
@@ -21,10 +21,10 @@
 //! |  78    |    8  | `build_timestamp` (u64 LE)  |
 //! |  86    |    4  | `tile_count` (u32 LE)       |
 //! |  90    |    8  | `index_offset` (u64 LE)     |
-//! |  98    |  216  | `zoom_offsets[18]`          |
+//! |  98    |  288  | `zoom_offsets[24]`          |
 //! |        |       |   per-zoom: u64 offset + u32 count |
-//! | 314    |    8  | `extensions_offset` (u64 LE)|
-//! | **322** |     | **header base size**        |
+//! | 386    |    8  | `extensions_offset` (u64 LE)|
+//! | **394** |     | **header base size**        |
 //!
 //! Fields the writer derives itself (`tile_count`, `index_offset`,
 //! `zoom_offsets`, `extensions_offset`) are passed via
@@ -37,13 +37,30 @@ use super::types::{
 };
 
 /// Number of bytes in the fixed-size header.
-pub const HEADER_BASE_SIZE: usize = 322;
+///
+/// `98` fixed-field bytes + `ZOOM_OFFSETS_COUNT × 12` zoom-directory
+/// bytes + `8` for `extensions_offset` = `98 + 24*12 + 8 = 394`.
+pub const HEADER_BASE_SIZE: usize = 98 + ZOOM_OFFSETS_COUNT * 12 + 8;
 
 /// Number of per-zoom directory entries baked into the header. The spec
-/// reserves 18 slots (zooms 0..=17 inclusive). Packs with zoom levels
+/// reserves 24 slots (zooms 0..=23 inclusive). Packs with zoom levels
 /// outside this range MUST set the corresponding `zoom_offsets[z]` to
 /// all-zero.
-pub const ZOOM_OFFSETS_COUNT: usize = 18;
+///
+/// **Sizing rationale**: z=22 is the deepest zoom OSM and Google Maps
+/// publish (~5 cm tiles at the equator); z=23 leaves one slot of headroom
+/// for very-high-detail kiosk / car-nav / GIS workflows. The watch use
+/// case lives at z=12..17 and doesn't strain this. Cost of the extra
+/// slots: 72 bytes in every pack's header — negligible.
+pub const ZOOM_OFFSETS_COUNT: usize = 24;
+
+/// File offset where the per-zoom directory begins. Pinned to keep
+/// the pre-directory fields stable across header-size changes.
+const ZOOM_OFFSETS_START: usize = 98;
+
+/// File offset of the trailing `extensions_offset` u64 (the last 8
+/// bytes of the header, just past the zoom-directory).
+const EXTENSIONS_OFFSET_AT: usize = ZOOM_OFFSETS_START + ZOOM_OFFSETS_COUNT * 12;
 
 /// Per-zoom directory entry: `(offset, count)` pair describing where
 /// the tile index for zoom `z` starts and how many tile-index entries
@@ -114,7 +131,7 @@ pub enum HeaderError {
 impl core::fmt::Display for HeaderError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match *self {
-            Self::TooShort => f.write_str("header input is shorter than 322 bytes"),
+            Self::TooShort => write!(f, "header input is shorter than {HEADER_BASE_SIZE} bytes"),
             Self::BadMagic => f.write_str("magic bytes are not \"UPCK\""),
             Self::UnsupportedMajorVersion { got, supported } => {
                 write!(
@@ -147,7 +164,7 @@ impl core::fmt::Display for HeaderError {
 impl core::error::Error for HeaderError {}
 
 /// Serialize [`PackMetadata`] + [`DerivedHeaderFields`] into the fixed
-/// 322-byte header layout.
+/// [`HEADER_BASE_SIZE`]-byte header layout.
 ///
 /// The function is infallible: the type system enforces that every
 /// enum value is legal (no `InvalidPixelFormat` reachable from valid
@@ -197,15 +214,16 @@ pub fn write_header(
     buf[86..90].copy_from_slice(&derived.tile_count.to_le_bytes());
     buf[90..98].copy_from_slice(&derived.index_offset.to_le_bytes());
 
-    // Zoom offsets directory (offsets 98..314).
+    // Zoom offsets directory (offsets 98..98 + ZOOM_OFFSETS_COUNT * 12).
     for (i, zo) in derived.zoom_offsets.iter().enumerate() {
-        let base = 98 + i * ZoomOffset::SIZE;
+        let base = ZOOM_OFFSETS_START + i * ZoomOffset::SIZE;
         buf[base..base + 8].copy_from_slice(&zo.offset.to_le_bytes());
         buf[base + 8..base + 12].copy_from_slice(&zo.count.to_le_bytes());
     }
 
-    // Extensions offset (offsets 314..322).
-    buf[314..322].copy_from_slice(&derived.extensions_offset.to_le_bytes());
+    // Extensions offset: u64 LE, the last 8 bytes of the header.
+    buf[EXTENSIONS_OFFSET_AT..HEADER_BASE_SIZE]
+        .copy_from_slice(&derived.extensions_offset.to_le_bytes());
 
     buf
 }
@@ -227,6 +245,10 @@ pub fn write_header(
 ///
 /// Does not panic in practice — the length check at the top
 /// guarantees the internal slice-to-array conversions succeed.
+#[allow(
+    clippy::too_many_lines,
+    reason = "linear header walk; splitting buys nothing"
+)]
 pub fn read_header(input: &[u8]) -> Result<ParsedHeader, HeaderError> {
     if input.len() < HEADER_BASE_SIZE {
         return Err(HeaderError::TooShort);
@@ -310,12 +332,16 @@ pub fn read_header(input: &[u8]) -> Result<ParsedHeader, HeaderError> {
 
     let mut zoom_offsets = [ZoomOffset::default(); ZOOM_OFFSETS_COUNT];
     for (i, zo) in zoom_offsets.iter_mut().enumerate() {
-        let base = 98 + i * ZoomOffset::SIZE;
+        let base = ZOOM_OFFSETS_START + i * ZoomOffset::SIZE;
         zo.offset = u64::from_le_bytes(input[base..base + 8].try_into().expect("8 bytes"));
         zo.count = u32::from_le_bytes(input[base + 8..base + 12].try_into().expect("4 bytes"));
     }
 
-    let extensions_offset = u64::from_le_bytes(input[314..322].try_into().expect("8 bytes"));
+    let extensions_offset = u64::from_le_bytes(
+        input[EXTENSIONS_OFFSET_AT..HEADER_BASE_SIZE]
+            .try_into()
+            .expect("8 bytes"),
+    );
 
     let metadata = PackMetadata {
         pack_uuid,
@@ -388,17 +414,19 @@ mod tests {
         };
         DerivedHeaderFields {
             tile_count: 68,
-            index_offset: 322,
+            // First plausible offset past the header. Whatever
+            // HEADER_BASE_SIZE is, the index can start there.
+            index_offset: HEADER_BASE_SIZE as u64,
             zoom_offsets,
             extensions_offset: 50_000,
         }
     }
 
     #[test]
-    fn header_size_is_322_bytes() {
+    fn header_size_is_394_bytes() {
         let buf = write_header(&baseline_metadata(), &baseline_derived());
         assert_eq!(buf.len(), HEADER_BASE_SIZE);
-        assert_eq!(buf.len(), 322);
+        assert_eq!(buf.len(), 394);
     }
 
     #[test]
@@ -532,12 +560,13 @@ mod tests {
     }
 
     #[test]
-    fn extensions_offset_at_offset_314() {
+    fn extensions_offset_at_offset_386() {
         let mut d = baseline_derived();
         d.extensions_offset = 0xFEDC_BA98_7654_3210;
         let buf = write_header(&baseline_metadata(), &d);
+        // Extensions-offset u64 is the trailing 8 bytes of the header.
         assert_eq!(
-            u64::from_le_bytes(buf[314..322].try_into().unwrap()),
+            u64::from_le_bytes(buf[386..394].try_into().unwrap()),
             0xFEDC_BA98_7654_3210,
         );
     }

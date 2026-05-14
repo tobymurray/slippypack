@@ -149,7 +149,7 @@ pub enum TileWriterError<SrcErr, OutErr> {
     ExtensionTooLarge,
     /// Tile zoom level is outside `[zoom_range.min, zoom_range.max]`.
     TileZoomOutOfRange { z: u8, min: u8, max: u8 },
-    /// Tile zoom is `>= 18` and so doesn't fit the spec's 18-slot
+    /// Tile zoom is `>= 24` and so doesn't fit the spec's 24-slot
     /// `zoom_offsets` directory.
     TileZoomTooHigh { z: u8 },
 }
@@ -218,7 +218,7 @@ pub trait TileWriter {
     ///   `bytes.len() > u32::MAX`.
     /// - [`TileWriterError::TileZoomOutOfRange`] if `z` is outside the
     ///   metadata's `zoom_range`.
-    /// - [`TileWriterError::TileZoomTooHigh`] if `z >= 18`.
+    /// - [`TileWriterError::TileZoomTooHigh`] if `z >= 24`.
     fn add_tile_ref(
         &mut self,
         z: u8,

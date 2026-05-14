@@ -9,8 +9,8 @@
 //! Layout produced (offsets little-endian, see `format::header` and
 //! `format::tile_index` modules for the per-section byte layouts):
 //!
-//! - `0..322`: header
-//! - `322..(322 + N*24)`: tile index, sorted by `(z, x, y)`
+//! - `0..394`: header (= `HEADER_BASE_SIZE`)
+//! - `394..(394 + N*24)`: tile index, sorted by `(z, x, y)`
 //! - `..`: 0-3 bytes of zero padding to reach a 4-byte boundary
 //! - tile blob: each tile starts at a 4-byte-aligned offset, followed by
 //!   0-3 zero padding bytes to align the next tile
@@ -555,10 +555,10 @@ mod tests {
         w.begin_pack(baseline_metadata()).unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
-        // Header (322) + 0-3 alignment pad + tile_blob (0) + extensions (0) + CRC (4)
-        // The empty index has size 0, tile_blob_start = align_up(322, 4) = 324.
-        // So total = 324 + 0 + 0 + 4 = 328.
-        assert_eq!(buf.len(), 328);
+        // Header (394) + 0-3 alignment pad + tile_blob (0) + extensions (0) + CRC (4)
+        // The empty index has size 0, tile_blob_start = align_up(394, 4) = 396.
+        // So total = 396 + 0 + 0 + 4 = 400.
+        assert_eq!(buf.len(), 400);
         // Magic check.
         assert_eq!(&buf[0..4], b"UPCK");
     }
@@ -571,12 +571,12 @@ mod tests {
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
-        // Layout: header (322) + index (24) = 346 → align to 348.
-        // Tile blob: 16_384 bytes → 348..16732. Aligned already.
+        // Layout: header (394) + index (24) = 418 → align to 420.
+        // Tile blob: 16_384 bytes → 420..16804. Aligned already.
         // Extensions: 0 bytes.
         // CRC: 4 bytes.
-        // Total: 348 + 16_384 + 4 = 16_736.
-        assert_eq!(buf.len(), 348 + 16_384 + 4);
+        // Total: 420 + 16_384 + 4 = 16_808.
+        assert_eq!(buf.len(), 420 + 16_384 + 4);
         assert_eq!(&buf[0..4], b"UPCK");
     }
 

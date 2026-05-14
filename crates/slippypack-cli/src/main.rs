@@ -289,9 +289,9 @@ fn parse_zoom(s: &str) -> Result<(u8, u8), String> {
             .trim()
             .parse()
             .map_err(|e| format!("invalid {name}: {e}"))?;
-        // 18 is ZOOM_OFFSETS_COUNT - 1 (the spec's max addressable zoom).
-        if z > 17 {
-            return Err(format!("{name} must be in [0, 17]; got {z}"));
+        // 23 is ZOOM_OFFSETS_COUNT - 1 (the spec's max addressable zoom).
+        if z > 23 {
+            return Err(format!("{name} must be in [0, 23]; got {z}"));
         }
         Ok(z)
     };
@@ -449,8 +449,11 @@ mod tests {
 
     #[test]
     fn parse_zoom_rejects_above_max() {
-        assert!(parse_zoom("18").is_err());
-        assert!(parse_zoom("0-18").is_err());
+        assert!(parse_zoom("24").is_err());
+        assert!(parse_zoom("0-24").is_err());
+        // z=23 is the max allowed (ZOOM_OFFSETS_COUNT - 1).
+        assert_eq!(parse_zoom("23").unwrap(), (23, 23));
+        assert_eq!(parse_zoom("0-23").unwrap(), (0, 23));
     }
 
     #[test]

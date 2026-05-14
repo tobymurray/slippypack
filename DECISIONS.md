@@ -467,6 +467,22 @@ Phase 1.x deliverable, prompted by the need to catch writer-side bugs (endiannes
 **Manifests**: `spec-validator-cpp/src/validator.cpp`; `spec-validator-cpp/tests/run.sh`.
 **Commit**: to land with the C++ validator slice.
 
+### V-003 — `ZOOM_OFFSETS_COUNT` bumped from 18 to 24 (header 322→394 bytes)
+Triggered by the "is anything watch-specific?" review — z=17 (max under 18 slots) is plenty for a watch displaying maps at walking pace, but constraining for car-nav (z=20), kiosk (z=18-20), and offline-GIS use cases. OSM and Google Maps publish through z=22. Bumping to z=0..=23 costs 72 bytes per pack's header (negligible) and unlocks devices beyond watches.
+
+Mechanical changes:
+- `HEADER_BASE_SIZE`: 322 → 394 (= 98 + 24×12 + 8)
+- `extensions_offset` u64 moves: file offset 314 → 386
+- `TileWriterError::TileZoomTooHigh` triggers at z >= 24, not z >= 18
+- CLI's `parse_zoom` accepts z ≤ 23, not ≤ 17
+- All 5 committed golden fixtures re-blessed (synthetic, grid, pyramid, attr, e2e 1tile + 5tile)
+- C++ validator constants updated to match
+
+This is **not** a format-version bump (we're still v1.0): nothing has shipped, and the format-version field doesn't track byte-layout-only changes. Pre-1.0 revisionism, justified.
+
+**Manifests**: `crates/slippypack-core/src/format/header.rs::ZOOM_OFFSETS_COUNT`; `HEADER_BASE_SIZE` is now computed from it; `spec-validator-cpp/src/validator.cpp::kZoomOffsetsCount`.
+**Commit**: to land with the zoom-expansion slice.
+
 ### V-002 — `.upack` is byte-oriented; multi-byte fields are NOT required to be naturally aligned in the file
 The C++ validator initially assumed `index_offset` must be 4-byte aligned, which failed on the synthetic pack (322 % 4 = 2). On reflection: slippypack writes everything LE byte-by-byte and the Rust reader does byte-by-byte decoding. **No multi-byte field in the on-disk format requires natural alignment.** Readers that want aligned access `memcpy` to a local before decoding (cheap; matches what watch firmware would do anyway).
 

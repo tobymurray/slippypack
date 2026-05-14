@@ -91,7 +91,7 @@ unambiguous enough that two implementations agree.
   - Reserved byte at position 3 is zero
   - Compression is 0 (only legal v1 value)
   - Flags is 0 (warn if not)
-  - `z` < ZOOM_OFFSETS_COUNT (18)
+  - `z` < ZOOM_OFFSETS_COUNT (24)
   - `offset` lands inside the tile blob; `offset + length` ≤
     `extensions_offset`
 - `zoom_offsets[z].count` matches the walked count; for non-empty
