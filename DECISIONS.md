@@ -467,6 +467,22 @@ Phase 1.x deliverable, prompted by the need to catch writer-side bugs (endiannes
 **Manifests**: `spec-validator-cpp/src/validator.cpp`; `spec-validator-cpp/tests/run.sh`.
 **Commit**: to land with the C++ validator slice.
 
+### F-023 — `NAME` extension payload structured as `uint8 tag_length | bcp47_tag | name`
+The slippypack `TAG_NAME` constant existed; the *payload* structure was only described vaguely in doc strings ("UTF-8 content with an optional BCP-47 language-tag prefix"). Now committed to match the una-sdk MapTrack spec exactly:
+
+```
+NAME payload = uint8 tag_length | bcp47_tag (tag_length bytes, UTF-8) | name (rest, UTF-8)
+```
+
+`tag_length = 0` means "no locale specified" — the unlocalized default name. Multiple `NAME` sections can coexist (one per locale); readers pick by BCP-47 lookup rules and fall back to the `tag_length=0` section.
+
+**Why length-prefixed, not delimited**: BCP-47 tags contain `-`, names can contain anything (including punctuation that's hard to escape). A length prefix is unambiguous, compact (1 byte covers realistic tags — `en-Latn-GB-boont-x-private` is 28 bytes; 255 is more than enough), and matches how the rest of the format does framing (length-prefixed sections, length-prefixed extensions).
+
+slippypack exposes `build_name_payload(bcp47_tag, name) -> Vec<u8>` and `parse_name_payload(payload) -> (tag, name)` so callers don't hand-encode bytes. The `NameSectionError` enum catches over-long tags, truncated payloads, and invalid UTF-8.
+
+**Manifests**: `crates/slippypack-core/src/format/extensions.rs::{build_name_payload, parse_name_payload, NameSectionError}`; re-exported from `format::mod`.
+**Commit**: to land with the NAME-payload-codec slice.
+
 ### F-022 — Higher minor versions in `format_version` are accepted, not rejected
 Bug closed by review. `read_header` previously emitted `HeaderError::UnsupportedMinorVersion` for any pack whose minor version exceeded this build's. That defeats the whole point of having a minor version field — the format's forward-compat contract is "major locks the header layout, minor adds extension tags only," and unknown extension tags are already skipped by the extension iterator.
 

@@ -26,8 +26,9 @@ pub mod writer_trait;
 
 pub use crc::{Crc32, crc32_ieee};
 pub use extensions::{
-    ExtensionError, ExtensionSection, SECTION_HEADER_SIZE, TAG_AFFN, TAG_ATTR, TAG_NAME, TAG_PLET,
-    TAG_SRCD, read_extension_sections, write_extension_section, write_extension_sections,
+    ExtensionError, ExtensionSection, NameSectionError, SECTION_HEADER_SIZE, TAG_AFFN, TAG_ATTR,
+    TAG_NAME, TAG_PLET, TAG_SRCD, build_name_payload, parse_name_payload, read_extension_sections,
+    write_extension_section, write_extension_sections,
 };
 pub use header::{
     DerivedHeaderFields, HEADER_BASE_SIZE, HeaderError, ParsedHeader, ZOOM_OFFSETS_COUNT,

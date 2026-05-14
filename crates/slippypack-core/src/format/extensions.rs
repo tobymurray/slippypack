@@ -10,9 +10,20 @@
 /// Header size of one extension section (tag + length): 8 bytes.
 pub const SECTION_HEADER_SIZE: usize = 8;
 
-/// Reserved upper-case ASCII tag for **pack display name**. UTF-8
-/// content with an optional BCP-47 language-tag prefix. Multiple `NAME`
-/// sections may appear, one per locale.
+/// Reserved upper-case ASCII tag for **pack display name**. Payload
+/// layout matches the una-sdk MapTrack spec:
+///
+/// ```text
+/// uint8 tag_length | bcp47_tag (tag_length bytes, UTF-8) | name (rest, UTF-8)
+/// ```
+///
+/// `tag_length` may be `0` to mean "no locale specified" (the
+/// unlocalized default name). Multiple `NAME` sections may appear in a
+/// pack, one per locale; readers pick by locale match (BCP-47
+/// lookup-rules apply) or fall back to the `tag_length=0` section.
+///
+/// Use [`build_name_payload`] / [`parse_name_payload`] rather than
+/// hand-encoding payloads.
 pub const TAG_NAME: [u8; 4] = *b"NAME";
 
 /// Reserved upper-case ASCII tag for **source description** (UTF-8,
@@ -165,12 +176,101 @@ pub fn read_extension_sections(mut input: &[u8]) -> Result<Vec<ExtensionSection>
     Ok(out)
 }
 
+// ---- NAME extension payload codec ----------------------------------
+
+/// Errors when building or parsing a [`TAG_NAME`] payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NameSectionError {
+    /// The BCP-47 tag's UTF-8 byte length doesn't fit in the `uint8`
+    /// length prefix (> 255 bytes). Realistic tags are well under 50
+    /// bytes (e.g. `en-Latn-GB-boont-x-private` is 28); the limit
+    /// surfaces only for malformed input.
+    TagTooLong { len: usize },
+    /// Payload was zero bytes long (no `tag_length` prefix at all).
+    PayloadEmpty,
+    /// `tag_length` byte declared more bytes than the payload contains.
+    TagExceedsPayload { declared: usize, available: usize },
+    /// The declared tag bytes or the name bytes weren't valid UTF-8.
+    InvalidUtf8,
+}
+
+impl core::fmt::Display for NameSectionError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::TagTooLong { len } => {
+                write!(f, "BCP-47 tag is {len} bytes; must fit in uint8 (≤ 255)")
+            }
+            Self::PayloadEmpty => f.write_str("NAME payload is empty (missing tag_length byte)"),
+            Self::TagExceedsPayload {
+                declared,
+                available,
+            } => write!(
+                f,
+                "NAME tag_length {declared} exceeds remaining payload ({available} bytes)",
+            ),
+            Self::InvalidUtf8 => f.write_str("NAME tag or name bytes are not valid UTF-8"),
+        }
+    }
+}
+
+impl core::error::Error for NameSectionError {}
+
+/// Build a [`TAG_NAME`] section payload from a BCP-47 language tag and
+/// a pack display name.
+///
+/// Pass `bcp47_tag = ""` for the unlocalized default name (the section
+/// then encodes a single `0x00` length byte followed by the name).
+///
+/// # Errors
+///
+/// - [`NameSectionError::TagTooLong`] if the tag's UTF-8 byte length
+///   exceeds 255.
+pub fn build_name_payload(bcp47_tag: &str, name: &str) -> Result<Vec<u8>, NameSectionError> {
+    let tag_bytes = bcp47_tag.as_bytes();
+    let tag_len = tag_bytes.len();
+    let tag_len_u8 =
+        u8::try_from(tag_len).map_err(|_| NameSectionError::TagTooLong { len: tag_len })?;
+    let mut out = Vec::with_capacity(1 + tag_len + name.len());
+    out.push(tag_len_u8);
+    out.extend_from_slice(tag_bytes);
+    out.extend_from_slice(name.as_bytes());
+    Ok(out)
+}
+
+/// Parse a [`TAG_NAME`] section payload into `(bcp47_tag, name)`.
+/// `bcp47_tag` is `""` (zero-length) for an unlocalized default name.
+///
+/// # Errors
+///
+/// - [`NameSectionError::PayloadEmpty`] if the payload is zero bytes.
+/// - [`NameSectionError::TagExceedsPayload`] if the declared
+///   `tag_length` exceeds the remaining bytes.
+/// - [`NameSectionError::InvalidUtf8`] if either the tag bytes or the
+///   name bytes aren't valid UTF-8.
+pub fn parse_name_payload(payload: &[u8]) -> Result<(&str, &str), NameSectionError> {
+    let (&tag_len_byte, rest) = payload
+        .split_first()
+        .ok_or(NameSectionError::PayloadEmpty)?;
+    let tag_len = tag_len_byte as usize;
+    if rest.len() < tag_len {
+        return Err(NameSectionError::TagExceedsPayload {
+            declared: tag_len,
+            available: rest.len(),
+        });
+    }
+    let (tag_bytes, name_bytes) = rest.split_at(tag_len);
+    let tag = core::str::from_utf8(tag_bytes).map_err(|_| NameSectionError::InvalidUtf8)?;
+    let name = core::str::from_utf8(name_bytes).map_err(|_| NameSectionError::InvalidUtf8)?;
+    Ok((tag, name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        ExtensionError, ExtensionSection, SECTION_HEADER_SIZE, TAG_AFFN, TAG_ATTR, TAG_NAME,
-        TAG_PLET, TAG_SRCD, read_extension_sections, write_extension_section,
-        write_extension_sections,
+        ExtensionError, ExtensionSection, NameSectionError, SECTION_HEADER_SIZE, TAG_AFFN,
+        TAG_ATTR, TAG_NAME, TAG_PLET, TAG_SRCD, build_name_payload, parse_name_payload,
+        read_extension_sections, write_extension_section, write_extension_sections,
     };
 
     #[test]
@@ -359,5 +459,124 @@ mod tests {
         let buf = write_extension_section(&custom);
         let parsed = read_extension_sections(&buf).unwrap();
         assert_eq!(parsed[0], custom);
+    }
+
+    // ---- NAME payload codec tests --------------------------------
+
+    #[test]
+    fn build_name_payload_round_trip_simple() {
+        let payload = build_name_payload("en", "Alpine Trails").unwrap();
+        // Layout: [0x02, 'e', 'n', 'A', 'l', 'p', 'i', 'n', 'e', ' ',
+        //          'T', 'r', 'a', 'i', 'l', 's']
+        assert_eq!(payload[0], 0x02);
+        assert_eq!(&payload[1..3], b"en");
+        assert_eq!(&payload[3..], b"Alpine Trails");
+
+        let (tag, name) = parse_name_payload(&payload).unwrap();
+        assert_eq!(tag, "en");
+        assert_eq!(name, "Alpine Trails");
+    }
+
+    #[test]
+    fn build_name_payload_empty_tag_for_unlocalized_name() {
+        let payload = build_name_payload("", "Trails").unwrap();
+        assert_eq!(payload[0], 0x00);
+        assert_eq!(&payload[1..], b"Trails");
+
+        let (tag, name) = parse_name_payload(&payload).unwrap();
+        assert_eq!(tag, "");
+        assert_eq!(name, "Trails");
+    }
+
+    #[test]
+    fn build_name_payload_full_bcp47() {
+        // A realistic full BCP-47 tag with extensions.
+        let payload = build_name_payload("en-Latn-GB-boont-x-private", "Pack").unwrap();
+        let (tag, name) = parse_name_payload(&payload).unwrap();
+        assert_eq!(tag, "en-Latn-GB-boont-x-private");
+        assert_eq!(name, "Pack");
+    }
+
+    #[test]
+    fn build_name_payload_utf8_name() {
+        // Non-ASCII name. BCP-47 tags themselves are ASCII per RFC 5646.
+        let payload = build_name_payload("ja", "日本のトレイル").unwrap();
+        let (tag, name) = parse_name_payload(&payload).unwrap();
+        assert_eq!(tag, "ja");
+        assert_eq!(name, "日本のトレイル");
+    }
+
+    #[test]
+    fn build_name_payload_max_length_tag() {
+        // Tag at the 255-byte limit (1-byte length prefix maxes out).
+        let tag = "a".repeat(255);
+        let payload = build_name_payload(&tag, "Pack").unwrap();
+        assert_eq!(payload[0], 255);
+        assert_eq!(payload.len(), 1 + 255 + 4);
+        let (parsed_tag, parsed_name) = parse_name_payload(&payload).unwrap();
+        assert_eq!(parsed_tag.len(), 255);
+        assert_eq!(parsed_name, "Pack");
+    }
+
+    #[test]
+    fn build_name_payload_rejects_tag_too_long() {
+        let tag = "a".repeat(256);
+        let err = build_name_payload(&tag, "Pack").unwrap_err();
+        assert!(matches!(err, NameSectionError::TagTooLong { len: 256 }));
+    }
+
+    #[test]
+    fn parse_name_payload_rejects_empty() {
+        let err = parse_name_payload(&[]).unwrap_err();
+        assert!(matches!(err, NameSectionError::PayloadEmpty));
+    }
+
+    #[test]
+    fn parse_name_payload_rejects_tag_length_overflow() {
+        // tag_length = 10 but only 2 bytes follow.
+        let payload = [10_u8, b'e', b'n'];
+        let err = parse_name_payload(&payload).unwrap_err();
+        assert!(matches!(
+            err,
+            NameSectionError::TagExceedsPayload {
+                declared: 10,
+                available: 2
+            }
+        ));
+    }
+
+    #[test]
+    fn parse_name_payload_rejects_invalid_utf8_in_tag() {
+        // tag_length = 2, then two invalid UTF-8 bytes.
+        let payload = [2_u8, 0xff, 0xfe, b'x'];
+        let err = parse_name_payload(&payload).unwrap_err();
+        assert!(matches!(err, NameSectionError::InvalidUtf8));
+    }
+
+    #[test]
+    fn parse_name_payload_rejects_invalid_utf8_in_name() {
+        // tag_length = 0, then invalid UTF-8 in the name bytes.
+        let payload = [0_u8, 0xff, 0xfe];
+        let err = parse_name_payload(&payload).unwrap_err();
+        assert!(matches!(err, NameSectionError::InvalidUtf8));
+    }
+
+    #[test]
+    fn name_payload_fits_into_extension_section_end_to_end() {
+        // End-to-end: build a NAME payload, wrap it in an ExtensionSection,
+        // serialize + parse back, and re-decode the payload.
+        let original_payload = build_name_payload("en", "Hello").unwrap();
+        let section = ExtensionSection {
+            tag: TAG_NAME,
+            payload: original_payload.clone(),
+        };
+        let bytes = write_extension_section(&section);
+        let parsed = read_extension_sections(&bytes).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].tag, TAG_NAME);
+        assert_eq!(parsed[0].payload, original_payload);
+        let (tag, name) = parse_name_payload(&parsed[0].payload).unwrap();
+        assert_eq!(tag, "en");
+        assert_eq!(name, "Hello");
     }
 }
