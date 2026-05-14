@@ -411,6 +411,21 @@ Phase 1 first slice assumes the URL-template source serves 256×256 tiles — th
 **Manifests:** `crates/slippypack-cli/src/build.rs::build_url_template` (the `let expected_dim = 256;` line).
 **Commit:** to land with the URL-template slice.
 
+### C-017 — SIGINT cancellation via `Arc<AtomicBool>` polled between tile operations
+The `ctrlc` crate's handler flips an `AtomicBool` that's plumbed through `BuildOptions::cancel`. The build loops poll the token between tile fetches and between tile decode-quantise-write iterations. On cancellation the loop returns `BuildError::Cancelled`, which propagates up through `run_build`; the `PartialFile` RAII guard's drop removes the `.partial` file because `commit()` was never called. The CLI surfaces exit code 130 (the conventional Ctrl-C exit). Polling between tile boundaries means the worst-case responsiveness is one tile's worth of work — fine for raster sources, may need finer granularity if Phase 2's vector renderer takes seconds per tile.
+**Manifests:** `crates/slippypack-cli/src/build.rs::check_cancel`, `BuildOptions::cancel`; `crates/slippypack-cli/src/main.rs::install_cancel_handler`.
+**Commit:** to land with the SIGINT slice.
+
+### C-018 — `SLIPPYPACK_DEBUG_SLEEP_MS` env var to make synthetic builds testable under SIGINT
+The synthetic source runs in milliseconds — too fast for a race-free SIGINT integration test. The build loop honors `SLIPPYPACK_DEBUG_SLEEP_MS` as a per-tile sleep, set only by `tests/cli_cancel.rs`. Production runs leave it unset (defaults to 0). An env var avoids cluttering the CLI surface with a hidden flag; the test fully owns the env var name.
+**Manifests:** `crates/slippypack-cli/src/build.rs::debug_sleep_per_tile_ms`.
+**Commit:** to land with the SIGINT slice.
+
+### C-019 — `nix` (not `libc`) for the SIGINT integration test
+The workspace forbids `unsafe_code` (W-005), so `libc::kill` (an unsafe extern) is not callable from test code. `nix` provides a safe `kill` wrapper. It's a Unix-only dev-dep on tests, not a production dep — Production code uses `ctrlc` to receive signals, and never sends them.
+**Manifests:** `crates/slippypack-cli/Cargo.toml` (`[target.'cfg(unix)'.dev-dependencies]`); `crates/slippypack-cli/tests/cli_cancel.rs`.
+**Commit:** to land with the SIGINT slice.
+
 ---
 
 ## Cross-cutting

@@ -25,8 +25,14 @@ vector  = []
 slippypack-core = { path = "../slippypack-core" }
 clap = { version = "4", features = ["derive"] }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+ctrlc = "3"
 # Phase 1.x dependencies — uncomment as features land:
-# ctrlc   = "3"
+
+[target.'cfg(unix)'.dev-dependencies]
+# Used only by tests/cli_cancel.rs to deliver SIGINT to the spawned
+# child process via the safe `nix::sys::signal::kill` wrapper.
+# Production code paths don't depend on nix or libc directly.
+nix = { version = "0.30", default-features = false, features = ["signal"] }
 
 # Phase 2 dependencies (gated behind `vector`):
 # maplibre_native = { version = "0.4", optional = true }

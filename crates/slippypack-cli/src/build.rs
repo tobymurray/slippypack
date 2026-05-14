@@ -6,6 +6,8 @@
 
 use core::convert::Infallible;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use slippypack_core::decode::{DecodeError, decode_rgb888};
 use slippypack_core::format::{
@@ -69,6 +71,10 @@ pub enum BuildError {
     MissingBbox,
     /// `--zoom` is required for the given source kind but wasn't provided.
     MissingZoom,
+    /// User-initiated cancellation (SIGINT / Ctrl-C) interrupted the build.
+    /// The `.partial` file has already been cleaned up by the time this
+    /// surfaces.
+    Cancelled,
     /// A PNG/JPEG decode failed.
     Decode(DecodeError),
     /// Decoded tile didn't fit the per-source expected dimensions
@@ -97,6 +103,7 @@ impl core::fmt::Display for BuildError {
             Self::UrlTemplate(e) => write!(f, "url-template source: {e}"),
             Self::MissingBbox => f.write_str("--bbox is required for non-synthetic sources"),
             Self::MissingZoom => f.write_str("--zoom is required for non-synthetic sources"),
+            Self::Cancelled => f.write_str("build cancelled"),
             Self::Decode(e) => write!(f, "decode failed: {e}"),
             Self::UnexpectedTileDimensions {
                 z,
@@ -156,6 +163,11 @@ pub struct BuildOptions {
     /// CI override: pin `pack_uuid` to a fixed value. `None` → derive
     /// via UUIDv5 from the canonical source descriptor.
     pub pack_uuid_override: Option<[u8; 16]>,
+    /// Cancellation token. `main.rs` wires this to the SIGINT/Ctrl-C
+    /// handler so a Ctrl-C interrupts the build between tile operations.
+    /// `None` → cancellation is impossible (used by unit tests that
+    /// drive `build()` directly).
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 /// `Write` adapter so any `std::io::Write` can serve as the writer's
@@ -226,8 +238,14 @@ pub fn build(opts: &BuildOptions) -> Result<(), BuildError> {
 fn build_synthetic(opts: &BuildOptions) -> Result<(), BuildError> {
     let descriptor = synthetic_descriptor();
     let metadata = build_metadata(opts, &descriptor, 0);
+    let cancel = opts.cancel.clone();
+    let sleep_ms = debug_sleep_per_tile_ms();
     run_build(opts, metadata, |writer| {
         for (x, y) in synthetic::all_tile_coords() {
+            check_cancel(cancel.as_deref())?;
+            if sleep_ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+            }
             let png_bytes = synthetic::tile_png_bytes(x, y)
                 .expect("all_tile_coords yields coords that have fixtures");
             add_decoded_tile(
@@ -241,6 +259,25 @@ fn build_synthetic(opts: &BuildOptions) -> Result<(), BuildError> {
         }
         Ok(())
     })
+}
+
+/// Read the `SLIPPYPACK_DEBUG_SLEEP_MS` env var. When set to a parseable
+/// non-zero number, every per-tile iteration sleeps that many ms. Used
+/// by the SIGINT integration test to make builds slow enough for a
+/// signal to land mid-flight. Production runs leave it unset (== 0).
+fn debug_sleep_per_tile_ms() -> u64 {
+    std::env::var("SLIPPYPACK_DEBUG_SLEEP_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Return [`BuildError::Cancelled`] if the cancel token is set.
+fn check_cancel(cancel: Option<&AtomicBool>) -> Result<(), BuildError> {
+    if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+        return Err(BuildError::Cancelled);
+    }
+    Ok(())
 }
 
 fn synthetic_descriptor() -> PackDescriptor {
@@ -303,6 +340,7 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
     let mut tile_bytes: Vec<(u8, u32, u32, Vec<u8>)> = Vec::new();
     for z in zoom.0..=zoom.1 {
         for (x, y) in tile_range_for_zoom(bbox, z) {
+            check_cancel(opts.cancel.as_deref())?;
             let url = template.url_for(z, x, y);
             let bytes = fetcher.fetch(&url)?;
             tile_bytes.push((z, x, y, bytes));
@@ -310,9 +348,11 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
     }
 
     let metadata = build_metadata(opts, &descriptor, fetcher.max_last_modified());
+    let cancel = opts.cancel.clone();
 
     run_build(opts, metadata, move |writer| {
         for (z, x, y, bytes) in tile_bytes {
+            check_cancel(cancel.as_deref())?;
             // Phase 1 first slice assumes tile_dim_px = 256 — the
             // dominant slippy-map tile size. Phase 1.x will sample the
             // first response's actual decoded dimensions and use those.
@@ -446,8 +486,13 @@ fn partial_path_for(out: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{BboxDeg, deg_to_micro, partial_path_for, tile_range_for_zoom};
+    use super::{
+        BboxDeg, BuildError, BuildOptions, build, deg_to_micro, partial_path_for,
+        tile_range_for_zoom,
+    };
     use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
     fn partial_path_appends_partial_suffix() {
@@ -508,5 +553,82 @@ mod tests {
         let mut sorted = tiles.clone();
         sorted.sort_unstable();
         assert_eq!(sorted, vec![(0, 0), (0, 1), (1, 0), (1, 1)]);
+    }
+
+    #[test]
+    fn pre_set_cancel_token_aborts_build_and_cleans_partial() {
+        // Pre-set the cancel token so the build's very first check_cancel
+        // call returns Err(Cancelled). This validates two invariants:
+        //
+        //   1. The build surfaces BuildError::Cancelled rather than
+        //      partial output.
+        //   2. The .partial file's RAII drop runs and removes the partial
+        //      file from disk. The PartialFile guard is constructed
+        //      *inside* run_build, so for cancellation that fires inside
+        //      the populate closure the partial file is created and then
+        //      cleaned up. For cancellation BEFORE the file is opened
+        //      (the early-check_cancel inside the populate closure, which
+        //      fires before OpenOptions::open), the partial file is
+        //      never created — equally valid.
+        let tmp = std::env::temp_dir().join(format!(
+            "slippypack-cancel-test-{}.upack",
+            std::process::id(),
+        ));
+        let partial = partial_path_for(&tmp);
+
+        // Belt-and-braces cleanup in case a previous run left stragglers.
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&partial);
+
+        let cancel = Arc::new(AtomicBool::new(true));
+        let opts = BuildOptions {
+            source: "synthetic".to_string(),
+            out: tmp.clone(),
+            bbox: None,
+            zoom_range: None,
+            timestamp_override: Some(0),
+            pack_uuid_override: None,
+            cancel: Some(Arc::clone(&cancel)),
+        };
+
+        let err = build(&opts).expect_err("pre-cancelled build should fail");
+        assert!(
+            matches!(err, BuildError::Cancelled),
+            "expected Cancelled, got {err:?}",
+        );
+
+        assert!(
+            !tmp.exists(),
+            "cancelled build must not leave a final .upack at {}",
+            tmp.display(),
+        );
+        assert!(
+            !partial.exists(),
+            "cancelled build must not leave a .partial at {}",
+            partial.display(),
+        );
+
+        // Token was set at start; should remain set (we never reset it).
+        assert!(cancel.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn check_cancel_returns_ok_when_token_unset() {
+        let cancel = AtomicBool::new(false);
+        let res = super::check_cancel(Some(&cancel));
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn check_cancel_returns_ok_when_no_token() {
+        let res = super::check_cancel(None);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn check_cancel_returns_cancelled_when_token_set() {
+        let cancel = AtomicBool::new(true);
+        let res = super::check_cancel(Some(&cancel));
+        assert!(matches!(res, Err(BuildError::Cancelled)));
     }
 }

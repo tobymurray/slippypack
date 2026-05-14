@@ -8,6 +8,8 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::{Parser, Subcommand};
 
@@ -70,9 +72,16 @@ struct MakeArgs {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let cancel = install_cancel_handler();
     match cli.command {
-        Command::Make(args) => match run_make(args) {
+        Command::Make(args) => match run_make(args, cancel) {
             Ok(()) => ExitCode::SUCCESS,
+            Err(BuildError::Cancelled) => {
+                eprintln!("cancelled");
+                // 130 = 128 + SIGINT (2), the conventional shell exit
+                // code for a Ctrl-C-terminated process.
+                ExitCode::from(130)
+            }
             Err(e) => {
                 eprintln!("error: {e}");
                 ExitCode::FAILURE
@@ -81,7 +90,25 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_make(args: MakeArgs) -> Result<(), BuildError> {
+/// Install a SIGINT / Ctrl-C handler that flips the returned
+/// `AtomicBool` to `true`. The build loop polls this between tile
+/// operations and returns [`BuildError::Cancelled`] when set.
+///
+/// Calling `ctrlc::set_handler` twice in one process panics, so this
+/// function must run exactly once per `main`. We return a guarded Arc
+/// rather than a global static so unit tests (which drive `build()`
+/// directly) can construct their own tokens without touching the
+/// process-wide handler.
+fn install_cancel_handler() -> Arc<AtomicBool> {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let handler_cancel = Arc::clone(&cancel);
+    let _ = ctrlc::set_handler(move || {
+        handler_cancel.store(true, Ordering::Relaxed);
+    });
+    cancel
+}
+
+fn run_make(args: MakeArgs, cancel: Arc<AtomicBool>) -> Result<(), BuildError> {
     let pack_uuid_override = match args.pack_uuid {
         Some(s) => Some(parse_pack_uuid(&s)?),
         None => None,
@@ -93,6 +120,7 @@ fn run_make(args: MakeArgs) -> Result<(), BuildError> {
         zoom_range: args.zoom,
         timestamp_override: args.timestamp,
         pack_uuid_override,
+        cancel: Some(cancel),
     };
     build(&opts)
 }
