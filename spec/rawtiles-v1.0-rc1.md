@@ -431,7 +431,13 @@ The last 4 bytes of the file are a u32 little-endian **CRC-32/ISO-HDLC** value �
 
 **Scope**: every byte from offset 0 up to (but not including) the CRC's own 4 bytes.
 
-Readers MUST verify the CRC at open time and reject the pack on mismatch.
+Readers MUST verify the CRC and reject the pack on mismatch. The verification window is conditional, not strict:
+
+- **Eager verify** (default): compute the CRC at open time, before any reader API returns success. Simplest; appropriate when open-time latency is not a constraint.
+- **Streaming verify** (MAY): a reader MAY return from open before the CRC is fully computed, provided the verification runs in parallel with structural checks (§ 11 #9–#14, all of which already require a full-byte pass) and completes BEFORE any tile or extension bytes are returned to the caller. A reader that detects mismatch via streaming verify MUST surface the error on the next tile-or-extension read and invalidate any data already exposed. This converts a single open-time stall into work that overlaps with whatever the caller does after open, which on a watch / SPI-flash combination can hide the verification latency entirely.
+- **Caller-asserted trust** (MAY): a reader MAY skip the CRC entirely when the caller has provided integrity assurance through a separate channel (a signed installer, content-addressed storage, a previously-verified cache, …). The trust assertion is the caller's responsibility, not the reader's. Readers exposing this mode MUST require an explicit opt-in (e.g., a constructor flag, a "trusted source" capability token); the default reader path MUST verify.
+
+**Implementation note for resource-constrained readers** (Cortex-M and similar): on a 100 MHz M4 with SPI flash at ~50 MB/s and software CRC-32/ISO-HDLC (slicing-by-4, 1 KB table), opening a 50 MiB pack costs ~2 s of wall-clock under eager verify. Streaming verify lets the reader fold that work into structural-check passes that would happen anyway, eliminating it as a user-visible latency. Multi-pack boot scenarios (e.g. 5 packs at startup → 10 s eager penalty) are exactly what the streaming-verify carve-out targets.
 
 ## 11. Reader requirements
 
@@ -454,7 +460,7 @@ A conforming v1 reader MUST:
 15. Reject any pack containing an unknown extension tag whose first byte is upper-case ASCII (`A–Z`).
 16. Accept and MAY ignore any unknown extension tag whose first byte is lower-case ASCII.
 17. Reject `projection = LocalLinear` packs that do not contain an `AFFN` extension.
-18. Verify the CRC-32 footer and reject the pack on mismatch.
+18. Verify the CRC-32 footer per § 10 (eager, streaming, or caller-asserted-trust) and reject the pack on mismatch. Whichever window the reader chooses, no tile or extension bytes MUST be returned to the caller while a mismatch is possible.
 19. Reject any pack where `index_offset != 292` (§ 4.11) or `extensions_offset < tile_blob_start + tile_blob_size` (§ 4.13). Both conditions are MUST per the referenced sections; restated here so readers can validate them as part of the standard rejection sweep.
 
 A conforming v1 reader SHOULD:

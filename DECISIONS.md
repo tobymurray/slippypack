@@ -631,6 +631,22 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-037 — Spec § 10: streaming-verify and trusted-source carve-outs for the CRC
+Pre-1.0-freeze refinement. § 10 had "Readers MUST verify the CRC at open time" with no escape hatch. On a 100 MHz Cortex-M4 with SPI flash at ~50 MB/s and software CRC-32/ISO-HDLC (slicing-by-4, 1 KB table), opening a 50 MiB pack costs ~2 s wall-clock. A watch enumerating 5 packs at boot would pay a 10–15 s eager-verify penalty before serving the first tile — a real UX problem for a category of consumers the format explicitly targets.
+
+Resolution: keep the **integrity guarantee** unconditional, but make the **verification window** flexible:
+
+- **Eager verify** (default): compute CRC at open before any API returns success. Simplest, fine when open-time latency isn't a constraint.
+- **Streaming verify** (MAY): return from open immediately; run the CRC pass concurrently with the structural-check pass (§ 11 #9–#14, which already touches every byte). MUST complete before any tile/extension bytes are returned to the caller. Folds the CRC cost into work that was happening anyway — on the watch case, eliminates the user-visible latency entirely.
+- **Caller-asserted trust** (MAY): skip CRC if the caller asserts integrity through another channel (signed installer, content-addressed storage, previously-verified cache). Readers exposing this MUST require explicit opt-in; the default path MUST verify.
+
+§ 11 #18 cross-references the three options.
+
+This is the same shape as "TLS sessions MUST verify the cert; reused sessions MAY skip the verify because it was already done": the *integrity contract* doesn't bend, but the spec gives implementers room to amortise the cost.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` § 10 (rewritten verification-window section + implementation note for resource-constrained readers); § 11 #18 cross-reference.
+**Commit**: to land with the CRC-window slice.
+
 ### F-036 — Spec § 11 #19 promoted from SHOULD to MUST (resolves contradiction with § 4.11)
 F-033's earlier edit tightened § 4.11 to "v1.0 readers MUST verify `index_offset == 292`" but left § 11's redundant restatement under "A conforming v1 reader SHOULD" (item #20). A strict-reading implementer would have hit two contradictory normative levels for the same condition.
 
