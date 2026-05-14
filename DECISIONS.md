@@ -441,6 +441,21 @@ Without this clap attribute, `slippypack make --bbox -0.15,51.49,-0.10,51.52` fa
 **Manifests:** `crates/slippypack-cli/src/main.rs` (`MakeArgs::bbox` and `DebugUuidCliArgs::bbox`).
 **Commit:** to land with the `debug uuid` slice.
 
+### C-023 — `--auth-header` / `--auth-query` only the *kind* enters the descriptor
+PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately NOT in the descriptor" pin the rule: the canonical descriptor records `auth_kinds: ["header"]` or `["query"]` (or both) when those flags are used, but never the names, keys, or values. The reason: API keys would leak into `pack_uuid`'s SHA-1 input, making the UUID an oracle for the key. Two builds with the same source/bbox/zoom but different API keys produce the same `pack_uuid`. Determinism for users sharing build configs but not credentials.
+**Manifests:** `crates/slippypack-cli/src/build.rs::auth_kinds_from_options`, `url_template_descriptor`; `crates/slippypack-cli/src/debug.rs::tests::url_template_uuid_does_not_depend_on_auth_value`.
+**Commit:** to land with the auth-flags slice.
+
+### C-024 — Both flags treat the FIRST separator as the split point
+`--auth-header "X-Custom: a:b:c"` parses name=`X-Custom`, value=`a:b:c` (only first `:` separates). `--auth-query "token=abc=="` parses key=`token`, value=`abc==` (only first `=`). Bearer tokens contain `:` in JWT-like payloads; base64-encoded values use `=` padding. Splitting on the first separator preserves both.
+**Manifests:** `crates/slippypack-cli/src/sources/url_template.rs::AuthHeader::parse`, `AuthQuery::parse` (uses `str::split_once`).
+**Commit:** to land with the auth-flags slice.
+
+### C-025 — `append_auth_query` checks the URL for an existing `?` to pick `?` vs `&`
+`UrlTemplate` substitution can produce URLs that already have a query string (e.g. tile servers that bake style hints into the template). `append_auth_query` checks for an existing `?` in the substituted URL and uses `&` as the leading separator if found, `?` otherwise. Subsequent `--auth-query` entries always join with `&`.
+**Manifests:** `crates/slippypack-cli/src/sources/url_template.rs::append_auth_query`.
+**Commit:** to land with the auth-flags slice.
+
 ---
 
 ## Cross-cutting

@@ -59,6 +59,17 @@ struct DebugUuidCliArgs {
     #[arg(long, value_parser = parse_zoom)]
     zoom: Option<(u8, u8)>,
 
+    /// Auth header (`"Name: value"`) — only the kind is recorded in
+    /// the descriptor, so the actual value here doesn't affect the
+    /// emitted UUID, but its presence does. Repeatable.
+    #[arg(long = "auth-header")]
+    auth_header: Vec<String>,
+
+    /// Auth query (`"key=value"`) — same descriptor semantics as
+    /// `--auth-header`. Repeatable.
+    #[arg(long = "auth-query")]
+    auth_query: Vec<String>,
+
     /// Emit the canonical descriptor bytes (UTF-8 JSON, no trailing
     /// newline) instead of the derived UUIDv5. Useful for piping into
     /// `sha1sum`, `xxd`, or a third-party UUIDv5 implementation for
@@ -91,6 +102,23 @@ struct MakeArgs {
     /// Ignored for `synthetic` (which is fixed at z=2).
     #[arg(long, value_parser = parse_zoom)]
     zoom: Option<(u8, u8)>,
+
+    /// HTTP header to add to every URL-template request, in
+    /// `"Name: value"` form. Repeatable. Example:
+    /// `--auth-header "Authorization: Bearer $TOKEN"`. The header name
+    /// is recorded in the pack's canonical descriptor as
+    /// `auth_kinds: ["header"]`; the value is NOT part of the
+    /// descriptor (per identity.rs).
+    #[arg(long = "auth-header")]
+    auth_header: Vec<String>,
+
+    /// Query parameter to append to every URL-template request, in
+    /// `"key=value"` form. Repeatable. Example:
+    /// `--auth-query "key=YOUR_MAPTILER_KEY"`. The key kind is
+    /// recorded in `auth_kinds: ["query"]`; the value is NOT part of
+    /// the descriptor.
+    #[arg(long = "auth-query")]
+    auth_query: Vec<String>,
 
     /// CI override: pin `build_timestamp` to a fixed value (seconds
     /// since Unix epoch). Production builds derive this from input
@@ -139,10 +167,24 @@ fn run_debug_uuid_cli(args: &DebugUuidCliArgs) -> Result<(), BuildError> {
     } else {
         DebugUuidFormat::Uuid
     };
+    let auth_headers = args
+        .auth_header
+        .iter()
+        .map(|s| sources::url_template::AuthHeader::parse(s))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(BuildError::UrlTemplate)?;
+    let auth_query = args
+        .auth_query
+        .iter()
+        .map(|s| sources::url_template::AuthQuery::parse(s))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(BuildError::UrlTemplate)?;
     let debug_args = DebugUuidArgs {
         source: args.source.clone(),
         bbox: args.bbox,
         zoom_range: args.zoom,
+        auth_headers,
+        auth_query,
         format,
     };
     let stdout = std::io::stdout();
@@ -173,11 +215,25 @@ fn run_make(args: MakeArgs, cancel: Arc<AtomicBool>) -> Result<(), BuildError> {
         Some(s) => Some(parse_pack_uuid(&s)?),
         None => None,
     };
+    let auth_headers = args
+        .auth_header
+        .iter()
+        .map(|s| sources::url_template::AuthHeader::parse(s))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(BuildError::UrlTemplate)?;
+    let auth_query = args
+        .auth_query
+        .iter()
+        .map(|s| sources::url_template::AuthQuery::parse(s))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(BuildError::UrlTemplate)?;
     let opts = BuildOptions {
         source: args.source,
         out: args.out,
         bbox: args.bbox,
         zoom_range: args.zoom,
+        auth_headers,
+        auth_query,
         timestamp_override: args.timestamp,
         pack_uuid_override,
         cancel: Some(cancel),

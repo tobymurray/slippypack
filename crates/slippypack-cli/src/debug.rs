@@ -13,10 +13,11 @@ use slippypack_core::identity::{canonical_descriptor_bytes, derive_pack_uuid};
 use crate::build::{BboxDeg, BuildError, BuildOptions, descriptor_for};
 
 /// Output shape for `debug uuid`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum DebugUuidFormat {
     /// Default: print the derived UUIDv5 as a hyphenated lowercase
     /// string followed by a newline.
+    #[default]
     Uuid,
     /// Print the canonical descriptor bytes verbatim (no trailing
     /// newline). Pipe to `sha1sum` (with the namespace prepended) to
@@ -25,12 +26,15 @@ pub enum DebugUuidFormat {
 }
 
 /// Arguments to `slippypack debug uuid` (the shape mirrors `MakeArgs`'s
-/// source/bbox/zoom subset).
-#[derive(Debug, Clone)]
+/// source/bbox/zoom subset, plus `--auth-header`/`--auth-query` since
+/// those shape the descriptor's `auth_kinds`).
+#[derive(Debug, Clone, Default)]
 pub struct DebugUuidArgs {
     pub source: String,
     pub bbox: Option<BboxDeg>,
     pub zoom_range: Option<(u8, u8)>,
+    pub auth_headers: Vec<crate::sources::url_template::AuthHeader>,
+    pub auth_query: Vec<crate::sources::url_template::AuthQuery>,
     pub format: DebugUuidFormat,
 }
 
@@ -50,6 +54,8 @@ pub fn run_debug_uuid<W: std::io::Write>(
         out: std::path::PathBuf::new(),
         bbox: args.bbox,
         zoom_range: args.zoom_range,
+        auth_headers: args.auth_headers.clone(),
+        auth_query: args.auth_query.clone(),
         timestamp_override: None,
         pack_uuid_override: None,
         cancel: None,
@@ -79,6 +85,8 @@ mod tests {
             source: "synthetic".to_string(),
             bbox: None,
             zoom_range: None,
+            auth_headers: Vec::new(),
+            auth_query: Vec::new(),
             format: DebugUuidFormat::Uuid,
         };
         let mut buf = Vec::new();
@@ -101,6 +109,8 @@ mod tests {
             source: "synthetic".to_string(),
             bbox: None,
             zoom_range: None,
+            auth_headers: Vec::new(),
+            auth_query: Vec::new(),
             format: DebugUuidFormat::Uuid,
         };
         let mut buf = Vec::new();
@@ -125,6 +135,8 @@ mod tests {
             source: "synthetic".to_string(),
             bbox: None,
             zoom_range: None,
+            auth_headers: Vec::new(),
+            auth_query: Vec::new(),
             format: DebugUuidFormat::Bytes,
         };
         let mut buf = Vec::new();
@@ -151,6 +163,8 @@ mod tests {
                 source: "https://example.com/{z}/{x}/{y}.png".to_string(),
                 bbox: Some(bbox),
                 zoom_range: Some((10, 12)),
+                auth_headers: Vec::new(),
+                auth_query: Vec::new(),
                 format: DebugUuidFormat::Uuid,
             };
             run_debug_uuid(&args, &mut buf).unwrap();
@@ -177,6 +191,8 @@ mod tests {
             source: "https://example.com/{z}/{x}/{y}.png".to_string(),
             bbox: None,
             zoom_range: Some((10, 12)),
+            auth_headers: Vec::new(),
+            auth_query: Vec::new(),
             format: DebugUuidFormat::Uuid,
         };
         let mut buf = Vec::new();
@@ -185,11 +201,86 @@ mod tests {
     }
 
     #[test]
+    fn url_template_uuid_changes_when_auth_header_added() {
+        // Auth values stay out of the descriptor (per identity.rs's
+        // I-009-style rule) but auth *kinds* are part of it, so toggling
+        // --auth-header on must change the UUID.
+        let bbox = BboxDeg {
+            min_lon: -0.15,
+            min_lat: 51.49,
+            max_lon: -0.10,
+            max_lat: 51.52,
+        };
+        let without = {
+            let args = DebugUuidArgs {
+                source: "https://example.com/{z}/{x}/{y}.png".to_string(),
+                bbox: Some(bbox),
+                zoom_range: Some((10, 12)),
+                auth_headers: Vec::new(),
+                auth_query: Vec::new(),
+                format: DebugUuidFormat::Uuid,
+            };
+            let mut buf = Vec::new();
+            run_debug_uuid(&args, &mut buf).unwrap();
+            String::from_utf8(buf).unwrap()
+        };
+        let with = {
+            let args = DebugUuidArgs {
+                source: "https://example.com/{z}/{x}/{y}.png".to_string(),
+                bbox: Some(bbox),
+                zoom_range: Some((10, 12)),
+                auth_headers: vec![crate::sources::url_template::AuthHeader {
+                    name: "Authorization".to_string(),
+                    value: "Bearer xyz".to_string(),
+                }],
+                auth_query: Vec::new(),
+                format: DebugUuidFormat::Uuid,
+            };
+            let mut buf = Vec::new();
+            run_debug_uuid(&args, &mut buf).unwrap();
+            String::from_utf8(buf).unwrap()
+        };
+        assert_ne!(without, with);
+    }
+
+    #[test]
+    fn url_template_uuid_does_not_depend_on_auth_value() {
+        // Two invocations with the same auth *kind* but different auth
+        // *values* must produce the same UUID — values stay out of the
+        // descriptor.
+        let bbox = BboxDeg {
+            min_lon: -0.15,
+            min_lat: 51.49,
+            max_lon: -0.10,
+            max_lat: 51.52,
+        };
+        let make = |value: &str| {
+            let args = DebugUuidArgs {
+                source: "https://example.com/{z}/{x}/{y}.png".to_string(),
+                bbox: Some(bbox),
+                zoom_range: Some((10, 12)),
+                auth_headers: vec![crate::sources::url_template::AuthHeader {
+                    name: "Authorization".to_string(),
+                    value: value.to_string(),
+                }],
+                auth_query: Vec::new(),
+                format: DebugUuidFormat::Uuid,
+            };
+            let mut buf = Vec::new();
+            run_debug_uuid(&args, &mut buf).unwrap();
+            String::from_utf8(buf).unwrap()
+        };
+        assert_eq!(make("Bearer one"), make("Bearer two"));
+    }
+
+    #[test]
     fn unknown_source_kind_errors() {
         let args = DebugUuidArgs {
             source: "not-a-real-kind".to_string(),
             bbox: None,
             zoom_range: None,
+            auth_headers: Vec::new(),
+            auth_query: Vec::new(),
             format: DebugUuidFormat::Uuid,
         };
         let mut buf = Vec::new();

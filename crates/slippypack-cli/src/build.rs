@@ -21,7 +21,9 @@ use slippypack_core::projection::{Mercator, Projection as ProjectionTrait};
 use slippypack_core::quantise::{QUANTISER_VERSION, quantise_rgb888};
 
 use crate::sources::synthetic;
-use crate::sources::url_template::{UrlFetcher, UrlTemplate, UrlTemplateError};
+use crate::sources::url_template::{
+    AuthHeader, AuthQuery, UrlFetcher, UrlTemplate, UrlTemplateError,
+};
 
 /// Decimal-degree bounding box; CLI input shape before conversion to
 /// the on-disk microdegree representation.
@@ -157,6 +159,15 @@ pub struct BuildOptions {
     pub bbox: Option<BboxDeg>,
     /// `(zoom_min, zoom_max)` inclusive.
     pub zoom_range: Option<(u8, u8)>,
+    /// `--auth-header "Name: value"` entries. Applied to every
+    /// URL-template request; ignored for non-URL sources. Each entry's
+    /// presence is reflected in the descriptor's `auth_kinds`; the
+    /// values themselves are not part of the descriptor.
+    pub auth_headers: Vec<AuthHeader>,
+    /// `--auth-query "key=value"` entries. Appended to every URL-template
+    /// request's URL; ignored for non-URL sources. Like `auth_headers`,
+    /// only the *kind* enters the descriptor.
+    pub auth_query: Vec<AuthQuery>,
     /// CI override: pin `build_timestamp` to a fixed value (seconds
     /// since Unix epoch). `None` → derive from inputs.
     pub timestamp_override: Option<u64>,
@@ -300,10 +311,26 @@ pub fn descriptor_for(opts: &BuildOptions) -> Result<PackDescriptor, BuildError>
         UrlTemplate::parse(&opts.source)?;
         let bbox = opts.bbox.ok_or(BuildError::MissingBbox)?;
         let zoom = opts.zoom_range.ok_or(BuildError::MissingZoom)?;
-        Ok(url_template_descriptor(&opts.source, bbox, zoom))
+        Ok(url_template_descriptor(
+            &opts.source,
+            bbox,
+            zoom,
+            auth_kinds_from_options(opts),
+        ))
     } else {
         Err(BuildError::UnknownSourceKind(opts.source.clone()))
     }
+}
+
+fn auth_kinds_from_options(opts: &BuildOptions) -> Vec<AuthKind> {
+    let mut kinds = Vec::new();
+    if !opts.auth_headers.is_empty() {
+        kinds.push(AuthKind::Header);
+    }
+    if !opts.auth_query.is_empty() {
+        kinds.push(AuthKind::Query);
+    }
+    kinds
 }
 
 fn synthetic_descriptor() -> PackDescriptor {
@@ -349,8 +376,11 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
     let zoom = opts.zoom_range.ok_or(BuildError::MissingZoom)?;
     let template = UrlTemplate::parse(&opts.source)?;
 
-    let descriptor = url_template_descriptor(&opts.source, bbox, zoom);
+    let descriptor =
+        url_template_descriptor(&opts.source, bbox, zoom, auth_kinds_from_options(opts));
     let mut fetcher = UrlFetcher::new();
+    fetcher.set_auth_headers(opts.auth_headers.clone());
+    fetcher.set_auth_query(opts.auth_query.clone());
 
     // Pre-fetch all tiles before opening the writer. This lets us:
     //   1. Use `fetcher.max_last_modified()` as `build_timestamp`
@@ -389,7 +419,12 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
     })
 }
 
-fn url_template_descriptor(url: &str, bbox: BboxDeg, zoom: (u8, u8)) -> PackDescriptor {
+fn url_template_descriptor(
+    url: &str,
+    bbox: BboxDeg,
+    zoom: (u8, u8),
+    auth_kinds: Vec<AuthKind>,
+) -> PackDescriptor {
     PackDescriptor {
         bbox: bbox.to_micro(),
         format_version: FormatVersion { major: 1, minor: 0 },
@@ -398,7 +433,7 @@ fn url_template_descriptor(url: &str, bbox: BboxDeg, zoom: (u8, u8)) -> PackDesc
         quantiser_version: QUANTISER_VERSION,
         sources: vec![Source::Url {
             template: url.to_string(),
-            auth_kinds: Vec::<AuthKind>::new(),
+            auth_kinds,
             zoom_min: zoom.0,
             zoom_max: zoom.1,
         }],
@@ -612,6 +647,8 @@ mod tests {
             out: tmp.clone(),
             bbox: None,
             zoom_range: None,
+            auth_headers: Vec::new(),
+            auth_query: Vec::new(),
             timestamp_override: Some(0),
             pack_uuid_override: None,
             cancel: Some(Arc::clone(&cancel)),

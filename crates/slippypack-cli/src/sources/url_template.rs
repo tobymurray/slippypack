@@ -29,6 +29,12 @@ pub enum UrlTemplateError {
     Transport(ureq::Error),
     /// HTTP response status was not 2xx.
     Status { code: u16, url: String },
+    /// `--auth-header "Name: value"` value couldn't be parsed (no `:`
+    /// separating the name from the value, or empty name).
+    InvalidAuthHeader(String),
+    /// `--auth-query "key=value"` value couldn't be parsed (no `=`
+    /// separating the key from the value, or empty key).
+    InvalidAuthQuery(String),
 }
 
 impl core::fmt::Display for UrlTemplateError {
@@ -45,6 +51,14 @@ impl core::fmt::Display for UrlTemplateError {
             Self::Status { code, url } => {
                 write!(f, "HTTP {code} from {url}")
             }
+            Self::InvalidAuthHeader(s) => write!(
+                f,
+                "invalid --auth-header value: expected 'Name: value' form, got {s:?}",
+            ),
+            Self::InvalidAuthQuery(s) => write!(
+                f,
+                "invalid --auth-query value: expected 'key=value' form, got {s:?}",
+            ),
         }
     }
 }
@@ -105,6 +119,83 @@ impl UrlTemplate {
     }
 }
 
+/// Parsed `--auth-header "Name: value"` argument. The two halves are
+/// stored separately so they can be applied to each request via ureq's
+/// header API.
+#[derive(Debug, Clone)]
+pub struct AuthHeader {
+    pub name: String,
+    pub value: String,
+}
+
+impl AuthHeader {
+    /// Parse a `"Name: value"` form. Leading/trailing whitespace on
+    /// either half is trimmed. An empty name is an error.
+    ///
+    /// # Errors
+    ///
+    /// - [`UrlTemplateError::InvalidAuthHeader`] if `:` is missing or
+    ///   the name half is empty.
+    pub fn parse(s: &str) -> Result<Self, UrlTemplateError> {
+        let (name, value) = s
+            .split_once(':')
+            .ok_or_else(|| UrlTemplateError::InvalidAuthHeader(s.to_string()))?;
+        let name = name.trim().to_string();
+        let value = value.trim().to_string();
+        if name.is_empty() {
+            return Err(UrlTemplateError::InvalidAuthHeader(s.to_string()));
+        }
+        Ok(Self { name, value })
+    }
+}
+
+/// Parsed `--auth-query "key=value"` argument.
+#[derive(Debug, Clone)]
+pub struct AuthQuery {
+    pub key: String,
+    pub value: String,
+}
+
+impl AuthQuery {
+    /// Parse a `"key=value"` form. Leading/trailing whitespace on the
+    /// key is trimmed; the value is taken verbatim (whitespace inside
+    /// query values is preserved, percent-encoded by the caller if
+    /// needed). An empty key is an error.
+    ///
+    /// # Errors
+    ///
+    /// - [`UrlTemplateError::InvalidAuthQuery`] if `=` is missing or
+    ///   the key half is empty.
+    pub fn parse(s: &str) -> Result<Self, UrlTemplateError> {
+        let (key, value) = s
+            .split_once('=')
+            .ok_or_else(|| UrlTemplateError::InvalidAuthQuery(s.to_string()))?;
+        let key = key.trim().to_string();
+        let value = value.to_string();
+        if key.is_empty() {
+            return Err(UrlTemplateError::InvalidAuthQuery(s.to_string()));
+        }
+        Ok(Self { key, value })
+    }
+}
+
+/// Append `auth_query` params as a `?...` / `&...` suffix on `url`.
+fn append_auth_query(url: &str, auth_query: &[AuthQuery]) -> String {
+    if auth_query.is_empty() {
+        return url.to_string();
+    }
+    let mut out = String::with_capacity(url.len() + 32 * auth_query.len());
+    out.push_str(url);
+    let separator_for_first = if url.contains('?') { '&' } else { '?' };
+    for (i, aq) in auth_query.iter().enumerate() {
+        out.push(if i == 0 { separator_for_first } else { '&' });
+        out.push_str(&aq.key);
+        out.push('=');
+        out.push_str(&aq.value);
+    }
+    out
+}
+
 /// Synchronous HTTP fetcher for URL-template tile sources.
 ///
 /// Holds a reusable [`ureq::Agent`] (sharing TCP / TLS pools across
@@ -118,6 +209,11 @@ pub struct UrlFetcher {
     /// successful responses. `0` if no response carried a parseable
     /// `Last-Modified` header.
     max_last_modified: u64,
+    /// Headers added to every request (set via `--auth-header`).
+    auth_headers: Vec<AuthHeader>,
+    /// Query parameters appended to every fetched URL (set via
+    /// `--auth-query`).
+    auth_query: Vec<AuthQuery>,
 }
 
 impl UrlFetcher {
@@ -130,10 +226,25 @@ impl UrlFetcher {
         Self {
             agent,
             max_last_modified: 0,
+            auth_headers: Vec::new(),
+            auth_query: Vec::new(),
         }
     }
 
-    /// GET `url` and return the response body bytes.
+    /// Set the per-request `--auth-header` list. Replaces any previous
+    /// list.
+    pub fn set_auth_headers(&mut self, headers: Vec<AuthHeader>) {
+        self.auth_headers = headers;
+    }
+
+    /// Set the URL-appended `--auth-query` list. Replaces any previous
+    /// list.
+    pub fn set_auth_query(&mut self, query: Vec<AuthQuery>) {
+        self.auth_query = query;
+    }
+
+    /// GET `url` and return the response body bytes. Applies any
+    /// configured `--auth-header` headers and `--auth-query` params.
     ///
     /// # Errors
     ///
@@ -141,12 +252,17 @@ impl UrlFetcher {
     ///   body-read failures (`ureq::Error` covers both).
     /// - [`UrlTemplateError::Status`] for non-2xx responses.
     pub fn fetch(&mut self, url: &str) -> Result<Vec<u8>, UrlTemplateError> {
-        let response = self.agent.get(url).call()?;
+        let final_url = append_auth_query(url, &self.auth_query);
+        let mut request = self.agent.get(&final_url);
+        for header in &self.auth_headers {
+            request = request.header(header.name.as_str(), header.value.as_str());
+        }
+        let response = request.call()?;
         let status = response.status();
         if !status.is_success() {
             return Err(UrlTemplateError::Status {
                 code: status.as_u16(),
-                url: url.to_string(),
+                url: final_url,
             });
         }
         // Capture Last-Modified before consuming the response.
@@ -256,7 +372,9 @@ fn days_since_epoch_to_unix(
 
 #[cfg(test)]
 mod tests {
-    use super::{UrlTemplate, UrlTemplateError, parse_http_date};
+    use super::{
+        AuthHeader, AuthQuery, UrlTemplate, UrlTemplateError, append_auth_query, parse_http_date,
+    };
 
     #[test]
     fn parse_accepts_https_with_placeholders() {
@@ -344,5 +462,104 @@ mod tests {
         assert!(parse_http_date("Sun, 06 Foo 1994 08:49:37 GMT").is_none());
         // Pre-1970 dates aren't representable as u64-seconds-since-epoch.
         assert!(parse_http_date("Tue, 06 Nov 1900 08:49:37 GMT").is_none());
+    }
+
+    #[test]
+    fn auth_header_parses_simple_pair() {
+        let h = AuthHeader::parse("Authorization: Bearer abc123").unwrap();
+        assert_eq!(h.name, "Authorization");
+        assert_eq!(h.value, "Bearer abc123");
+    }
+
+    #[test]
+    fn auth_header_value_preserves_internal_colons() {
+        // Bearer tokens / JWTs can contain colons inside the value; only
+        // the first colon separates name from value.
+        let h = AuthHeader::parse("X-Custom: a:b:c").unwrap();
+        assert_eq!(h.name, "X-Custom");
+        assert_eq!(h.value, "a:b:c");
+    }
+
+    #[test]
+    fn auth_header_trims_surrounding_whitespace() {
+        let h = AuthHeader::parse("  X-Foo  :  bar  ").unwrap();
+        assert_eq!(h.name, "X-Foo");
+        assert_eq!(h.value, "bar");
+    }
+
+    #[test]
+    fn auth_header_rejects_missing_colon() {
+        let err = AuthHeader::parse("Authorization Bearer abc").unwrap_err();
+        assert!(matches!(err, UrlTemplateError::InvalidAuthHeader(_)));
+    }
+
+    #[test]
+    fn auth_header_rejects_empty_name() {
+        let err = AuthHeader::parse(": value").unwrap_err();
+        assert!(matches!(err, UrlTemplateError::InvalidAuthHeader(_)));
+    }
+
+    #[test]
+    fn auth_query_parses_simple_pair() {
+        let q = AuthQuery::parse("key=YOUR_TOKEN").unwrap();
+        assert_eq!(q.key, "key");
+        assert_eq!(q.value, "YOUR_TOKEN");
+    }
+
+    #[test]
+    fn auth_query_value_preserves_internal_equals() {
+        // Base64-encoded values can contain `=` padding; only the first
+        // `=` separates key from value.
+        let q = AuthQuery::parse("token=abc==").unwrap();
+        assert_eq!(q.key, "token");
+        assert_eq!(q.value, "abc==");
+    }
+
+    #[test]
+    fn auth_query_rejects_missing_equals() {
+        let err = AuthQuery::parse("just-key").unwrap_err();
+        assert!(matches!(err, UrlTemplateError::InvalidAuthQuery(_)));
+    }
+
+    #[test]
+    fn auth_query_rejects_empty_key() {
+        let err = AuthQuery::parse("=value").unwrap_err();
+        assert!(matches!(err, UrlTemplateError::InvalidAuthQuery(_)));
+    }
+
+    #[test]
+    fn append_auth_query_appends_with_question_mark_when_no_query() {
+        let q = vec![AuthQuery::parse("k=v").unwrap()];
+        assert_eq!(
+            append_auth_query("https://example.com/0/0/0.png", &q),
+            "https://example.com/0/0/0.png?k=v",
+        );
+    }
+
+    #[test]
+    fn append_auth_query_appends_with_ampersand_when_query_exists() {
+        let q = vec![AuthQuery::parse("k=v").unwrap()];
+        assert_eq!(
+            append_auth_query("https://example.com/0/0/0.png?style=dark", &q),
+            "https://example.com/0/0/0.png?style=dark&k=v",
+        );
+    }
+
+    #[test]
+    fn append_auth_query_chains_multiple() {
+        let q = vec![
+            AuthQuery::parse("a=1").unwrap(),
+            AuthQuery::parse("b=2").unwrap(),
+        ];
+        assert_eq!(
+            append_auth_query("https://example.com/tile", &q),
+            "https://example.com/tile?a=1&b=2",
+        );
+    }
+
+    #[test]
+    fn append_auth_query_returns_url_unchanged_when_empty() {
+        let url = "https://example.com/tile";
+        assert_eq!(append_auth_query(url, &[]), url);
     }
 }
