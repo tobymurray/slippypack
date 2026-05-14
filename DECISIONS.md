@@ -130,6 +130,55 @@ No state, but methods take `&self` to fit the trait shape that accommodates stat
 
 ---
 
+## F — Format module (byte-layout primitives)
+
+### F-001 — Bbox stored as 4×i32 microdegrees in the header (16 bytes)
+PLAN.md doesn't pin the on-disk byte layout for `bbox`. Choices considered: 4×f64 (32 bytes, brings float-determinism issues), 4×i32 microdegrees (16 bytes, matches the canonical descriptor's representation), 4×f32 (16 bytes, but precision-marginal at z=17). Picked microdegrees because they match the descriptor (one less encoding to reason about), give ~11 cm precision at the equator (well below tile granularity at any v1 zoom), and avoid all float-determinism concerns inside the header. The exact in-memory `i32` order is `min_lon, min_lat, max_lon, max_lat` (matches the descriptor key ordering).
+**Manifests:** `crates/slippypack-core/src/format/header.rs::write_header` (offsets 62..78); `BoundingBox` struct in `identity.rs` (shared between descriptor and header).
+**Commit:** to land with the format-primitives commit.
+
+### F-002 — Header is exactly 322 bytes (`HEADER_BASE_SIZE`)
+Computed from the spec field-by-field. `4 (magic) + 2 (version) + 48 (3 UUIDs) + 4 (4 enum bytes) + 2 (tile_dim_px) + 2 (zoom range) + 16 (bbox) + 8 (timestamp) + 4 (tile_count) + 8 (index_offset) + 216 (zoom_offsets[18]) + 8 (extensions_offset) = 322 bytes.` Pinned as a constant so callers can pre-allocate.
+**Manifests:** `crates/slippypack-core/src/format/header.rs::HEADER_BASE_SIZE`.
+**Commit:** to land with the format-primitives commit.
+
+### F-003 — Header writer infallible; reader does all validation
+`write_header(&PackMetadata, &DerivedHeaderFields) -> [u8; 322]` cannot fail — the type system enforces every legal enum value. Spec invariants (`pack_uuid != 0`, `parent_uuid == 0` in v1, `tile_dim_px >= 1`, `zoom_range.max >= zoom_range.min`, etc.) are checked at parse time via `read_header`. Rationale: invariants belong at the boundary where caller-provided data enters the spec, not at every intermediate hop.
+**Manifests:** `crates/slippypack-core/src/format/header.rs::{write_header, read_header, HeaderError}`.
+**Commit:** to land with the format-primitives commit.
+
+### F-004 — `FORMAT_VERSION = (1, 0)` constant, not a field of `PackMetadata`
+The writer always stamps the format-version from a build-time constant (`FORMAT_VERSION`). Callers don't pick the version — picking would let v1 builds produce v0.5 or v2 bytes by accident. When the format spec bumps, a single source-code change updates every pack slippypack produces.
+**Manifests:** `crates/slippypack-core/src/format/types.rs::FORMAT_VERSION`; `PackMetadata` (no version field).
+**Commit:** to land with the format-primitives commit.
+
+### F-005 — Tile-index entry is exactly 24 bytes (`INDEX_ENTRY_SIZE`)
+Per the una-sdk spec. Layout: `z (1) + compression (1) + flags (1) + reserved (1) + x (4) + y (4) + offset (8) + length (4) = 24`. Reader rejects non-zero compression (v1 supports only `0 = none`), non-zero flags, and non-zero reserved byte per the v1 forward-compatibility rules.
+**Manifests:** `crates/slippypack-core/src/format/tile_index.rs::{INDEX_ENTRY_SIZE, write_index_entry, read_index_entry}`.
+**Commit:** to land with the format-primitives commit.
+
+### F-006 — Extension sections: `[tag (4) + length (4 LE) + payload + zero-pad-to-4]`
+Wire format per the una-sdk spec. Section header is 8 bytes; payload is `length` bytes followed by 0-3 zero bytes to reach a 4-byte boundary. The reader's padding check is **strict** (non-zero padding is an error rather than a warning) — strict here trades a small chance of false-positive rejection (other writer made a mistake) for stronger determinism (we know exactly what bytes are in the buffer between sections).
+**Manifests:** `crates/slippypack-core/src/format/extensions.rs::{write_extension_section, read_extension_sections, ExtensionError::NonZeroPadding}`.
+**Commit:** to land with the format-primitives commit.
+
+### F-007 — CRC-32/ISO-HDLC (the "PNG/zlib" CRC) for the pack footer
+Polynomial `0xEDB88320` (reflected), init `0xFFFF_FFFF`, xor-out `0xFFFF_FFFF`. Standard variant used by PNG, gzip, zip, zlib — well-known and trivially auditable. Implementation is table-driven (1024-byte lookup table computed at compile time via `const fn`) for reasonable speed without a runtime initialization step or dependency.
+**Manifests:** `crates/slippypack-core/src/format/crc.rs::{Crc32, crc32_ieee, CRC32_TABLE}`.
+**Commit:** to land with the format-primitives commit.
+
+### F-008 — Enum-byte parsers reject reserved values (v1 forward-compat)
+`PixelFormat::from_byte`, `Projection::from_byte`, `AddressingScheme::from_byte`, `AxisConvention::from_byte`, and `Compression::from_byte` return `None` for reserved-but-not-implemented values. v1 readers MUST refuse packs that use them (per una-sdk § Forward-compatibility rules). Returning `None` lets the header/index parser surface this as a typed error (e.g. `HeaderError::InvalidPixelFormat(2)`) rather than silently misinterpreting.
+**Manifests:** `crates/slippypack-core/src/format/types.rs::*::from_byte`; `crates/slippypack-core/src/format/tile_index.rs::Compression::from_byte`.
+**Commit:** to land with the format-primitives commit.
+
+### F-009 — `Compression` enum (with one variant) anticipates LZ4 / QOI reservations
+v1 supports only `Compression::None`. The enum exists as a typed wrapper around the spec's `compression` byte so callers can't accidentally write a reserved value, and so future per-tile compression support (LZ4, QOI per una-sdk § Per-tile metadata) is a non-breaking addition via `#[non_exhaustive]`.
+**Manifests:** `crates/slippypack-core/src/format/tile_index.rs::Compression`.
+**Commit:** to land with the format-primitives commit.
+
+---
+
 ## D — Decode module
 
 ### D-001 — `image` crate with `default-features = false, features = ["png", "jpeg"]`
