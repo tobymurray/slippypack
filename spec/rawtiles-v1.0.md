@@ -50,6 +50,14 @@ A `.rawtiles` file consists of five sections in fixed order:
 
 A pack is at most **4 GiB** in total size. All on-disk offsets (`index_offset`, `extensions_offset`, `zoom_offsets[].offset`, tile-index `offset`) are u32 LE. A writer that would produce a larger pack MUST fail with a "pack too large" error rather than overflow.
 
+**`tile_blob_start`** is the byte offset where the tile blob begins. Both writers and readers compute it as:
+
+```
+tile_blob_start := align4(index_offset + 20 × tile_count)
+```
+
+where `align4(n) := (n + 3) & ~3` rounds up to a 4-byte boundary. Anywhere in this specification (§§ 5, 6, 11, 12) that refers to "the start of the tile blob" means this value.
+
 ## 4. Header (offset 0, 290 bytes)
 
 | Offset | Size | Field | Notes |
@@ -142,6 +150,8 @@ The value SHOULD represent the freshness of the underlying source data (e.g. mos
 
 The value `0` is the sentinel for *"no freshness information available."* (slippypack uses this for the synthetic source kind, which has no real-world data.)
 
+**Sentinel collision note**: a real source whose `mtime` happens to be exactly `1970-01-01T00:00:00Z` (the Unix epoch) is indistinguishable from the "no info" sentinel. This is acceptable because (a) no real-world tile data has an epoch-zero `mtime`, and (b) the consequence of conflating them is only that a recipient cannot distinguish "the writer didn't know the freshness" from "the data is exactly 56 years stale". Writers that genuinely need to express "exactly the epoch" SHOULD use `1` (one second past the epoch) instead.
+
 ### 4.11 `tile_count` and `index_offset`
 
 - `tile_count` (u32): total number of entries in the tile index across all zooms.
@@ -192,11 +202,11 @@ A contiguous array of 20-byte entries starting at `index_offset`, holding `tile_
 
 A conforming pack satisfies all of:
 
-- Entries are sorted ascending by `(z, x, y)`.
+- Entries are sorted ascending by `(z, x, y)`. Equivalently: across all entries the `z` values are non-decreasing, and within each contiguous run of entries sharing the same `z`, the `(x, y)` values are strictly ascending in lexicographic order. The within-zoom ordering is what § 5.3's binary search depends on.
 - `z < 24` for every entry.
 - `compression` is a value supported by the writer's `format_version` per § 8.5. (v1: only `0 = None`.)
 - `flags = 0` and `reserved = 0` for every entry in v1. Readers MUST reject non-zero values.
-- `offset` is 4-byte aligned and lies within the tile blob.
+- `offset` is 4-byte aligned and lies within the tile blob (i.e. `offset ≥ tile_blob_start`, per § 3).
 - `offset + length ≤ extensions_offset`.
 - No two entries share the same `(z, x, y)` triple.
 
@@ -243,6 +253,16 @@ The next section begins at the 4-byte-aligned offset following the previous sect
 
 `length` is the payload length in bytes; it does NOT include the 8-byte section header or trailing padding.
 
+**Section bounds (MUST).** For every extension section in a conforming pack:
+
+- `extensions_offset` MUST be 4-byte aligned.
+- The first section's start byte MUST equal `extensions_offset` (no padding between `extensions_offset` and the first tag byte).
+- Each section's complete extent (`tag + length + payload + alignment padding`) MUST lie within `[extensions_offset, file_size − 4)` — i.e., before the 4-byte CRC footer.
+- `length` MUST NOT cause `section_start + 8 + length` to exceed `file_size − 4`.
+- The padding bytes between `payload` and the next section MUST be `0x00`.
+
+Readers MUST reject packs that violate any of these.
+
 ### 7.2 Tag naming and reader behavior on unknown tags
 
 The four-byte tag is compared verbatim. Case is normative for forward-compatibility behavior:
@@ -258,7 +278,7 @@ Tag bytes 2–4 MAY be any printable ASCII; their case has no normative meaning.
 |---|---|---|
 | `NAME` | Pack display name | Length-prefixed BCP-47 tag + UTF-8 name; see § 7.4. Multiple `NAME` sections MAY appear (one per locale). |
 | `SRCD` | Source description | Free-form UTF-8 provenance text (e.g. *"OSM 2026-04 Geofabrik Italy extract, MapLibre watch-tuned style v2"*). |
-| `ATTR` | Attribution | UTF-8; newline-separated attribution strings, one per active source, no trailing newline. |
+| `ATTR` | Attribution | UTF-8; newline-separated attribution strings, one per active source, no trailing newline. **For byte-identical reproducibility across writers, the strings MUST be ordered to match the canonical `sources` array order defined in Appendix A.4** (sorted by `(zoom_min, zoom_max, kind, identity)`). |
 | `PLET` | Palette | Packed pixel-format bytes (one per palette entry). Required when `pixel_format` is an indexed format; reserved for future use in v1. |
 | `AFFN` | Affine matrix | 48 bytes: six little-endian IEEE-754 `f64` values `(a, b, c, d, e, f)` defining the 2×3 affine `[a b c; d e f]` that maps image-pixel coordinates `(u, v)` to geographic coordinates `(lon, lat)` in decimal degrees: `lon = a·u + b·v + c`, `lat = d·u + e·v + f`. Required when `projection = LocalLinear`. |
 
@@ -418,25 +438,29 @@ Readers MUST verify the CRC at open time and reject the pack on mismatch.
 
 A conforming v1 reader MUST:
 
-1. Reject any file shorter than 398 bytes (header + CRC footer).
+1. Reject any file shorter than 294 bytes (290-byte header + 4-byte CRC footer).
 2. Reject any file whose first 4 bytes are not `RAWT`.
 3. Reject any pack whose `format_version_major ≠ 1`.
 4. Accept packs with `format_version_minor > 0`, applying §§ 7.2 and 8 to any extension tags or enum values they contain.
 5. Reject `pack_uuid` equal to all-zero.
 6. Reject `parent_uuid` not equal to all-zero.
 7. Reject any unknown `pixel_format`, `projection`, `tile_addressing_scheme`, `tile_axis_convention`, or `compression` byte (§ 8).
-8. Reject any tile-index entry with non-zero `flags` or non-zero `reserved`.
-9. Reject any tile-index entry whose `offset` is not 4-byte aligned, lies before the tile blob, or whose `offset + length` exceeds `extensions_offset`.
-10. Reject the pack if `zoom_offsets[z].count` does not equal the actual count of tile-index entries at zoom `z` for any `z`.
-11. Reject any pack containing an unknown extension tag whose first byte is upper-case ASCII (`A–Z`).
-12. Accept and MAY ignore any unknown extension tag whose first byte is lower-case ASCII.
-13. Reject `projection = LocalLinear` packs that do not contain an `AFFN` extension.
-14. Verify the CRC-32 footer and reject the pack on mismatch.
+8. Reject any `projection` × `tile_addressing_scheme` combination outside the legal v1 pairs in § 8.6.
+9. Reject any tile-index entry with non-zero `flags` or non-zero `reserved`.
+10. Reject the pack if entries are not sorted ascending by `(z, x, y)`, including the within-zoom `(x, y)` lexicographic order that § 5.3's binary search depends on.
+11. Reject any tile-index entry whose `offset` is not 4-byte aligned, lies before `tile_blob_start` (§ 3), or whose `offset + length` exceeds `extensions_offset`.
+12. Reject the pack if `zoom_offsets[z].count` does not equal the actual count of tile-index entries at zoom `z` for any `z`, or if `zoom_offsets[z].offset` does not equal the byte offset of the first index entry at zoom `z` (when `count > 0`) or is non-zero (when `count == 0`).
+13. Reject the pack if `extensions_offset` is not 4-byte aligned.
+14. Reject any extension section whose extent (`tag + length + payload + alignment padding`) is not contained in `[extensions_offset, file_size − 4)` (§ 7.1).
+15. Reject any pack containing an unknown extension tag whose first byte is upper-case ASCII (`A–Z`).
+16. Accept and MAY ignore any unknown extension tag whose first byte is lower-case ASCII.
+17. Reject `projection = LocalLinear` packs that do not contain an `AFFN` extension.
+18. Verify the CRC-32 footer and reject the pack on mismatch.
 
 A conforming v1 reader SHOULD:
 
-15. Use byte-wise (`memcpy`-style) extraction when reading multi-byte fields. The format is byte-oriented; no multi-byte field is guaranteed to be naturally aligned in the file. Native pointer-cast reads fault on strict-alignment platforms (notably some Cortex-M configurations).
-16. Validate that `index_offset ≥ 290` and that `extensions_offset ≥ index_offset + 20 × tile_count + tile_blob_size`.
+19. Use byte-wise (`memcpy`-style) extraction when reading multi-byte fields. The format is byte-oriented; no multi-byte field is guaranteed to be naturally aligned in the file. Native pointer-cast reads fault on strict-alignment platforms (notably some Cortex-M configurations).
+20. Validate that `index_offset ≥ 290` and that `extensions_offset ≥ tile_blob_start + tile_blob_size`.
 
 ## 12. Writer requirements
 
@@ -486,9 +510,11 @@ Lower-case tags can be allocated at any time by any writer without a version bum
 
 ## 14. Conformance
 
-### 14.1 Round-trip property
+### 14.1 Writer-round-trip property
 
-For every conforming pack, applying a conforming reader followed by a conforming writer (with the same input metadata) MUST produce a byte-identical pack. This is the format's lossless claim.
+A conforming writer applied twice to the same logical inputs MUST produce byte-identical output. This is the load-bearing reproducibility claim — it lets two parties (or two builds on different platforms) verify that they produced the same pack without sharing the pack bytes.
+
+This property is the writer's responsibility, not the reader's. The spec does not require that a reader expose enough state for a writer to reconstruct an exact byte-for-byte equivalent pack (some fields — e.g. the order writers chose to emit tiles in before sorting, the original `--style` JSON content vs. just its hash — are deliberately not recoverable from the bytes alone). Two passes through a writer with identical inputs, however, MUST agree byte-for-byte.
 
 ### 14.2 Cross-implementation gate
 
@@ -496,7 +522,23 @@ The slippypack repository ships an independent C++ validator at `spec-validator-
 
 ### 14.3 Golden fixtures
 
-Slippypack commits a corpus of test fixtures exercising every interesting v1 layout shape (smallest non-empty pack; multi-zoom directory; multi-source `ATTR`; single-image `AFFN`; …). Their `pack_uuid`s and CRCs are pinned; any drift is a bug or a deliberate `quantiser_version` / `format_version` bump.
+Six golden fixtures are pinned in the slippypack repository:
+
+| Fixture | Location | What it exercises |
+|---|---|---|
+| `golden-grid.rawtiles` | `crates/slippypack-core/tests/fixtures/format/` | 25 tiles at z=4; largest single-zoom layout |
+| `golden-pyramid.rawtiles` | `crates/slippypack-core/tests/fixtures/format/` | 21 tiles across z=2..=4; multi-zoom `zoom_offsets[24]` directory |
+| `golden-attr.rawtiles` | `crates/slippypack-core/tests/fixtures/format/` | 9 tiles + `ATTR` extension; extension-section framing + padding |
+| `golden-png-to-pack-1tile.rawtiles` | `crates/slippypack-core/tests/fixtures/e2e/` | smallest non-empty pack (1 tile) |
+| `golden-png-to-pack-5tiles.rawtiles` | `crates/slippypack-core/tests/fixtures/e2e/` | end-to-end PNG-decode → quantise → pack output |
+| `golden-synthetic.rawtiles` | `crates/slippypack-cli/tests/fixtures/` | the path `slippypack make --source synthetic` writes; descriptor-derived `pack_uuid` |
+
+Their bytes are byte-pinned by tests (see `tests/spec_layout.rs`, `tests/end_to_end.rs`, `tests/cli_synthetic.rs`). Any drift requires either:
+
+1. A deliberate `quantiser_version` / `format_version` bump (with this CHANGELOG entry updated, and a paired DECISIONS entry), OR
+2. A re-bless via the `BLESS_SPEC_LAYOUT=1` / `BLESS_E2E=1` / `BLESS_CLI_SYNTHETIC=1` env vars on the test runs, with an explicit reviewer ack.
+
+Third-party implementations SHOULD include these fixtures in their own conformance tests.
 
 ### 14.4 ABGR2222 quantiser test vector
 

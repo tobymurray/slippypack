@@ -460,6 +460,24 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ## N — Naming
 
+### F-029 — Pre-1.0 spec corrections (fixes 6–14): bound MUSTs, definitions, conformance
+Pure documentation pass — no wire-format change — closing nine spec ambiguities pre-1.0-freeze. Each one is a place where two spec-faithful readers could legally disagree on the same pack:
+
+1. **In-zoom `(x, y)` sort MUST** (§ 5.2, § 11 #10). § 5.3's binary search depends on it; was implicit in "sorted by `(z, x, y)`" but easy to miss. Stated explicitly + tied to the lookup algorithm.
+2. **Extension-section bound MUST** (§ 7.1). Each section's full extent (`tag + length + payload + padding`) MUST lie within `[extensions_offset, file_size − 4)`. Was implied; now explicit, with reader-MUST in § 11 #14.
+3. **`extensions_offset` 4-aligned MUST** (§ 7.1, § 11 #13). Implied by the writer's pad-to-4 convention; readers MUST verify.
+4. **First-section alignment MUST** (§ 7.1). The first section starts exactly at `extensions_offset` — no padding between the offset and the first tag byte.
+5. **`tile_blob_start` defined once** (§ 3) — `align4(index_offset + 20 × tile_count)`. § 5.2, § 6, and § 11 #11 now all reference this single definition instead of re-deriving it inconsistently.
+6. **ATTR ordering tied to A.4** (§ 7.3 table row). Strings MUST be ordered to match the canonical `sources` array order (sorted by `(zoom_min, zoom_max, kind, identity)`) so two writers given the same logical sources produce byte-identical `ATTR` payloads.
+7. **`build_timestamp = 0` sentinel collision acknowledged** (§ 4.10). A real epoch-zero `mtime` is indistinguishable from "no info", but no real-world data has that mtime; writers needing to express "exactly the epoch" SHOULD use `1`.
+8. **§ 14.1 round-trip restated** as writer-round-trips-own-output, not reader-then-writer. The latter requires more from a "conforming reader" than § 11 actually demands (e.g. recovering pre-sort tile order from the bytes alone).
+9. **§ 14.3 pins golden fixtures by name** in a six-row table, each with path + what-it-exercises. Drift requires either a `quantiser_version` / `format_version` bump or an explicit re-bless via the documented env-var bootstrap.
+
+Also fixed: § 11 #1 (file-size minimum 398 → 294 after the u32-offset shrink); added § 11 #8 (enum-pair legality cross-reference to § 8.6, complementing F-025).
+
+**Manifests**: `spec/rawtiles-v1.0.md` §§ 3, 4.10, 5.2, 7.1, 7.3, 11, 14.1, 14.3.
+**Commit**: to land with the spec-batch slice.
+
 ### F-028 — AFFN canonical bits committed as six hex-encoded `f64` bit-patterns
 Pre-1.0-freeze fix for a LocalLinear `pack_uuid` collision. The previous spec text said the descriptor's `affn` key carried the six affine coefficients "as integer microunits" — but the on-disk `AFFN` extension stores six `f64` decimal-degree coefficients, and the conversion was undefined. Two writers given identical `f64`s could compute different "integer microunit" approximations (depending on rounding mode, language runtime, or float-to-decimal pathway), producing different `pack_uuid`s for byte-identical packs.
 
