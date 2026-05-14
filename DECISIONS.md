@@ -631,6 +631,20 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-046 — § 13.1: pin `reserved_v1_0` forward-compat hole as additive-only
+Pre-freeze closure of one remaining silent-render trap. The `reserved_v1_0` bytes at header offset 6 are a forward-compat hole — v1.0 readers MUST accept any value. The implicit contract was "future v1.x will use these bytes additively, not to repurpose existing v1.0 field semantics," but the contract was social, not specified.
+
+If v1.5 were to assign semantic-altering meaning to those bytes (e.g. "if reserved_v1_0 != 0, bbox is in Web Mercator pixels rather than microdegrees"), a v1.0 reader still parsing bbox as microdegrees would silently render at the wrong location. This is the worst-case forward-compat failure mode — packs that v1.0 readers accept as valid but silently misinterpret.
+
+§ 13.1 now states explicitly: forward-compat holes are for additive information only. v1.x changes that would alter the interpretation of any v1.0 header or tile-index field require a major bump. Generalized to cover any future reserved bytes added by minor bumps, not just `reserved_v1_0` specifically.
+
+Real-but-narrow trap — only fires if a future spec maintainer deliberately misuses the hole. Cost of the fix is one paragraph; value is converting the social contract to a spec rule a future maintainer can't accidentally violate.
+
+No wire-format change. No semantic change. Spec-doc only. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets --workspace -D warnings` clean, 281 tests passing.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` § 13.1.
+**Commit**: to land with the reserved-bytes-constraint slice.
+
 ### F-045 — § 11 completeness + 9 related spec gaps (final pre-freeze conformance pass)
 Pre-1.0-freeze closure of nine ways a § 11-driven reader implementer could ship code that silently accepts malformed packs or traps on Cortex-M alignment.
 
