@@ -152,6 +152,13 @@ u64 little-endian; seconds since the Unix epoch (1970-01-01T00:00:00Z).
 
 The value SHOULD represent the freshness of the underlying source data (e.g. most recent source `mtime` or HTTP `Last-Modified`), not the wall-clock build time. This makes byte-identical reproducible builds possible.
 
+**Determinism status.** `build_timestamp` occupies an unusual position in the pack: it sits *inside* the CRC scope (§ 10) but *outside* the canonical descriptor (§ A.3). That asymmetry is load-bearing — and dangerous if misused:
+
+- Two builds with the same logical inputs and the same `build_timestamp` → byte-identical packs → same `pack_uuid` and same CRC. (The dedup contract holds.)
+- Two builds with the same logical inputs and different `build_timestamp` (e.g. wall-clock time on two consecutive runs) → byte-different packs (different bytes at offset 78 → different CRC) → **same `pack_uuid`** (Appendix A doesn't include `build_timestamp`). The recipient that cached the first pack sees the announcement of the second, matches the cached UUID, and never downloads the byte-different data. **This is the worst-case dedup failure for offline-delivery readers.**
+
+Writers that advertise round-trip-byte-identical reproducibility to their consumers (the dedup contract) MUST set `build_timestamp` deterministically from the logical inputs — § 12 #20 promotes the SHOULD here to a MUST for that class of writer. Writers that do not claim reproducibility MAY use wall-clock time but MUST NOT then advertise `pack_uuid` equality as implying byte equality. § 14.1's round-trip property is the conformance gate that distinguishes the two classes.
+
 The value `0` is the sentinel for *"no freshness information available."* (slippypack uses this for the synthetic source kind, which has no real-world data.)
 
 **Sentinel collision note**: a real source whose `mtime` happens to be exactly `1970-01-01T00:00:00Z` (the Unix epoch) is indistinguishable from the "no info" sentinel. This is acceptable because (a) no real-world tile data has an epoch-zero `mtime`, and (b) the consequence of conflating them is only that a recipient cannot distinguish "the writer didn't know the freshness" from "the data is exactly 56 years stale". Writers that genuinely need to express "exactly the epoch" SHOULD use `1` (one second past the epoch) instead.
@@ -477,31 +484,45 @@ A conforming v1 reader SHOULD:
 
 ## 12. Writer requirements
 
+This section is the complete writer-side conformance checklist. Every byte-format MUST defined in §§ 4–10 is restated or cross-referenced here so writer-implementers can validate against a single list without having to back-derive requirements from the reader rules in § 11. Where a MUST is detailed elsewhere, the relevant section is cited inline.
+
 A conforming v1 writer MUST:
 
-1. Emit exactly the bytes defined by §§ 4–10 for the inputs.
+1. Emit exactly the bytes defined by §§ 4–10 for the inputs. This is a catch-all over the field-level MUSTs that follow; if a conflict arises, the field-level MUST wins.
 2. Choose `pack_uuid` as a non-zero 16-byte value (or derive it per Appendix A).
 3. Set `parent_uuid` to all-zero.
 4. Place the tile index immediately after the header (`index_offset = 292`).
-5. Sort the tile index ascending by `(z, x, y)`.
+5. Sort the tile index ascending by `(z, x, y)`. The within-zoom `(x, y)` ordering MUST be strictly ascending lexicographic — § 5.3's binary search depends on it (§ 5.2).
 6. Reject duplicate `(z, x, y)` tile inputs at write time.
 7. Pad the tile index to a 4-byte boundary before the tile blob.
 8. Place each tile at a 4-byte-aligned offset and pad with 0–3 zero bytes between tiles.
 9. Place each extension section starting at a 4-byte-aligned offset; pad each payload to a 4-byte boundary with zero bytes.
 10. Emit extension sections in a deterministic, input-derivable order — see § 12.1.
 11. Populate `zoom_offsets[z] = (0, 0)` for every zoom `z` with no tiles, and `(byte_offset_of_first_entry_at_z, count_at_z)` otherwise.
-12. Emit an `AFFN` extension when `projection = LocalLinear`.
+12. Emit an `AFFN` extension when `projection = LocalLinear` (§ 7.3). The `AFFN` payload MUST be exactly **48 bytes**: six little-endian IEEE-754 `f64` values `(a, b, c, d, e, f)` in that order (§ 7.3).
 13. Compute the CRC-32 over every preceding byte and emit it as the file's last 4 bytes.
+14. Set `extensions_offset` to a 4-byte-aligned value with `extensions_offset ≤ file_size − 4`. When the pack has no extension sections, `extensions_offset` MUST equal `file_size − 4` (the offset points directly at the CRC footer; § 4.13). When the pack has at least one extension section, the section-extent invariant of § 7.1 applies — specifically, the last section's padded end MUST equal `file_size − 4` (no stranded bytes between extensions and the CRC).
+15. Emit each extension section under the framing of § 7.1: 4-byte ASCII `tag`, 4-byte LE `length`, `length` bytes of payload, 0–3 zero bytes of padding to the next 4-byte boundary. The complete extent of every section MUST lie within `[extensions_offset, file_size − 4)`. The first section MUST start exactly at `extensions_offset` (no leading padding).
+16. Emit `NAME` payloads under the length-prefixed layout of § 7.4: 1-byte `tag_length`, `tag_length` bytes of BCP-47 tag (UTF-8/ASCII), then the UTF-8 pack name occupying the remainder of the payload. The section header's `length` carries `1 + tag_length + name.len()`.
+17. Emit `bbox` per § 4.9: four `i32` LE values in the byte order `min_lon, min_lat, max_lon, max_lat` in integer microdegrees, with `min_lon ≤ max_lon` and `min_lat ≤ max_lat`. Longitudes MUST lie in `[−180_000_000, 180_000_000]`; latitudes MUST lie in `[−90_000_000, 90_000_000]`.
+18. Honour the `projection × tile_addressing_scheme` legality table of § 8.6 — emit only the v1-legal pairs `(WebMercator, Quadtree)` or `(LocalLinear, SingleImage)`. The header bytes at offsets 57 and 58 MUST encode one of these two pairs and no other.
+19. When `tile_addressing_scheme = SingleImage` (§ 8.6), emit exactly **one** tile-index entry whose `z = 0`; set `zoom_min = zoom_max = 0` in the header; populate `zoom_offsets[0]` only — `zoom_offsets[1..24]` MUST be all-zero.
+
+A conforming v1 writer MUST (reproducibility-claiming subset):
+
+A writer that advertises round-trip-byte-identical output to its downstream consumers (the dedup contract that drives offline-delivery cache invalidation) MUST additionally:
+
+20. Set `build_timestamp` to a value deterministically derived from the logical inputs — typically the most-recent source-data freshness time (mtime / `Last-Modified`), **never** wall-clock build time. `build_timestamp` is in the CRC scope but NOT in the canonical descriptor (Appendix A), so a wall-clock value produces byte-different packs with the same `pack_uuid` — exactly the dedup failure mode § 14.1 exists to prevent. Writers that do not claim round-trip reproducibility MAY use wall-clock time, but in that case they MUST NOT advertise `pack_uuid` equality as implying byte equality to consumers.
 
 A conforming v1 writer SHOULD:
 
-14. Set `build_timestamp` to the most-recent source-data freshness time (mtime / `Last-Modified`), not wall-clock build time, when reproducibility is a goal.
-15. Use only ASCII printable bytes in extension tags.
+21. Use only ASCII printable bytes in extension tags.
 
 A conforming v1 writer MUST NOT:
 
-16. Emit an upper-case extension tag not defined in this spec (§ 7.3).
-17. Emit a non-zero `flags` or `reserved` byte in any tile-index entry.
+22. Emit an upper-case extension tag not defined in this spec (§ 7.3).
+23. Emit an extension tag whose first byte is outside `[A-Z, a-z]` — digits, punctuation, control chars, non-ASCII, etc. are all reserved (§ 7.2).
+24. Emit a non-zero `flags` or `reserved` byte in any tile-index entry.
 
 ### 12.1 Extension-section ordering
 
@@ -540,6 +561,14 @@ Lower-case tags can be allocated at any time by any writer without a version bum
 A conforming writer applied twice to the same logical inputs MUST produce byte-identical output. This is the load-bearing reproducibility claim — it lets two parties (or two builds on different platforms) verify that they produced the same pack without sharing the pack bytes.
 
 This property is the writer's responsibility, not the reader's. The spec does not require that a reader expose enough state for a writer to reconstruct an exact byte-for-byte equivalent pack (some fields — e.g. the order writers chose to emit tiles in before sorting, the original `--style` JSON content vs. just its hash — are deliberately not recoverable from the bytes alone). Two passes through a writer with identical inputs, however, MUST agree byte-for-byte.
+
+**Concrete writer obligations.** The round-trip property reduces to three independent obligations that writers must satisfy together. A failure of any one re-opens the dedup gap:
+
+1. **Preprocessing pipeline determinism.** The pipeline from source-file bytes to the pre-quantise RGB888 stream MUST be deterministic for a given writer (§ A.4). The spec does not prescribe a specific decode/resample/alpha-handling pipeline; it prescribes only that a writer's pipeline have a single byte-output for a given input. Two writers with different pipelines are allowed — they will yield different `content_hash`es and thus different `pack_uuid`s, which is the correct behavior.
+2. **Canonical quantiser.** § 9.1.1 + § 14.4 lock the RGB888 → ABGR2222 step. Writers MUST match the listed test-vector output; deviation indicates either a bug or a `quantiser_version` divergence requiring a descriptor bump.
+3. **`build_timestamp` determinism.** § 4.10 + § 12 #20 — `build_timestamp` is in the CRC scope but NOT in the canonical descriptor, so wall-clock values produce byte-different packs with the same `pack_uuid`. Reproducibility-claiming writers MUST derive `build_timestamp` from logical inputs, not wall-clock.
+
+Obligations 1 and 3 are the two undefined-behavior pockets identified in the pre-1.0-rc1 review that previous spec text left implicit. They are now explicit because the round-trip property — and the offline-delivery dedup contract it underpins — cannot hold without them.
 
 ### 14.2 Cross-implementation gate
 
@@ -706,7 +735,13 @@ Per-kind entry shapes (keys in lex order within each object):
   {"content_hash":"<sha256-hex>","kind":"<kind>","zoom_max":<int>,"zoom_min":<int>}
   ```
 
-  For `style`, the `content_hash` is the SHA-256 of the style JSON.
+  The `content_hash` domain depends on the kind. **Critically, for every kind it represents the *deterministic surface* of the writer's preprocessing pipeline — never the raw source-file bytes for raster kinds.** This distinction closes the offline-delivery dedup contract: a recipient that has cached `pack_uuid X` and sees a new pack announcement for the same UUID is entitled to assume *byte-identical* tile blobs, not just "same logical inputs". Hashing source-file bytes does not give that guarantee (two writers can decode the same PNG through different sRGB / linear / alpha-handling pipelines and yield different RGB888, producing the same source-file SHA-256 but different tile blobs).
+
+  - **Raster sources** (`dir`, `geotiff`, `mbtiles`, `pmtiles`): `content_hash` is the SHA-256 of the writer's **pre-quantisation RGB888 byte stream** for this source — the bytes that feed § 9.1.1, *after* the writer's decode/resample/alpha-handling pipeline has run. The canonical byte stream is the concatenation of every tile's pixel matrix in **ascending `(z, x, y)` order** (matching the on-disk tile-index order, § 5.2); each pixel is exactly **3 bytes: R, G, B** (no alpha, no padding, no compression). The writer's preprocessing pipeline (gamma, alpha-compositing, resampling) is implementation-defined; what `content_hash` promises is the pipeline's byte output. Two writers with different pipelines yield different `content_hash` → different `pack_uuid` → no false dedup hit.
+  - **Vector sources** (`pbf`): `content_hash` is the SHA-256 of the concatenated raw Mapbox Vector Tile bytes in ascending `(z, x, y)` order. v1 does not specify PBF-to-pixel rendering (reserved for a future minor); the hash exists so future PBF-rendering writers can pin their tile output by the source PBF stream.
+  - **Style** (`style`): `content_hash` is the SHA-256 of the MapLibre style JSON, UTF-8 bytes verbatim, no canonicalization. Style-driven raster output, when used as input to a raster source, is captured by that raster source's `content_hash` per the rule above.
+
+  This shifts the `pack_uuid → tile-blob` determinism guarantee from "writers must agree on every preprocessing step" to "writers must agree on their pipeline's *output*". The spec does NOT prescribe a specific decode/resample/alpha pipeline; writers MUST document their convention. The round-trip property of § 14.1 enforces this: if two runs of the same writer produce the same `pack_uuid` they MUST produce byte-identical packs, which (because tile blobs flow from `content_hash`-pinned RGB888 through the locked § 9.1.1 quantiser) reduces to "same RGB888 in, same tile blob out".
 
 - **`synthetic`** (built-in fixture):
 
@@ -727,6 +762,8 @@ Per-kind entry shapes (keys in lex order within each object):
   ```
   {"content_hash":"<sha256-hex>","kind":"image"}
   ```
+
+  `content_hash` follows the **raster-source** rule above: SHA-256 of the writer's pre-quantisation RGB888 byte stream — *not* the source-image file bytes. Because `image` is a `SingleImage` `tile_addressing_scheme = SingleImage` source (one logical image, no z/x/y), the canonical byte stream is the raster scanline order of the single image: **top-to-bottom rows, left-to-right within each row**, three bytes per pixel `R, G, B`.
 
 ### A.5 Worked example
 

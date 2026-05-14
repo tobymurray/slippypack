@@ -631,6 +631,24 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-040 — Spec pre-freeze: preprocessing-pipeline determinism, § 12 completeness, `build_timestamp` reproducibility
+Pre-1.0-freeze closure of three load-bearing determinism gaps surfaced in cold review. Each gap was a place where two writers — both checking every box in § 12 — could legitimately produce byte-different packs with the same `pack_uuid`, defeating the offline-delivery dedup contract that reader caches depend on.
+
+**(a) `content_hash` semantics moved from source-file bytes to pre-quantise RGB888 stream (§ A.4).** The old definition hashed the raw input file (PNG MD content, MBTiles SQLite rows, etc.). Two writers given the same PNG could legitimately decode it through different sRGB / linear / alpha-handling / bicubic-vs-Lanczos pipelines, yielding the same `content_hash` (same input bytes) but different RGB888 → different tile blobs → same `pack_uuid` with different bytes. **Worst-case dedup failure**: the recipient's cache hits a UUID it already has and never re-downloads the actually-different pack.
+
+New definition (raster sources `dir`, `geotiff`, `mbtiles`, `pmtiles`, `image`): `content_hash` is the SHA-256 of the writer's pre-quantisation RGB888 byte stream, in ascending `(z, x, y)` tile order (or raster scanline order for single-image sources), three bytes per pixel `R, G, B`, no alpha, no padding. The preprocessing pipeline itself is left implementation-defined — what the hash promises is the pipeline's *output*. Two writers with different pipelines yield different `content_hash` → different `pack_uuid`, which is correct: they should not dedup-collide. Style and PBF kinds keep their existing semantics (SHA-256 of style JSON / raw PBF bytes; v1 doesn't render either).
+
+No code rotation required: `content_hash` is plumbed through `identity.rs` as `[u8; 32]` opaque data, but no extant CLI ingest path actually computes it from real source files yet — Source::Url and Source::Synthetic both take a different identity path. The spec change pins the semantics for when the file-backed kinds get a real ingest implementation.
+
+**(b) § 12 expanded from 17 items to 24, restating the field-level MUSTs from §§ 4–10.** A writer-implementer treating § 12 as the conformance checklist (which is what the section's name implies they should) would previously miss: § 8.6 SingleImage tile-index rules (`tile_count = 1`, `z = 0`, zoom_offsets[1..24] all-zero), § 4.9 bbox ordering and range checks, § 8.6 projection × addressing legal pairs, § 7.4 NAME payload framing, § 7.3 48-byte AFFN layout, § 4.13 extensions_offset upper bound and "= file_size − 4" no-extensions case, § 7.1 extension-section framing, § 7.2 non-letter-tag-first-byte prohibition. § 12 #1's "emit exactly the bytes defined by §§ 4–10" is technically a catch-all but writer-implementers reach for explicit checklists. New items #14–19, #22–23 inline or cross-reference each previously-implicit MUST.
+
+**(c) `build_timestamp` SHOULD-vs-MUST contradiction resolved (§ 4.10, § 12 #20, § 14.1).** The field was a SHOULD in § 12 (set deterministically) but a load-bearing MUST under § 14.1 (round-trip byte-identity). It's the only header field that sits *inside* the CRC scope but *outside* the canonical descriptor (§ A.3) — so a wall-clock value produces byte-different packs with the same `pack_uuid`, exactly the dedup failure mode § 14.1 exists to prevent. § 4.10 now spells out the determinism asymmetry. § 12 #20 introduces a "reproducibility-claiming subset" of writer MUSTs that promotes the SHOULD to a MUST for writers that advertise round-trip byte-identity to their consumers. § 14.1 now decomposes the round-trip property into three concrete obligations (preprocessing-pipeline determinism, canonical quantiser, `build_timestamp` determinism), making the gates explicit.
+
+No wire-format change. No constant change. No fixture rotation. Spec-doc edits only; no code touched. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets --workspace -D warnings` clean, `cargo test --workspace` 281 passed.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 4.10, 12 (and 12.1 numbering ripple), 14.1, A.4.
+**Commit**: to land with the pre-freeze determinism slice.
+
 ### F-039 — Spec batch: extensions upper-bound, undefined tag bytes, stranded-byte gap, `tile_count = 0`, absent-tile API
 Pre-1.0-freeze cleanup of six specification gaps surfaced in a final cold re-read. Each item closes an "undefined behavior" pocket where the spec implied an intent without nailing it down, leaving room for two conforming implementations to disagree.
 
