@@ -631,6 +631,19 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-041 — Spec scrub: remove slippypack-internal references
+Pre-freeze cleanup. The spec had accumulated four references to slippypack's source tree, Rust test names, env vars, and internal docs — none of which belong in a format specification a third-party implementer would read. Cuts:
+
+- **§ 14.3** — fixture table previously listed `crates/slippypack-core/tests/fixtures/format/` paths and an internal `BLESS_SPEC_LAYOUT=1` re-bless env var. Reduced to a narrative paragraph that says what the corpus exercises (smallest pack, multi-zoom directory, multi-source ATTR, end-to-end pipeline) without leaking slippypack's directory structure. Third-party implementers can find the fixtures via the reference implementation's repository without needing the spec to tell them the exact paths.
+- **§ 14.2** — `spec-validator-cpp/` directory reference generalized to "a reference C++ validator is shipped alongside this specification". The validator's existence and its independent-derivation property are what matter; its checked-in path is reference-implementation detail.
+- **§ A.5** — closing sentence cited the Rust test names `identity::tests::baseline_canonical_bytes_match_committed_string` and `identity::tests::determinism_baseline_pack_uuid_is_committed`. Cut; the worked-example values are pinned by being in the spec, not by being in a test of slippypack-core.
+- **§ 4.10** — parenthetical "(slippypack uses this for the synthetic source kind…)" cut. The sentinel-value definition stands on its own.
+
+No semantic change. No wire-format change. Spec-doc only; no code touched. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets --workspace -D warnings` clean, all workspace tests passing.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 4.10, 14.2, 14.3, A.5.
+**Commit**: to land with the spec-scrub slice.
+
 ### F-040 — Spec pre-freeze: preprocessing-pipeline determinism, § 12 completeness, `build_timestamp` reproducibility
 Pre-1.0-freeze closure of three load-bearing determinism gaps surfaced in cold review. Each gap was a place where two writers — both checking every box in § 12 — could legitimately produce byte-different packs with the same `pack_uuid`, defeating the offline-delivery dedup contract that reader caches depend on.
 

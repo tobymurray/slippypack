@@ -159,7 +159,7 @@ The value SHOULD represent the freshness of the underlying source data (e.g. mos
 
 Writers that advertise round-trip-byte-identical reproducibility to their consumers (the dedup contract) MUST set `build_timestamp` deterministically from the logical inputs — § 12 #20 promotes the SHOULD here to a MUST for that class of writer. Writers that do not claim reproducibility MAY use wall-clock time but MUST NOT then advertise `pack_uuid` equality as implying byte equality. § 14.1's round-trip property is the conformance gate that distinguishes the two classes.
 
-The value `0` is the sentinel for *"no freshness information available."* (slippypack uses this for the synthetic source kind, which has no real-world data.)
+The value `0` is the sentinel for *"no freshness information available."*
 
 **Sentinel collision note**: a real source whose `mtime` happens to be exactly `1970-01-01T00:00:00Z` (the Unix epoch) is indistinguishable from the "no info" sentinel. This is acceptable because (a) no real-world tile data has an epoch-zero `mtime`, and (b) the consequence of conflating them is only that a recipient cannot distinguish "the writer didn't know the freshness" from "the data is exactly 56 years stale". Writers that genuinely need to express "exactly the epoch" SHOULD use `1` (one second past the epoch) instead.
 
@@ -572,24 +572,13 @@ Obligations 1 and 3 are the two undefined-behavior pockets identified in the pre
 
 ### 14.2 Cross-implementation gate
 
-The slippypack repository ships an independent C++ validator at `spec-validator-cpp/`. The validator re-derives parsing from this specification without reusing slippypack's Rust source. CI runs the validator against every committed golden fixture. Third-party readers SHOULD pass the same validator against the same fixtures.
+Third-party implementations SHOULD pass an independent validator against the committed golden fixtures. A reference C++ validator is shipped alongside this specification; its source independently re-derives parsing from the spec text rather than sharing a Rust source tree with any particular writer.
 
 ### 14.3 Golden fixtures
 
-Six golden fixtures are pinned in the slippypack repository:
+A corpus of golden fixtures exercises every interesting v1 layout shape: smallest non-empty pack, largest single-zoom layout, multi-zoom `zoom_offsets[24]` directory, extension-section framing and padding (ATTR + multi-source ordering), and the end-to-end decode-quantise-pack pipeline. Bytes are pinned alongside the reference implementation. Any drift requires either a deliberate `quantiser_version` / `format_version` bump or an explicit re-bless under the implementation's documented procedure.
 
-| Fixture | Location | What it exercises |
-|---|---|---|
-| `golden-grid.rawtiles` | `crates/slippypack-core/tests/fixtures/format/` | 25 tiles at z=4; largest single-zoom layout |
-| `golden-pyramid.rawtiles` | `crates/slippypack-core/tests/fixtures/format/` | 21 tiles across z=2..=4; multi-zoom `zoom_offsets[24]` directory |
-| `golden-attr.rawtiles` | `crates/slippypack-core/tests/fixtures/format/` | 9 tiles + `ATTR` extension; extension-section framing + padding |
-| `golden-png-to-pack-1tile.rawtiles` | `crates/slippypack-core/tests/fixtures/e2e/` | smallest non-empty pack (1 tile) |
-| `golden-png-to-pack-5tiles.rawtiles` | `crates/slippypack-core/tests/fixtures/e2e/` | end-to-end PNG-decode → quantise → pack output |
-| `golden-synthetic.rawtiles` | `crates/slippypack-cli/tests/fixtures/` | the path `slippypack make --source synthetic` writes; descriptor-derived `pack_uuid` |
-
-Each fixture's bytes are byte-pinned by tests in the slippypack repository. Any drift in the pinned bytes requires either a deliberate `quantiser_version` / `format_version` bump (with paired CHANGELOG and decisions-log entries), or a re-bless under the implementation's documented procedure with explicit review.
-
-Third-party implementations SHOULD include these fixtures in their own conformance tests; the implementation-specific mechanics of re-blessing pinned values are out of scope for this specification.
+Third-party implementations SHOULD verify their reader output against the same fixtures.
 
 ### 14.4 ABGR2222 quantiser test vector
 
@@ -785,7 +774,7 @@ Derived `pack_uuid` (= first 16 bytes of the SHA-1 with the version-5 bit-stamp 
 5146db8e-0859-561c-8580-45c6154e890d
 ```
 
-The intermediate SHA-1 is included so independent implementations can bisect a mismatch: if your SHA-1 differs from the value above, your canonical-bytes formation is the bug; if your SHA-1 matches but your UUID doesn't, your UUIDv5 version/variant fixup is the bug. The exact canonical bytes and the derived UUID are locked by the tests `identity::tests::baseline_canonical_bytes_match_committed_string` and `identity::tests::determinism_baseline_pack_uuid_is_committed` in slippypack-core.
+The intermediate SHA-1 is included so independent implementations can bisect a mismatch: if your SHA-1 differs from the value above, your canonical-bytes formation is the bug; if your SHA-1 matches but your UUID doesn't, your UUIDv5 version/variant fixup is the bug.
 
 ---
 
