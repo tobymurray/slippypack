@@ -631,6 +631,14 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-036 — Spec § 11 #19 promoted from SHOULD to MUST (resolves contradiction with § 4.11)
+F-033's earlier edit tightened § 4.11 to "v1.0 readers MUST verify `index_offset == 292`" but left § 11's redundant restatement under "A conforming v1 reader SHOULD" (item #20). A strict-reading implementer would have hit two contradictory normative levels for the same condition.
+
+Resolved by promoting the check to MUST (now § 11 item #19) and demoting the alignment-strategy bullet to SHOULD #20. The MUST item also restates `extensions_offset ≥ tile_blob_start + tile_blob_size` from § 4.13 — both clauses are MUSTs per their referenced sections; § 11 now restates them in the actionable rejection sweep so a reader implementer reading top-to-bottom finds them at the right normative level.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` § 11 (renumbered: MUST 1-19, SHOULD 20).
+**Commit**: to land with the consistency-fix slice.
+
 ### N-002 — Spec document rebranded as `v1.0-rc1`
 The wire format is pinned but the spec document is in release-candidate status — frozen pending real-world cross-implementation validation (currently slated for the una-sdk MapTrack simulator round-trip). Any wire-format-affecting change between rc1 and 1.0 would invalidate every `pack_uuid` derived under rc1; the `-rc1` marker tells early implementers that fixtures are provisional until 1.0 ships.
 

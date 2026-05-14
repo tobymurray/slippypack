@@ -455,11 +455,11 @@ A conforming v1 reader MUST:
 16. Accept and MAY ignore any unknown extension tag whose first byte is lower-case ASCII.
 17. Reject `projection = LocalLinear` packs that do not contain an `AFFN` extension.
 18. Verify the CRC-32 footer and reject the pack on mismatch.
+19. Reject any pack where `index_offset != 292` (§ 4.11) or `extensions_offset < tile_blob_start + tile_blob_size` (§ 4.13). Both conditions are MUST per the referenced sections; restated here so readers can validate them as part of the standard rejection sweep.
 
 A conforming v1 reader SHOULD:
 
-19. Choose an alignment strategy that matches how the pack bytes were loaded. Every multi-byte header field and every multi-byte field within a tile-index entry is naturally aligned at its *file offset* (§ 3). Readers that load the pack into an 8-byte-aligned buffer (e.g. via `malloc` / `aligned_alloc` and `fread`) MAY do native pointer-cast loads — those file offsets translate directly into aligned memory addresses. Readers reading from `mmap`-mapped memory whose mapping base is not 8-byte aligned, or reading from byte buffers at arbitrary offsets, MUST `memcpy` each multi-byte field into a properly-aligned local before decoding. The format guarantees file-offset alignment, not memory-address alignment of any particular load.
-20. Validate that `index_offset == 292` (§ 4.11) and that `extensions_offset ≥ tile_blob_start + tile_blob_size`.
+20. Choose an alignment strategy that matches how the pack bytes were loaded. Every multi-byte header field and every multi-byte field within a tile-index entry is naturally aligned at its *file offset* (§ 3). Readers that load the pack into an 8-byte-aligned buffer (e.g. via `malloc` / `aligned_alloc` and `fread`) MAY do native pointer-cast loads — those file offsets translate directly into aligned memory addresses. Readers reading from `mmap`-mapped memory whose mapping base is not 8-byte aligned, or reading from byte buffers at arbitrary offsets, MUST `memcpy` each multi-byte field into a properly-aligned local before decoding. The format guarantees file-offset alignment, not memory-address alignment of any particular load.
 
 ## 12. Writer requirements
 
