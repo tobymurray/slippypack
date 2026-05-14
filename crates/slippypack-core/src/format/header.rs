@@ -1,30 +1,35 @@
 //! Fixed-size `.rawtiles` header serialization and parsing.
 //!
-//! Layout (all multi-byte integers little-endian):
+//! Layout (all multi-byte integers little-endian). Every multi-byte
+//! field is naturally aligned at its file offset (u16 on 2-byte
+//! boundaries, u32 on 4-byte, u64 on 8-byte), which lets strict-
+//! alignment readers do native pointer-cast loads after a single
+//! `memcpy`-of-header into an 8-byte-aligned buffer.
 //!
 //! | Offset | Size  | Field                       |
 //! |-------:|------:|-----------------------------|
 //! |   0    |    4  | `magic` (`"RAWT"`)          |
 //! |   4    |    1  | `format_version.major`      |
 //! |   5    |    1  | `format_version.minor`      |
-//! |   6    |   16  | `pack_uuid`                 |
-//! |  22    |   16  | `supersedes_uuid`           |
-//! |  38    |   16  | `parent_uuid` (reserved 0)  |
-//! |  54    |    1  | `pixel_format`              |
-//! |  55    |    1  | `projection`                |
-//! |  56    |    1  | `tile_addressing_scheme`    |
-//! |  57    |    1  | `tile_axis_convention`      |
-//! |  58    |    2  | `tile_dim_px` (u16 LE)      |
-//! |  60    |    1  | `zoom_range.min`            |
-//! |  61    |    1  | `zoom_range.max`            |
-//! |  62    |   16  | `bbox` (4×i32 µ° LE)        |
-//! |  78    |    8  | `build_timestamp` (u64 LE)  |
-//! |  86    |    4  | `tile_count` (u32 LE)       |
-//! |  90    |    4  | `index_offset` (u32 LE)     |
-//! |  94    |  192  | `zoom_offsets[24]`          |
+//! |   6    |    2  | `reserved_v1_0` (MUST be 0) |
+//! |   8    |   16  | `pack_uuid`                 |
+//! |  24    |   16  | `supersedes_uuid`           |
+//! |  40    |   16  | `parent_uuid` (reserved 0)  |
+//! |  56    |    1  | `pixel_format`              |
+//! |  57    |    1  | `projection`                |
+//! |  58    |    1  | `tile_addressing_scheme`    |
+//! |  59    |    1  | `tile_axis_convention`      |
+//! |  60    |    2  | `tile_dim_px` (u16 LE)      |
+//! |  62    |    1  | `zoom_range.min`            |
+//! |  63    |    1  | `zoom_range.max`            |
+//! |  64    |   16  | `bbox` (4×i32 µ° LE)        |
+//! |  80    |    8  | `build_timestamp` (u64 LE)  |
+//! |  88    |    4  | `tile_count` (u32 LE)       |
+//! |  92    |    4  | `index_offset` (u32 LE)     |
+//! |  96    |  192  | `zoom_offsets[24]`          |
 //! |        |       |   per-zoom: u32 offset + u32 count |
-//! | 286    |    4  | `extensions_offset` (u32 LE)|
-//! | **290** |     | **header base size**        |
+//! | 288    |    4  | `extensions_offset` (u32 LE)|
+//! | **292** |     | **header base size**        |
 //!
 //! Fields the writer derives itself (`tile_count`, `index_offset`,
 //! `zoom_offsets`, `extensions_offset`) are passed via
@@ -38,10 +43,10 @@ use super::types::{
 
 /// Number of bytes in the fixed-size header.
 ///
-/// `94` fixed-field bytes (= 78 prefix + 8 `build_timestamp` + 4
-/// `tile_count` + 4 `index_offset`) + `ZOOM_OFFSETS_COUNT × 8`
-/// zoom-directory bytes + `4` for `extensions_offset` = `94 + 24*8 + 4
-/// = 290`.
+/// `96` fixed-field bytes (= 4 magic + 2 version + 2 reserved + 48 UUIDs
+/// + 8 enum/dim/zoom + 16 bbox + 8 `build_timestamp` + 4 `tile_count`
+/// + 4 `index_offset`) + `ZOOM_OFFSETS_COUNT × 8` zoom-directory bytes
+/// + `4` for `extensions_offset` = `96 + 24*8 + 4 = 292`.
 pub const HEADER_BASE_SIZE: usize = ZOOM_OFFSETS_START + ZOOM_OFFSETS_COUNT * ZoomOffset::SIZE + 4;
 
 /// Number of per-zoom directory entries baked into the header. The spec
@@ -56,11 +61,13 @@ pub const HEADER_BASE_SIZE: usize = ZOOM_OFFSETS_START + ZOOM_OFFSETS_COUNT * Zo
 /// slots: 48 bytes in every pack's header — negligible.
 pub const ZOOM_OFFSETS_COUNT: usize = 24;
 
-/// File offset where the per-zoom directory begins. With u32 offsets
-/// (per spec § 5.1) the fixed prefix is 94 bytes: 78 (magic + version +
-/// UUIDs + enums + `tile_dim` + `zoom_range` + `bbox`) + 8 (`build_timestamp`)
-/// + 4 (`tile_count`) + 4 (`index_offset`).
-const ZOOM_OFFSETS_START: usize = 94;
+/// File offset where the per-zoom directory begins. Fixed prefix is 96
+/// bytes: 4 magic + 2 version + 2 reserved + 48 UUIDs + 4 enums + 2
+/// `tile_dim` + 2 `zoom_range` + 16 `bbox` + 8 `build_timestamp` + 4
+/// `tile_count` + 4 `index_offset`. The 2 reserved bytes at offset 6
+/// pad the layout so every multi-byte field is naturally aligned at
+/// its file offset (u32 on 4-byte boundaries, u64 on 8-byte).
+const ZOOM_OFFSETS_START: usize = 96;
 
 /// File offset of the trailing `extensions_offset` u32 (the last 4
 /// bytes of the header, just past the zoom-directory).
@@ -175,41 +182,43 @@ pub fn write_header(
 ) -> [u8; HEADER_BASE_SIZE] {
     let mut buf = [0_u8; HEADER_BASE_SIZE];
 
-    // Magic + version (offsets 0..6).
+    // Magic + version (offsets 0..6). Bytes 6..8 are reserved-zero
+    // (already zero from buf init) — they pad pack_uuid to offset 8 so
+    // every subsequent multi-byte field is naturally aligned.
     buf[0..4].copy_from_slice(&MAGIC);
     buf[4] = FORMAT_VERSION.major;
     buf[5] = FORMAT_VERSION.minor;
 
-    // Three UUIDs (offsets 6..54).
-    buf[6..22].copy_from_slice(&metadata.pack_uuid);
+    // Three UUIDs (offsets 8..56).
+    buf[8..24].copy_from_slice(&metadata.pack_uuid);
     if let Some(s) = metadata.supersedes_uuid {
-        buf[22..38].copy_from_slice(&s);
+        buf[24..40].copy_from_slice(&s);
     }
     if let Some(p) = metadata.parent_uuid {
-        buf[38..54].copy_from_slice(&p);
+        buf[40..56].copy_from_slice(&p);
     }
 
-    // Four enum bytes + tile_dim_px + zoom range (offsets 54..62).
-    buf[54] = metadata.pixel_format.as_byte();
-    buf[55] = metadata.projection.as_byte();
-    buf[56] = metadata.tile_addressing_scheme.as_byte();
-    buf[57] = metadata.tile_axis_convention.as_byte();
-    buf[58..60].copy_from_slice(&metadata.tile_dim_px.to_le_bytes());
-    buf[60] = metadata.zoom_range.0;
-    buf[61] = metadata.zoom_range.1;
+    // Four enum bytes + tile_dim_px + zoom range (offsets 56..64).
+    buf[56] = metadata.pixel_format.as_byte();
+    buf[57] = metadata.projection.as_byte();
+    buf[58] = metadata.tile_addressing_scheme.as_byte();
+    buf[59] = metadata.tile_axis_convention.as_byte();
+    buf[60..62].copy_from_slice(&metadata.tile_dim_px.to_le_bytes());
+    buf[62] = metadata.zoom_range.0;
+    buf[63] = metadata.zoom_range.1;
 
-    // Bounding box: 4 × i32 LE (offsets 62..78).
-    buf[62..66].copy_from_slice(&metadata.bbox.min_lon_micro.to_le_bytes());
-    buf[66..70].copy_from_slice(&metadata.bbox.min_lat_micro.to_le_bytes());
-    buf[70..74].copy_from_slice(&metadata.bbox.max_lon_micro.to_le_bytes());
-    buf[74..78].copy_from_slice(&metadata.bbox.max_lat_micro.to_le_bytes());
+    // Bounding box: 4 × i32 LE (offsets 64..80).
+    buf[64..68].copy_from_slice(&metadata.bbox.min_lon_micro.to_le_bytes());
+    buf[68..72].copy_from_slice(&metadata.bbox.min_lat_micro.to_le_bytes());
+    buf[72..76].copy_from_slice(&metadata.bbox.max_lon_micro.to_le_bytes());
+    buf[76..80].copy_from_slice(&metadata.bbox.max_lat_micro.to_le_bytes());
 
-    // Build timestamp (offsets 78..86).
-    buf[78..86].copy_from_slice(&metadata.build_timestamp.to_le_bytes());
+    // Build timestamp (offsets 80..88) — 8-byte aligned.
+    buf[80..88].copy_from_slice(&metadata.build_timestamp.to_le_bytes());
 
-    // Tile count + index offset (offsets 86..94).
-    buf[86..90].copy_from_slice(&derived.tile_count.to_le_bytes());
-    buf[90..94].copy_from_slice(&derived.index_offset.to_le_bytes());
+    // Tile count + index offset (offsets 88..96) — both 4-byte aligned.
+    buf[88..92].copy_from_slice(&derived.tile_count.to_le_bytes());
+    buf[92..96].copy_from_slice(&derived.index_offset.to_le_bytes());
 
     // Zoom offsets directory (offsets ZOOM_OFFSETS_START..ZOOM_OFFSETS_START + ZOOM_OFFSETS_COUNT * 8).
     for (i, zo) in derived.zoom_offsets.iter().enumerate() {
@@ -273,14 +282,19 @@ pub fn read_header(input: &[u8]) -> Result<ParsedHeader, HeaderError> {
     // minor than this build supports can inspect
     // `ParsedHeader::format_version.minor`.
 
+    // Bytes 6..8 are reserved-zero in v1.0. Readers accept any value
+    // for forward-compat (future minor versions may define them); v1.0
+    // writers MUST emit zero, but we don't reject non-zero here so
+    // v1.1+ packs read cleanly on a v1.0 reader.
+
     let mut pack_uuid = [0_u8; 16];
-    pack_uuid.copy_from_slice(&input[6..22]);
+    pack_uuid.copy_from_slice(&input[8..24]);
     if pack_uuid == [0_u8; 16] {
         return Err(HeaderError::PackUuidIsZero);
     }
 
     let mut supersedes_buf = [0_u8; 16];
-    supersedes_buf.copy_from_slice(&input[22..38]);
+    supersedes_buf.copy_from_slice(&input[24..40]);
     let supersedes_uuid = if supersedes_buf == [0_u8; 16] {
         None
     } else {
@@ -288,28 +302,28 @@ pub fn read_header(input: &[u8]) -> Result<ParsedHeader, HeaderError> {
     };
 
     let mut parent_buf = [0_u8; 16];
-    parent_buf.copy_from_slice(&input[38..54]);
+    parent_buf.copy_from_slice(&input[40..56]);
     if parent_buf != [0_u8; 16] {
         return Err(HeaderError::ParentUuidNotZero);
     }
     let parent_uuid = None;
 
     let pixel_format =
-        PixelFormat::from_byte(input[54]).ok_or(HeaderError::InvalidPixelFormat(input[54]))?;
+        PixelFormat::from_byte(input[56]).ok_or(HeaderError::InvalidPixelFormat(input[56]))?;
     let projection =
-        Projection::from_byte(input[55]).ok_or(HeaderError::InvalidProjection(input[55]))?;
-    let tile_addressing_scheme = AddressingScheme::from_byte(input[56])
-        .ok_or(HeaderError::InvalidAddressingScheme(input[56]))?;
-    let tile_axis_convention = AxisConvention::from_byte(input[57])
-        .ok_or(HeaderError::InvalidAxisConvention(input[57]))?;
+        Projection::from_byte(input[57]).ok_or(HeaderError::InvalidProjection(input[57]))?;
+    let tile_addressing_scheme = AddressingScheme::from_byte(input[58])
+        .ok_or(HeaderError::InvalidAddressingScheme(input[58]))?;
+    let tile_axis_convention = AxisConvention::from_byte(input[59])
+        .ok_or(HeaderError::InvalidAxisConvention(input[59]))?;
 
-    let tile_dim_px = u16::from_le_bytes([input[58], input[59]]);
+    let tile_dim_px = u16::from_le_bytes([input[60], input[61]]);
     if tile_dim_px == 0 {
         return Err(HeaderError::InvalidTileDim);
     }
 
-    let zoom_min = input[60];
-    let zoom_max = input[61];
+    let zoom_min = input[62];
+    let zoom_max = input[63];
     if zoom_max < zoom_min {
         return Err(HeaderError::InvalidZoomRange {
             min: zoom_min,
@@ -318,15 +332,15 @@ pub fn read_header(input: &[u8]) -> Result<ParsedHeader, HeaderError> {
     }
 
     let bbox = BoundingBox {
-        min_lon_micro: i32::from_le_bytes(input[62..66].try_into().expect("4 bytes")),
-        min_lat_micro: i32::from_le_bytes(input[66..70].try_into().expect("4 bytes")),
-        max_lon_micro: i32::from_le_bytes(input[70..74].try_into().expect("4 bytes")),
-        max_lat_micro: i32::from_le_bytes(input[74..78].try_into().expect("4 bytes")),
+        min_lon_micro: i32::from_le_bytes(input[64..68].try_into().expect("4 bytes")),
+        min_lat_micro: i32::from_le_bytes(input[68..72].try_into().expect("4 bytes")),
+        max_lon_micro: i32::from_le_bytes(input[72..76].try_into().expect("4 bytes")),
+        max_lat_micro: i32::from_le_bytes(input[76..80].try_into().expect("4 bytes")),
     };
 
-    let build_timestamp = u64::from_le_bytes(input[78..86].try_into().expect("8 bytes"));
-    let tile_count = u32::from_le_bytes(input[86..90].try_into().expect("4 bytes"));
-    let index_offset = u32::from_le_bytes(input[90..94].try_into().expect("4 bytes"));
+    let build_timestamp = u64::from_le_bytes(input[80..88].try_into().expect("8 bytes"));
+    let tile_count = u32::from_le_bytes(input[88..92].try_into().expect("4 bytes"));
+    let index_offset = u32::from_le_bytes(input[92..96].try_into().expect("4 bytes"));
 
     let mut zoom_offsets = [ZoomOffset::default(); ZOOM_OFFSETS_COUNT];
     for (i, zo) in zoom_offsets.iter_mut().enumerate() {
@@ -421,10 +435,10 @@ mod tests {
     }
 
     #[test]
-    fn header_size_is_290_bytes() {
+    fn header_size_is_292_bytes() {
         let buf = write_header(&baseline_metadata(), &baseline_derived());
         assert_eq!(buf.len(), HEADER_BASE_SIZE);
-        assert_eq!(buf.len(), 290);
+        assert_eq!(buf.len(), 292);
     }
 
     #[test]
@@ -446,14 +460,14 @@ mod tests {
     fn pack_uuid_at_offset_6_through_22() {
         let m = baseline_metadata();
         let buf = write_header(&m, &baseline_derived());
-        assert_eq!(&buf[6..22], &m.pack_uuid);
+        assert_eq!(&buf[8..24], &m.pack_uuid);
     }
 
     #[test]
     fn none_supersedes_and_parent_serialize_as_zero() {
         let buf = write_header(&baseline_metadata(), &baseline_derived());
-        assert_eq!(&buf[22..38], &[0_u8; 16]);
-        assert_eq!(&buf[38..54], &[0_u8; 16]);
+        assert_eq!(&buf[24..40], &[0_u8; 16]);
+        assert_eq!(&buf[40..56], &[0_u8; 16]);
     }
 
     #[test]
@@ -462,17 +476,17 @@ mod tests {
         m.supersedes_uuid =
             Some(*b"\xaa\xbb\xcc\xdd\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xa0\xb0");
         let buf = write_header(&m, &baseline_derived());
-        assert_eq!(&buf[22..38], &m.supersedes_uuid.unwrap());
+        assert_eq!(&buf[24..40], &m.supersedes_uuid.unwrap());
     }
 
     #[test]
     fn enum_bytes_at_correct_offsets() {
         let m = baseline_metadata();
         let buf = write_header(&m, &baseline_derived());
-        assert_eq!(buf[54], m.pixel_format.as_byte());
-        assert_eq!(buf[55], m.projection.as_byte());
-        assert_eq!(buf[56], m.tile_addressing_scheme.as_byte());
-        assert_eq!(buf[57], m.tile_axis_convention.as_byte());
+        assert_eq!(buf[56], m.pixel_format.as_byte());
+        assert_eq!(buf[57], m.projection.as_byte());
+        assert_eq!(buf[58], m.tile_addressing_scheme.as_byte());
+        assert_eq!(buf[59], m.tile_axis_convention.as_byte());
     }
 
     #[test]
@@ -480,7 +494,7 @@ mod tests {
         let mut m = baseline_metadata();
         m.tile_dim_px = 0x1234;
         let buf = write_header(&m, &baseline_derived());
-        assert_eq!(&buf[58..60], &[0x34, 0x12]);
+        assert_eq!(&buf[60..62], &[0x34, 0x12]);
     }
 
     #[test]
@@ -488,8 +502,8 @@ mod tests {
         let mut m = baseline_metadata();
         m.zoom_range = (4, 17);
         let buf = write_header(&m, &baseline_derived());
-        assert_eq!(buf[60], 4);
-        assert_eq!(buf[61], 17);
+        assert_eq!(buf[62], 4);
+        assert_eq!(buf[63], 17);
     }
 
     #[test]
@@ -497,19 +511,19 @@ mod tests {
         let m = baseline_metadata();
         let buf = write_header(&m, &baseline_derived());
         assert_eq!(
-            i32::from_le_bytes(buf[62..66].try_into().unwrap()),
+            i32::from_le_bytes(buf[64..68].try_into().unwrap()),
             m.bbox.min_lon_micro,
         );
         assert_eq!(
-            i32::from_le_bytes(buf[66..70].try_into().unwrap()),
+            i32::from_le_bytes(buf[68..72].try_into().unwrap()),
             m.bbox.min_lat_micro,
         );
         assert_eq!(
-            i32::from_le_bytes(buf[70..74].try_into().unwrap()),
+            i32::from_le_bytes(buf[72..76].try_into().unwrap()),
             m.bbox.max_lon_micro,
         );
         assert_eq!(
-            i32::from_le_bytes(buf[74..78].try_into().unwrap()),
+            i32::from_le_bytes(buf[76..80].try_into().unwrap()),
             m.bbox.max_lat_micro,
         );
     }
@@ -520,7 +534,7 @@ mod tests {
         m.build_timestamp = 0x0123_4567_89AB_CDEF;
         let buf = write_header(&m, &baseline_derived());
         assert_eq!(
-            &buf[78..86],
+            &buf[80..88],
             &[0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01],
         );
     }
@@ -532,21 +546,21 @@ mod tests {
         d.index_offset = 0xDEAD_BEEF;
         let buf = write_header(&baseline_metadata(), &d);
         assert_eq!(
-            u32::from_le_bytes(buf[86..90].try_into().unwrap()),
+            u32::from_le_bytes(buf[88..92].try_into().unwrap()),
             0x1234_5678,
         );
         assert_eq!(
-            u32::from_le_bytes(buf[90..94].try_into().unwrap()),
+            u32::from_le_bytes(buf[92..96].try_into().unwrap()),
             0xDEAD_BEEF,
         );
     }
 
     #[test]
-    fn zoom_offsets_serialize_at_offset_94() {
+    fn zoom_offsets_serialize_at_offset_96() {
         let d = baseline_derived();
         let buf = write_header(&baseline_metadata(), &d);
-        // zoom_offsets[6] starts at 94 + 6*8 = 142.
-        let base = 94 + 6 * ZoomOffset::SIZE;
+        // zoom_offsets[6] starts at 96 + 6*8 = 144.
+        let base = 96 + 6 * ZoomOffset::SIZE;
         assert_eq!(
             u32::from_le_bytes(buf[base..base + 4].try_into().unwrap()),
             d.zoom_offsets[6].offset,
@@ -558,13 +572,13 @@ mod tests {
     }
 
     #[test]
-    fn extensions_offset_at_offset_286() {
+    fn extensions_offset_at_offset_288() {
         let mut d = baseline_derived();
         d.extensions_offset = 0xFEDC_BA98;
         let buf = write_header(&baseline_metadata(), &d);
         // Extensions-offset u32 is the trailing 4 bytes of the header.
         assert_eq!(
-            u32::from_le_bytes(buf[286..290].try_into().unwrap()),
+            u32::from_le_bytes(buf[288..292].try_into().unwrap()),
             0xFEDC_BA98,
         );
     }
@@ -634,7 +648,8 @@ mod tests {
     #[test]
     fn read_rejects_zero_pack_uuid() {
         let mut buf = write_header(&baseline_metadata(), &baseline_derived());
-        for byte in &mut buf[6..22] {
+        // pack_uuid lives at bytes 8..24 in the v1.0 header.
+        for byte in &mut buf[8..24] {
             *byte = 0;
         }
         assert_eq!(read_header(&buf), Err(HeaderError::PackUuidIsZero));
@@ -643,28 +658,28 @@ mod tests {
     #[test]
     fn read_rejects_non_zero_parent_uuid() {
         let mut buf = write_header(&baseline_metadata(), &baseline_derived());
-        buf[38] = 1;
+        buf[40] = 1;
         assert_eq!(read_header(&buf), Err(HeaderError::ParentUuidNotZero));
     }
 
     #[test]
     fn read_rejects_invalid_pixel_format() {
         let mut buf = write_header(&baseline_metadata(), &baseline_derived());
-        buf[54] = 2; // reserved L4 indexed
+        buf[56] = 2; // reserved L4 indexed
         assert_eq!(read_header(&buf), Err(HeaderError::InvalidPixelFormat(2)));
     }
 
     #[test]
     fn read_rejects_invalid_projection() {
         let mut buf = write_header(&baseline_metadata(), &baseline_derived());
-        buf[55] = 2; // reserved
+        buf[57] = 2; // reserved
         assert_eq!(read_header(&buf), Err(HeaderError::InvalidProjection(2)));
     }
 
     #[test]
     fn read_rejects_invalid_addressing_scheme() {
         let mut buf = write_header(&baseline_metadata(), &baseline_derived());
-        buf[56] = 0;
+        buf[58] = 0;
         assert_eq!(
             read_header(&buf),
             Err(HeaderError::InvalidAddressingScheme(0)),
@@ -674,16 +689,16 @@ mod tests {
     #[test]
     fn read_rejects_zero_tile_dim_px() {
         let mut buf = write_header(&baseline_metadata(), &baseline_derived());
-        buf[58] = 0;
-        buf[59] = 0;
+        buf[60] = 0;
+        buf[61] = 0;
         assert_eq!(read_header(&buf), Err(HeaderError::InvalidTileDim));
     }
 
     #[test]
     fn read_rejects_inverted_zoom_range() {
         let mut buf = write_header(&baseline_metadata(), &baseline_derived());
-        buf[60] = 12;
-        buf[61] = 6;
+        buf[62] = 12;
+        buf[63] = 6;
         assert_eq!(
             read_header(&buf),
             Err(HeaderError::InvalidZoomRange { min: 12, max: 6 }),

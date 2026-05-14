@@ -9,8 +9,8 @@
 //! Layout produced (offsets little-endian, see `format::header` and
 //! `format::tile_index` modules for the per-section byte layouts):
 //!
-//! - `0..290`: header (= `HEADER_BASE_SIZE`)
-//! - `290..(290 + N*20)`: tile index, sorted by `(z, x, y)`
+//! - `0..292`: header (= `HEADER_BASE_SIZE`)
+//! - `292..(292 + N*20)`: tile index, sorted by `(z, x, y)`
 //! - `..`: 0-3 bytes of zero padding to reach a 4-byte boundary
 //! - tile blob: each tile starts at a 4-byte-aligned offset, followed by
 //!   0-3 zero padding bytes to align the next tile
@@ -576,8 +576,9 @@ mod tests {
         w.begin_pack(baseline_metadata()).unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
-        // Header (290) + 0-3 alignment pad + tile_blob (0) + extensions (0) + CRC (4)
-        // The empty index has size 0, tile_blob_start = align_up(290, 4) = 292.
+        // Header (292) + 0 alignment pad + tile_blob (0) + extensions (0) + CRC (4)
+        // The empty index has size 0, tile_blob_start = align_up(292, 4) = 292
+        // (header is already 4-aligned post fix-(b)).
         // So total = 292 + 0 + 0 + 4 = 296.
         assert_eq!(buf.len(), 296);
         // Magic check.
@@ -592,7 +593,7 @@ mod tests {
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
-        // Layout: header (290) + index (20) = 310 → align to 312.
+        // Layout: header (292) + index (20) = 312 → no padding (already 4-aligned).
         // Tile blob: 16_384 bytes → 312..16696. Aligned already.
         // Extensions: 0 bytes.
         // CRC: 4 bytes.

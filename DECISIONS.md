@@ -460,6 +460,37 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ## N — Naming
 
+### F-031 — Header padded to 292 bytes for full natural alignment
+Pre-1.0-freeze structural fix. The u32-offset shrink (F-027) removed the u64-misalignment trap but didn't fully land alignment: the 290-byte header ended at offset 290 (mod 4 = 2), so tile-index entries at `index_offset = 290` had their u32 fields at file offsets `mod 4 = 2`. The pre-header layout was also unaligned — pack_uuid at offset 6 cascaded the whole header off by 2.
+
+Closed by inserting 2 reserved-zero bytes at offset 6 (between `format_version` and `pack_uuid`). Every multi-byte field is now naturally aligned at its file offset:
+
+- u16 `tile_dim_px` at 60 (mod 2 = 0) ✓
+- i32 `bbox.*` at 64, 68, 72, 76 (mod 4 = 0) ✓
+- u64 `build_timestamp` at 80 (mod 8 = 0!) ✓
+- u32 `tile_count` at 88 (mod 4 = 0) ✓
+- u32 `index_offset` at 92 (mod 4 = 0) ✓
+- u32 `zoom_offsets[i].offset` / `.count` at `96 + i*8 + {0,4}` (all mod 4 = 0; entries are mod 8 = 0) ✓
+- u32 `extensions_offset` at 288 (mod 4 = 0) ✓
+- 16-byte UUIDs at 8, 24, 40 (mod 8 = 0) ✓
+
+`index_offset = 292` is mod 4 = 0, so the u32 fields *within* every tile-index entry (x at +4, y at +8, offset at +12, length at +16) are also naturally aligned.
+
+Practical impact: strict-alignment readers (some Cortex-M configurations) can do native pointer-cast loads after a single `memcpy`-of-header into an 8-byte-aligned buffer; the byte-oriented memcpy-then-decode path also works (still recommended for cross-platform portability). The format is now both *aligned-load-friendly* and *byte-oriented-portable*.
+
+Reserved-byte semantics (§ 4 row 6→8):
+- v1.0 writers MUST emit 0x00 0x00.
+- Readers MUST accept any value — this is the forward-compat hole for v1.x minor bumps that want to add 2 bytes of header data without breaking v1.0 readers.
+
+Mechanical changes:
+- HEADER_BASE_SIZE: 290 → 292; ZOOM_OFFSETS_START: 94 → 96; all field offsets in write_header/read_header shifted by +2 starting at offset 6.
+- spec/rawtiles-v1.0.md § 3 (file structure diagram + alignment paragraph), § 4 (full table rewrite), § 11 #1 (min file size 296), § 11 #20 (`index_offset ≥ 292`), § 12 #4 (`index_offset = 292`).
+- spec-validator-cpp constants + new `kOffReservedV1_0`.
+- All 6 golden fixtures re-blessed.
+
+**Manifests**: `format/header.rs::{HEADER_BASE_SIZE, ZOOM_OFFSETS_START, write_header, read_header}`; `spec/rawtiles-v1.0.md` § 3, § 4, § 11, § 12; `spec-validator-cpp/src/validator.cpp` constants.
+**Commit**: to land with the alignment slice.
+
 ### F-030 — Spec § 12.1: deterministic extension-section emit order
 Pre-1.0-freeze fix. § 14.1 newly asserts "A conforming writer applied twice to the same logical inputs MUST produce byte-identical output" but § 12 had no rule pinning *the order in which extension sections are emitted*. A writer free to emit NAME-then-SRCD one day and SRCD-then-NAME the next would silently violate § 14.1.
 

@@ -48,8 +48,8 @@ namespace rawtiles {
 constexpr std::size_t kZoomOffsetsCount = 24;
 constexpr std::size_t kZoomOffsetSize = 8;  // u32 offset + u32 count
 constexpr std::size_t kIndexEntrySize = 20;
-// 94 fixed-field bytes + 24 * 8 zoom-directory bytes + 4 extensions_offset = 290.
-constexpr std::size_t kHeaderBaseSize = 94 + kZoomOffsetsCount * kZoomOffsetSize + 4;
+// 96 fixed-field bytes + 24 * 8 zoom-directory bytes + 4 extensions_offset = 292.
+constexpr std::size_t kHeaderBaseSize = 96 + kZoomOffsetsCount * kZoomOffsetSize + 4;
 constexpr std::size_t kFooterCrcSize = 4;
 constexpr std::size_t kSectionHeaderSize = 8;  // tag(4) + len(4)
 constexpr std::array<std::uint8_t, 4> kMagic = {'R', 'A', 'W', 'T'};
@@ -63,21 +63,22 @@ constexpr std::uint8_t kFormatMinor = 0;
 // any particular writer).
 constexpr std::size_t kOffMagic = 0;
 constexpr std::size_t kOffVersion = 4;            // major then minor
-constexpr std::size_t kOffPackUuid = 6;
-constexpr std::size_t kOffSupersedesUuid = 22;
-constexpr std::size_t kOffParentUuid = 38;
-constexpr std::size_t kOffPixelFormat = 54;
-constexpr std::size_t kOffProjection = 55;
-constexpr std::size_t kOffAddressingScheme = 56;
-constexpr std::size_t kOffAxisConvention = 57;
-constexpr std::size_t kOffTileDimPx = 58;
-constexpr std::size_t kOffZoomMin = 60;
-constexpr std::size_t kOffZoomMax = 61;
-constexpr std::size_t kOffBbox = 62;              // 4 × i32 LE
-constexpr std::size_t kOffBuildTimestamp = 78;
-constexpr std::size_t kOffTileCount = 86;
-constexpr std::size_t kOffIndexOffset = 90;       // u32 LE (4 bytes)
-constexpr std::size_t kOffZoomOffsets = 94;       // 24 × 8 bytes = 192
+[[maybe_unused]] constexpr std::size_t kOffReservedV1_0 = 6;  // 2 bytes; MUST be 0 in v1.0
+constexpr std::size_t kOffPackUuid = 8;
+constexpr std::size_t kOffSupersedesUuid = 24;
+constexpr std::size_t kOffParentUuid = 40;
+constexpr std::size_t kOffPixelFormat = 56;
+constexpr std::size_t kOffProjection = 57;
+constexpr std::size_t kOffAddressingScheme = 58;
+constexpr std::size_t kOffAxisConvention = 59;
+constexpr std::size_t kOffTileDimPx = 60;
+constexpr std::size_t kOffZoomMin = 62;
+constexpr std::size_t kOffZoomMax = 63;
+constexpr std::size_t kOffBbox = 64;              // 4 × i32 LE
+constexpr std::size_t kOffBuildTimestamp = 80;
+constexpr std::size_t kOffTileCount = 88;
+constexpr std::size_t kOffIndexOffset = 92;       // u32 LE (4 bytes)
+constexpr std::size_t kOffZoomOffsets = 96;       // 24 × 8 bytes = 192
 constexpr std::size_t kOffExtensionsOffset = kOffZoomOffsets + kZoomOffsetsCount * kZoomOffsetSize;
 
 // -------- Little-endian decoders ------------------------------------
@@ -319,7 +320,7 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
         "bbox min_lat must be < max_lat");
 
   // index_offset must point past the header. In v1 the index sits
-  // immediately after the 290-byte header (index_offset == 290); the
+  // immediately after the 292-byte header (index_offset == 292); the
   // format is byte-oriented (LE-encoded with no native struct dumps),
   // so multi-byte fields don't require alignment in the file. Readers
   // that want aligned reads `memcpy` to a local before decoding.

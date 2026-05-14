@@ -140,8 +140,8 @@ fn debug_uuid_uuid_matches_make_output_for_synthetic() {
     let pack_bytes = std::fs::read(&tmp_pack).expect("read pack");
     let _ = std::fs::remove_file(&tmp_pack);
 
-    // pack_uuid is bytes 6..22 of the header (per F-001 / header.rs).
-    let pack_uuid = &pack_bytes[6..22];
+    // pack_uuid is bytes 8..24 of the header (spec § 4 / header.rs).
+    let pack_uuid = &pack_bytes[8..24];
     let parsed = uuid_bytes_to_hyphenated(pack_uuid);
     assert_eq!(parsed, debug_uuid, "debug uuid must match make's pack_uuid");
 }
