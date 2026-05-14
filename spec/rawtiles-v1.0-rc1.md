@@ -580,6 +580,39 @@ Output (16 bytes, ABGR2222):
 
 See § 10 for the canonical CRC-32/ISO-HDLC check value (`"123456789"` → `0xCBF43926`). Conforming implementations MUST match it; this section exists to flag the check as a conformance requirement and avoid the duplication that would otherwise let § 10 and § 14 drift.
 
+### 14.6 Reader conformance — per-tile hash tables
+
+§ 14.3 pins the *bytes* of each golden pack; § 14.4 pins the *writer* quantiser; § 14.2 ships a C++ validator that checks *pack structure*. None of these catch a reader that opens a golden pack but returns bytes for the **wrong** tile — an off-by-one in binary search, a wrong-zoom lookup, a mis-extracted index entry. Such a reader would pass every previously-listed conformance gate and still be silently wrong.
+
+To close that gap, each golden pack has a sibling `<pack>.hashes` file listing one line per tile:
+
+```
+<z> <x> <y> <sha256-hex>
+```
+
+Lines are sorted ascending by `(z, x, y)`. Comment lines begin with `#`. A third-party reader passes this conformance check by:
+
+1. Opening the pack.
+2. For each `(z, x, y)` in the hash table, calling its tile-lookup API.
+3. Computing SHA-256 of the returned bytes.
+4. Comparing to the committed hex digest.
+
+A reader that mis-implements the binary-search-within-zoom (§ 5.3), the `zoom_offsets[z]` indirection (§ 4.12), or the tile-index entry decoding (§ 5.1) will fail this test even though `spec_layout`-style byte-equality tests (§ 14.3) would pass. Together § 14.3 + § 14.6 cover **writer-side byte-output correctness** and **reader-side lookup correctness** respectively.
+
+The hash tables are committed at:
+
+| Pack | Hash table |
+|---|---|
+| `golden-grid.rawtiles` | `golden-grid.hashes` |
+| `golden-pyramid.rawtiles` | `golden-pyramid.hashes` |
+| `golden-attr.rawtiles` | `golden-attr.hashes` |
+| `golden-png-to-pack-1tile.rawtiles` | `golden-png-to-pack-1tile.hashes` |
+| `golden-png-to-pack-5tiles.rawtiles` | `golden-png-to-pack-5tiles.hashes` |
+
+Drift in any hash table requires either re-blessing under the implementation's documented procedure (and pairing with a CHANGELOG entry if the bytes also changed) or a deliberate `quantiser_version` / `format_version` bump.
+
+**Status: positive-conformance only**. A *negative-conformance* corpus — committed malformed packs each paired with the § 11 rejection reason they MUST trigger — is a known v1.0 gap; readers currently can't prove they reject everything they're supposed to reject without writing their own malformed-pack harness. Planned for a follow-on rc.
+
 ## 15. File extension and MIME type
 
 - **File extension:** `.rawtiles`

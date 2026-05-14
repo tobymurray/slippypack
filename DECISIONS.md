@@ -631,6 +631,25 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-038 — Reader conformance corpus: per-tile SHA-256 tables
+Closing a real conformance gap. § 14.3 pinned the bytes of each golden pack; § 14.4 pinned the writer quantiser; § 14.2 ships a C++ validator that checks pack structure. None of these caught a reader that opens a golden pack but returns bytes for the *wrong* tile — off-by-one in binary search, wrong-zoom lookup, mis-extracted index entry. A reader could pass every existing gate and still be silently wrong.
+
+Added § 14.6 + corpus: each of the 5 spec_layout / e2e golden packs gets a sibling `<pack>.hashes` file listing one line per tile (`<z> <x> <y> <sha256-hex>`, sorted by `(z, x, y)`, comment lines `#`-prefixed). A third-party reader's conformance check: open the pack, call `tile_bytes(z, x, y)` for each entry, SHA-256 the result, compare. Together § 14.3 + § 14.6 cover writer-output and reader-lookup correctness.
+
+Slippypack-side: `tests/reader_conformance.rs` regenerates and verifies the corpus. Bless via `BLESS_READER_CONFORMANCE=1`. `sha2` added as a slippypack-core *dev* dep (not production).
+
+**Known gap deliberately not closed in this slice**: negative-conformance corpus. A v1 reader currently can't prove it rejects everything § 11 says to reject without writing its own malformed-pack harness. § 14.6 flags this as a planned follow-on rc.
+
+The 5 packs covered (synthetic / CLI synthetic isn't in this corpus because its tile bytes are descriptor-derived and may shift with unrelated CLI work; the format-side and e2e fixtures are the stable ones):
+- `golden-grid.rawtiles` / `.hashes` — 25 tiles, single-zoom
+- `golden-pyramid.rawtiles` / `.hashes` — 21 tiles, z=2..=4
+- `golden-attr.rawtiles` / `.hashes` — 9 tiles + ATTR
+- `golden-png-to-pack-1tile.rawtiles` / `.hashes` — smallest non-empty pack
+- `golden-png-to-pack-5tiles.rawtiles` / `.hashes` — multi-zoom e2e output
+
+**Manifests**: `crates/slippypack-core/tests/reader_conformance.rs` (new); `tests/fixtures/format/*.hashes` and `tests/fixtures/e2e/*.hashes` (5 new committed files); `crates/slippypack-core/Cargo.toml` (`sha2` dev-dep); `spec/rawtiles-v1.0-rc1.md` § 14.6 (new).
+**Commit**: to land with the reader-conformance slice.
+
 ### F-037 — Spec § 10: streaming-verify and trusted-source carve-outs for the CRC
 Pre-1.0-freeze refinement. § 10 had "Readers MUST verify the CRC at open time" with no escape hatch. On a 100 MHz Cortex-M4 with SPI flash at ~50 MB/s and software CRC-32/ISO-HDLC (slicing-by-4, 1 KB table), opening a 50 MiB pack costs ~2 s wall-clock. A watch enumerating 5 packs at boot would pay a 10–15 s eager-verify penalty before serving the first tile — a real UX problem for a category of consumers the format explicitly targets.
 
