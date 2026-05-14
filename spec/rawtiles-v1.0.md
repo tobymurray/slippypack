@@ -319,7 +319,7 @@ Readers selecting a `NAME` section for display:
 
 In every enum, readers MUST reject any unknown value encountered in the header or tile index. Forward-compatible additions arrive via spec minor-version bumps (§ 13), not by injecting unknown values into v1 packs.
 
-### 8.1 `pixel_format` (header byte 54)
+### 8.1 `pixel_format` (header byte 56)
 
 | Value | Name | Status |
 |---:|---|---|
@@ -330,7 +330,7 @@ In every enum, readers MUST reject any unknown value encountered in the header o
 | 4 | reserved (`BW`) | reader MUST reject |
 | 5–255 | reserved | reader MUST reject |
 
-### 8.2 `projection` (header byte 55)
+### 8.2 `projection` (header byte 57)
 
 | Value | Name | Status |
 |---:|---|---|
@@ -340,7 +340,7 @@ In every enum, readers MUST reject any unknown value encountered in the header o
 | 3 | `LocalLinear` | v1 (single-image hand-drawn packs) |
 | 4–255 | reserved | reader MUST reject |
 
-### 8.3 `tile_addressing_scheme` (header byte 56)
+### 8.3 `tile_addressing_scheme` (header byte 58)
 
 | Value | Name | Status |
 |---:|---|---|
@@ -351,7 +351,7 @@ In every enum, readers MUST reject any unknown value encountered in the header o
 
 `projection` and `tile_addressing_scheme` are not independently combinable; see § 8.6 for the legal pair table.
 
-### 8.4 `tile_axis_convention` (header byte 57)
+### 8.4 `tile_axis_convention` (header byte 59)
 
 | Value | Name | Status |
 |---:|---|---|
@@ -382,7 +382,7 @@ Not every combination of `projection` × `tile_addressing_scheme` is meaningful.
 | `LocalLinear` (3) | `Quadtree` (1) | ❌ — MUST reject | Undefined. Local-linear coordinates have no canonical pyramidal subdivision. |
 | `LocalLinear` (3) | `SingleImage` (2) | ✅ | One image with a corner-to-lat/lon affine (`AFFN`). For hand-drawn maps and similar uses. |
 
-Readers MUST verify this pairing against the header bytes at offsets 55 and 56 before doing any further parsing.
+Readers MUST verify this pairing against the header bytes at offsets 57 and 58 before doing any further parsing.
 
 **SingleImage tile-index constraint.** When `tile_addressing_scheme = SingleImage`:
 
@@ -462,7 +462,7 @@ A conforming v1 reader MUST:
 
 A conforming v1 reader SHOULD:
 
-19. Use byte-wise (`memcpy`-style) extraction when reading multi-byte fields. The format is byte-oriented; no multi-byte field is guaranteed to be naturally aligned in the file. Native pointer-cast reads fault on strict-alignment platforms (notably some Cortex-M configurations).
+19. Choose an alignment strategy that matches how the pack bytes were loaded. Every multi-byte header field and every multi-byte field within a tile-index entry is naturally aligned at its *file offset* (§ 3). Readers that load the pack into an 8-byte-aligned buffer (e.g. via `malloc` / `aligned_alloc` and `fread`) MAY do native pointer-cast loads — those file offsets translate directly into aligned memory addresses. Readers reading from `mmap`-mapped memory whose mapping base is not 8-byte aligned, or reading from byte buffers at arbitrary offsets, MUST `memcpy` each multi-byte field into a properly-aligned local before decoding. The format guarantees file-offset alignment, not memory-address alignment of any particular load.
 20. Validate that `index_offset ≥ 292` and that `extensions_offset ≥ tile_blob_start + tile_blob_size`.
 
 ## 12. Writer requirements
@@ -485,8 +485,8 @@ A conforming v1 writer MUST:
 
 A conforming v1 writer SHOULD:
 
-13. Set `build_timestamp` to the most-recent source-data freshness time (mtime / `Last-Modified`), not wall-clock build time, when reproducibility is a goal.
-14. Use only ASCII printable bytes in extension tags.
+14. Set `build_timestamp` to the most-recent source-data freshness time (mtime / `Last-Modified`), not wall-clock build time, when reproducibility is a goal.
+15. Use only ASCII printable bytes in extension tags.
 
 A conforming v1 writer MUST NOT:
 

@@ -460,6 +460,23 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ## N — Naming
 
+### F-032 — Spec internal consistency: § 8 offsets, § 11 #19 alignment, § 12 numbering
+Three pure-doc cleanups triggered by review. None change wire format.
+
+(a) **§§ 8.1–8.4 and § 8.6 parentheticals**: F-031 shifted every header field past offset 6 by +2 (inserting `reserved_v1_0`), but the parenthetical byte numbers in § 8's enum subsection headers and § 8.6's pairing rule didn't track. § 4's authoritative table had the right numbers; § 8 still cited the old ones. A fresh implementer using § 8's offsets would read `parent_uuid`'s last bytes as enums (rejecting every valid pack) or read the right bytes and assume the spec is internally inconsistent. Updated:
+- § 8.1 "byte 54" → "byte 56"
+- § 8.2 "byte 55" → "byte 57"
+- § 8.3 "byte 56" → "byte 58"
+- § 8.4 "byte 57" → "byte 59"
+- § 8.6 "offsets 55 and 56" → "offsets 57 and 58"
+
+(b) **§ 11 #19 contradicted § 3's new alignment claim**: F-031's § 3 says "every multi-byte header field is naturally aligned … strict-alignment platforms can do pointer-cast loads after a single `memcpy`-of-header". § 11 #19 still said "no multi-byte field is guaranteed to be naturally aligned in the file. Native pointer-cast reads fault." Both can't be true. Updated #19 to acknowledge the alignment guarantee: file-offset alignment is real, memory-address alignment depends on where the file's bytes live in memory. Pointer-casts are safe iff the load address is sufficiently aligned; mmap of an arbitrary file position requires memcpy-then-decode.
+
+(c) **§ 12 SHOULD-list numbering off by one**: when F-030 inserted "Emit extension sections in a deterministic order" as MUST #10, MUST went to #13 but SHOULD still started at #13 (overlap), and MUST NOT started at #16 (skipping #14, #15). Renumbered SHOULD to #14–15; MUST NOT was already correct at #16–17.
+
+**Manifests**: `spec/rawtiles-v1.0.md` §§ 8.1, 8.2, 8.3, 8.4, 8.6, 11 #19, 12 #14, 12 #15.
+**Commit**: to land with the spec-consistency slice.
+
 ### F-031 — Header padded to 292 bytes for full natural alignment
 Pre-1.0-freeze structural fix. The u32-offset shrink (F-027) removed the u64-misalignment trap but didn't fully land alignment: the 290-byte header ended at offset 290 (mod 4 = 2), so tile-index entries at `index_offset = 290` had their u32 fields at file offsets `mod 4 = 2`. The pre-header layout was also unaligned — pack_uuid at offset 6 cascaded the whole header off by 2.
 
