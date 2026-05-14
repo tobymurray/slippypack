@@ -35,10 +35,31 @@ echo "=== 1. Build synthetic pack ==="
 "$SLIPPYPACK_BIN" make --source synthetic --out "$SYNTH_PACK" --timestamp 0
 ls -la "$SYNTH_PACK"
 
-echo "=== 2. Validate (expect exit 0) ==="
+echo "=== 2. Validate synthetic pack (expect exit 0) ==="
 "$VALIDATOR_BIN" "$SYNTH_PACK"
 
-echo "=== 3. Corrupt one byte in the header → expect exit 1 ==="
+echo "=== 3. Validate all committed golden fixtures ==="
+# These are the spec-conformance fixtures that slippypack-core's
+# spec_layout.rs and end_to_end.rs lock down. If the C++ validator
+# disagrees with any of them, slippypack and the validator have drifted
+# (one or both is wrong) — investigate before merging.
+FIXTURE_DIR="$REPO_ROOT/crates/slippypack-core/tests/fixtures"
+FIXTURES=(
+  "$FIXTURE_DIR/format/golden-grid.upack"      # 25 tiles, single-zoom
+  "$FIXTURE_DIR/format/golden-pyramid.upack"   # 21 tiles, z=2..=4, exercises zoom_offsets
+  "$FIXTURE_DIR/format/golden-attr.upack"      # 9 tiles + ATTR extension
+  "$FIXTURE_DIR/e2e/golden-png-to-pack-1tile.upack"   # smallest pack: 1 tile
+  "$FIXTURE_DIR/e2e/golden-png-to-pack-5tiles.upack"  # 5 tiles across z=0..=1
+)
+for fixture in "${FIXTURES[@]}"; do
+  echo "  validating $(basename "$fixture")"
+  if ! "$VALIDATOR_BIN" "$fixture" > /dev/null; then
+    echo "FAIL: validator rejected $fixture"
+    exit 1
+  fi
+done
+
+echo "=== 4. Corrupt one byte in the header → expect exit 1 ==="
 cp "$SYNTH_PACK" "$CORRUPT_PACK"
 # Flip a byte at offset 10 (inside pack_uuid — doesn't affect index/
 # tile decoding but invalidates the CRC).

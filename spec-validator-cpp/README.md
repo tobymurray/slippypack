@@ -59,6 +59,23 @@ synthetic pack via `slippypack make --source synthetic`, validates it,
 and (sanity check) verifies that mutating a byte produces a
 validation failure.
 
+## Coverage so far
+
+The `make test` orchestrator runs the validator against six packs that
+together exercise every interesting v1 layout shape:
+
+| pack | what it stresses |
+|------|------------------|
+| `slippypack make --source synthetic` | the path the README points new users at |
+| `golden-grid.upack` (25 tiles, z=4) | largest single-zoom layout |
+| `golden-pyramid.upack` (21 tiles, z=2..=4) | multi-zoom `zoom_offsets[18]` directory |
+| `golden-attr.upack` (9 tiles + `ATTR` extension) | extension-section framing + padding |
+| `golden-png-to-pack-1tile.upack` | smallest non-empty pack |
+| `golden-png-to-pack-5tiles.upack` | end-to-end pipeline output |
+
+All six pass independently in C++ — the byte-level format is
+unambiguous enough that two implementations agree.
+
 ## What it checks
 
 - Magic bytes `UPCK` at offset 0
