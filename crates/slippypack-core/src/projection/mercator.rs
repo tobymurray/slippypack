@@ -3,15 +3,19 @@
 //! Used by OSM, Google Maps, MapLibre, Mapbox, MapTiler, Stadia, and
 //! every other tile provider that ships `{z}/{x}/{y}` URLs.
 //!
-//! **Determinism caveat:** the y-coordinate computation uses `f64::tan`
-//! and `f64::asinh`, which delegate to the platform's `libm`. For
-//! realistic user inputs (lat/lon not exactly on a tile boundary, which
-//! they almost never are — tile boundaries are at irrational latitudes
-//! in Mercator), the integer tile coordinates are byte-identical across
-//! platforms because the float result lands far enough from any
-//! `floor`-boundary for libm variance to matter. When `slippypack-core`
-//! switches to `no_std + alloc`, this module will swap to the pure-Rust
-//! `libm` crate for truly platform-independent math.
+//! **Cross-platform determinism**: the four transcendentals this module
+//! uses (`tan`, `asinh`, `sinh`, `atan`) route through the pure-Rust
+//! [`libm`] crate, not `f64`'s std-provided methods. `f64::tan` and
+//! friends delegate to the host's libm (glibc, musl, macOS libm, ucrt,
+//! WASM's host runtime, …) and those implementations are NOT bit-for-bit
+//! agreeable — a Linux pack-build and a browser PWA build could disagree
+//! by one ULP on an edge case. `libm`'s pure-Rust implementation is the
+//! same bits everywhere, which is load-bearing for slippypack's
+//! "byte-identical across CLI and PWA" guarantee.
+//!
+//! Pure-arithmetic ops (`to_radians`, `to_degrees`, `floor`, `clamp`,
+//! `+`, `-`, `*`, `/`) are already deterministic by IEEE-754, so they
+//! stay on std.
 
 use core::f64::consts::PI;
 
@@ -44,7 +48,11 @@ impl Projection for Mercator {
 
         let lat_rad = lat.to_radians();
         let x_f = ((lon + 180.0) / 360.0 * n_f).floor();
-        let y_f = ((1.0 - lat_rad.tan().asinh() / PI) / 2.0 * n_f).floor();
+        // libm::tan / libm::asinh (NOT f64::*) — see module-level
+        // determinism note. These are the only non-deterministic ops
+        // in the projection, so swapping them to libm makes the whole
+        // function cross-platform bit-stable.
+        let y_f = ((1.0 - libm::asinh(libm::tan(lat_rad)) / PI) / 2.0 * n_f).floor();
 
         // x_f and y_f are in [0.0, n_f] by construction; the float-to-u32
         // cast is exact for this range (n_f ≤ 2^31 at zoom ≤ 31, well within
@@ -69,7 +77,8 @@ impl Projection for Mercator {
         let n_f = f64::from(n);
 
         let lon = f64::from(x) / n_f * 360.0 - 180.0;
-        let lat_rad = (PI * (1.0 - 2.0 * f64::from(y) / n_f)).sinh().atan();
+        // libm::sinh / libm::atan — see module-level determinism note.
+        let lat_rad = libm::atan(libm::sinh(PI * (1.0 - 2.0 * f64::from(y) / n_f)));
         let lat = lat_rad.to_degrees();
         (lon, lat)
     }
@@ -253,6 +262,66 @@ mod tests {
         assert_eq!(
             m1.lonlat_to_tile(0.0, 0.0, 5),
             m2.lonlat_to_tile(0.0, 0.0, 5),
+        );
+    }
+
+    /// Determinism gate at the f64-bit level: `tile_to_lonlat` produces
+    /// specific IEEE-754 bit patterns for a committed set of inputs.
+    /// This is stricter than the integer-tile determinism gate below —
+    /// the integer test would silently pass even if the underlying
+    /// floats drifted by less than one tile boundary. Locking the f64
+    /// bits guarantees that libm-via-pure-Rust agrees byte-for-byte
+    /// across Linux x86, Linux ARM, macOS, Windows, and WASM.
+    ///
+    /// If this test fails, slippypack-core's `libm` dep version (or
+    /// its underlying implementation) has changed — bump
+    /// `QUANTISER_VERSION`-equivalent for the projection (currently
+    /// implicit: the format version) and re-bless.
+    /// Determinism gate at the f64-bit level: `tile_to_lonlat` produces
+    /// specific IEEE-754 bit patterns for committed inputs. This is
+    /// stricter than the integer-tile gate below — the integer test
+    /// would silently pass even if the underlying floats drifted by
+    /// less than one tile boundary. Locking the f64 bits guarantees
+    /// that libm-via-pure-Rust agrees byte-for-byte across Linux x86,
+    /// Linux ARM, macOS, Windows, and WASM. If this test fails, the
+    /// `libm` dep version (or its implementation) has changed —
+    /// re-bless the values and audit downstream golden fixtures.
+    #[test]
+    fn determinism_committed_f64_bits_for_known_tiles() {
+        let m = Mercator;
+
+        // Tile (511, 340) at z=10 — London region. `lon` is pure
+        // arithmetic (deterministic regardless of libm); `lat` goes
+        // through libm::sinh + libm::atan and is the load-bearing
+        // bit-level check.
+        let (lon, lat) = m.tile_to_lonlat(511, 340, 10);
+        assert_eq!(
+            lon.to_bits(),
+            0xbfd6_8000_0000_0000_u64,
+            "London lon bits drifted; got {lon} (bits = {:#018x})",
+            lon.to_bits(),
+        );
+        assert_eq!(
+            lat.to_bits(),
+            0x4049_cf1b_2a90_af57_u64,
+            "London lat bits drifted; got {lat} (bits = {:#018x})",
+            lat.to_bits(),
+        );
+
+        // Tile (942, 614) at z=10 — Sydney region (southern hemisphere
+        // hits the lat < 0 branch).
+        let (lon2, lat2) = m.tile_to_lonlat(942, 614, 10);
+        assert_eq!(
+            lon2.to_bits(),
+            0x4062_e580_0000_0000_u64,
+            "Sydney lon bits drifted; got {lon2} (bits = {:#018x})",
+            lon2.to_bits(),
+        );
+        assert_eq!(
+            lat2.to_bits(),
+            0xc040_dcb7_297b_3369_u64,
+            "Sydney lat bits drifted; got {lat2} (bits = {:#018x})",
+            lat2.to_bits(),
         );
     }
 

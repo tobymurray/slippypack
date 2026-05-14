@@ -467,6 +467,18 @@ Phase 1.x deliverable, prompted by the need to catch writer-side bugs (endiannes
 **Manifests**: `spec-validator-cpp/src/validator.cpp`; `spec-validator-cpp/tests/run.sh`.
 **Commit**: to land with the C++ validator slice.
 
+### P-008 — Mercator transcendentals go through the `libm` crate, not `f64::*` std methods
+Triggered by review: `f64::tan`, `f64::asinh`, `f64::sinh`, `f64::atan` delegate to the platform libc's libm — glibc, musl, macOS libm, ucrt, and the WASM runtime's host libm are NOT bit-for-bit agreeable. slippypack's CLI/PWA byte-identity guarantee was working "by coincidence" of the platforms the CI matrix happened to cover. Swapping to the pure-Rust [`libm`] crate forecloses this risk before the PWA ships, not after.
+
+The four transcendental calls in `mercator.rs` are now `libm::tan`, `libm::asinh`, `libm::sinh`, `libm::atan`. Pure-arithmetic ops (`to_radians`, `to_degrees`, `floor`, `clamp`, `+ - * /`) stay on std — IEEE-754 already pins those.
+
+On macOS the new f64 outputs happen to be bit-identical to the previous std-libm path for our committed determinism inputs (no test re-bless needed). The cross-platform guarantee, however, was previously "Linux x86 + macOS happen to agree"; now it's "libm-pure-Rust says the same bits everywhere".
+
+**New test**: `determinism_committed_f64_bits_for_known_tiles` locks the actual f64 bit patterns for tile_to_lonlat at two committed inputs (London, Sydney). Stricter than the integer-tile gate — the integer test would pass even if floats drifted by sub-tile-boundary amounts; this catches any libm version regression at the ULP level.
+
+**Manifests**: `crates/slippypack-core/Cargo.toml` (libm dep); `crates/slippypack-core/src/projection/mercator.rs::{lonlat_to_tile, tile_to_lonlat}`; new test `determinism_committed_f64_bits_for_known_tiles`.
+**Commit**: to land with the libm-swap slice.
+
 ### F-023 — `NAME` extension payload structured as `uint8 tag_length | bcp47_tag | name`
 The slippypack `TAG_NAME` constant existed; the *payload* structure was only described vaguely in doc strings ("UTF-8 content with an optional BCP-47 language-tag prefix"). Now committed to match the una-sdk MapTrack spec exactly:
 

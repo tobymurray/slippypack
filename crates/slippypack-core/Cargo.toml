@@ -15,6 +15,12 @@ workspace = true
 # Phase 0 dependencies — uncommented as modules land:
 uuid = { version = "1", default-features = false, features = ["v5"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Pure-Rust libm: deterministic transcendental math (tan/asinh/sinh/atan)
+# across native, WASM, and any future no_std target. Replaces std's
+# f64::* which delegate to the platform libc's libm — works today on
+# glibc/musl/macOS-libm by coincidence, breaks the moment the PWA WASM
+# build hits a different libm.
+libm = { version = "0.2", default-features = false }
 # sha2       = { version = "0.10", default-features = false }
 
 # Note: `slippypack-core` is intended to be `no_std + alloc` once the format
