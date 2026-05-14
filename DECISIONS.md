@@ -460,6 +460,22 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ## N — Naming
 
+### F-028 — AFFN canonical bits committed as six hex-encoded `f64` bit-patterns
+Pre-1.0-freeze fix for a LocalLinear `pack_uuid` collision. The previous spec text said the descriptor's `affn` key carried the six affine coefficients "as integer microunits" — but the on-disk `AFFN` extension stores six `f64` decimal-degree coefficients, and the conversion was undefined. Two writers given identical `f64`s could compute different "integer microunit" approximations (depending on rounding mode, language runtime, or float-to-decimal pathway), producing different `pack_uuid`s for byte-identical packs.
+
+Fixed by committing the `f64` bit-patterns directly:
+
+- `PackDescriptor::affn` is now `Option<[u64; 6]>` — the IEEE-754 bit-patterns of the on-disk `AFFN` values.
+- Canonical JSON emits `"affn":[ ... ]` as a six-element array of 16-char lowercase hex u64 strings (lex-first, before `"bbox"`).
+- `"affn":null` is emitted for non-`LocalLinear` packs (always present in the descriptor, uniform shape).
+
+Byte-identical `AFFN` extension bytes ⇒ byte-identical `affn` key bytes ⇒ byte-identical canonical descriptor ⇒ byte-identical `pack_uuid`. No rounding question, no float-to-decimal precedent.
+
+The canonical-bytes shape changes (new lex-first key), so the baseline `pack_uuid` rotated: `53077f67-522e-5cb0-b2b5-ffddba17d0db` → `5146db8e-0859-561c-8580-45c6154e890d`. CLI synthetic golden fixture re-blessed.
+
+**Manifests**: `crates/slippypack-core/src/identity.rs::{PackDescriptor::affn, write_affn_bits, canonical_descriptor_bytes}`; spec `spec/rawtiles-v1.0.md` § A.3 (key table + worked example).
+**Commit**: to land with the AFFN-bits slice.
+
 ### F-027 — Drop u64 offsets to u32 (header 290 bytes, tile-index entry 20 bytes)
 Pre-1.0-freeze structural fix triggered by review of the misaligned-u64 trap. The previous layout had u64 `index_offset`, `extensions_offset`, `zoom_offsets[].offset`, and per-tile `offset` — none of which were 8-byte aligned in the file, requiring readers to `memcpy`-then-decode and creating a misalignment trap on strict-alignment platforms (Cortex-M0). The PMTiles model of u64 offsets is for HTTP-range mega-archives; that isn't the rawtiles use case.
 

@@ -43,11 +43,11 @@ fn bytes_mode_emits_canonical_json() {
         .output()
         .expect("spawn");
     assert!(out.status.success());
-    // Canonical JSON, no trailing newline, starts with `{"bbox":` and
-    // ends with `}`.
+    // Canonical JSON, no trailing newline, starts with `{"affn":null,"bbox":`
+    // (affn is lex-first; null for non-LocalLinear) and ends with `}`.
     let bytes = out.stdout;
     assert!(
-        bytes.starts_with(b"{\"bbox\":"),
+        bytes.starts_with(b"{\"affn\":null,\"bbox\":"),
         "expected canonical JSON; got: {:?}",
         String::from_utf8_lossy(&bytes),
     );

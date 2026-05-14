@@ -141,9 +141,10 @@ mod tests {
         };
         let mut buf = Vec::new();
         run_debug_uuid(&args, &mut buf).unwrap();
-        // Canonical bytes always start with the bbox key (lex-first).
+        // Canonical bytes always start with the affn key (lex-first;
+        // `null` for non-LocalLinear packs like synthetic).
         assert!(
-            buf.starts_with(b"{\"bbox\":"),
+            buf.starts_with(b"{\"affn\":null,\"bbox\":"),
             "expected canonical JSON; got: {:?}",
             String::from_utf8_lossy(&buf),
         );

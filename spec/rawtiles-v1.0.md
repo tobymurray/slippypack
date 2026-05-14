@@ -569,6 +569,7 @@ Top-level keys, in lex order:
 
 | Key | Type | Source |
 |---|---|---|
+| `affn` | array of six hex strings, or `null` | the six IEEE-754 `f64` bit-patterns of the on-disk `AFFN` extension's `(a, b, c, d, e, f)` coefficients, each as a 16-character lowercase hex u64; `null` for non-LocalLinear packs |
 | `bbox` | `[i64, i64, i64, i64]` | `[min_lon_µ°, min_lat_µ°, max_lon_µ°, max_lat_µ°]` |
 | `format_version` | `[u8, u8]` | from § 4.2 |
 | `pixel_format` | int | from § 8.1 |
@@ -581,7 +582,15 @@ Top-level keys, in lex order:
 | `tile_dim_px` | int | from § 4.7 |
 | `zoom_range` | `[u8, u8]` | `[zoom_min, zoom_max]` from § 4.8 |
 
-When `projection = LocalLinear`, an additional top-level key `affn` (sorted into lex position) carries the six affine coefficients as integer microunits.
+The `affn` key is **always emitted**; for non-LocalLinear packs its value is `null`. This keeps the descriptor's shape uniform across projections.
+
+**Why bit-patterns, not decimal degrees or microunits**: the on-disk `AFFN` extension (§ 7.3) stores six little-endian `f64` values. Two writers given the same `f64`s (e.g. `1.234567890123456`) could compute different "integer microunit" approximations depending on rounding convention, language runtime, or float-to-decimal pathways — producing different `pack_uuid`s for byte-identical packs. Committing the exact `f64` bit-patterns (as 16-char lowercase hex u64s) sidesteps the rounding question entirely: byte-identical `AFFN` bytes ⇒ byte-identical canonical descriptor ⇒ byte-identical `pack_uuid`.
+
+Example `affn` value for an arbitrary affine (a=1.0, b=0, c=−180.0, d=0, e=−1.0, f=85.0):
+
+```json
+"affn":["3ff0000000000000","0000000000000000","c066800000000000","0000000000000000","bff0000000000000","4055400000000000"]
+```
 
 ### A.4 `sources` ordering and per-kind shape
 

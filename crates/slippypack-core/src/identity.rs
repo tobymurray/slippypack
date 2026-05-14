@@ -169,6 +169,18 @@ impl Source {
 /// packs get distinct `pack_uuid` values cleanly).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackDescriptor {
+    /// The six affine matrix coefficients `(a, b, c, d, e, f)` for the
+    /// `LocalLinear` projection, stored as the IEEE-754 `f64` bit-patterns
+    /// of the on-disk `AFFN` extension values. `None` for non-`LocalLinear`
+    /// packs.
+    ///
+    /// **Why bit-patterns, not microunits**: the on-disk `AFFN` stores
+    /// six `f64` decimal-degree coefficients (per spec § 7.3). Two writers
+    /// given the same `f64`s could compute different "integer microunit"
+    /// values depending on rounding convention, so we commit the exact
+    /// bit-patterns instead. This makes `pack_uuid` byte-identical when
+    /// the on-disk affn bytes are byte-identical, full stop.
+    pub affn: Option<[u64; 6]>,
     pub bbox: BoundingBox,
     pub format_version: FormatVersion,
     pub pixel_format: u8,
@@ -203,7 +215,15 @@ pub fn canonical_descriptor_bytes(d: &PackDescriptor) -> Vec<u8> {
     let mut buf = String::new();
     buf.push('{');
 
-    buf.push_str("\"bbox\":");
+    // "affn" sorts lex-first (before "bbox"). Emitted as an array of
+    // six 16-char lowercase hex u64s for LocalLinear; null otherwise.
+    buf.push_str("\"affn\":");
+    match &d.affn {
+        Some(bits) => write_affn_bits(bits, &mut buf),
+        None => buf.push_str("null"),
+    }
+
+    buf.push_str(",\"bbox\":");
     write_bbox(&d.bbox, &mut buf);
 
     buf.push_str(",\"format_version\":");
@@ -300,6 +320,28 @@ fn write_hex_string(bytes: &[u8], buf: &mut String) {
         buf.push(HEX_DIGITS[(b & 0x0f) as usize] as char);
     }
     buf.push('"');
+}
+
+/// Emit the six `f64`-bit-pattern affine coefficients as a JSON array of
+/// six 16-char lowercase hex strings. Used only when
+/// `PackDescriptor::affn` is `Some`.
+fn write_affn_bits(bits: &[u64; 6], buf: &mut String) {
+    buf.push('[');
+    for (i, &v) in bits.iter().enumerate() {
+        if i > 0 {
+            buf.push(',');
+        }
+        buf.push('"');
+        // 16-char fixed-width lowercase hex of the u64. Manual emit so
+        // we don't depend on format-string variability across Rust
+        // toolchains for the determinism guarantee.
+        for shift in (0..16).rev() {
+            let nibble = ((v >> (shift * 4)) & 0xf) as usize;
+            buf.push(HEX_DIGITS[nibble] as char);
+        }
+        buf.push('"');
+    }
+    buf.push(']');
 }
 
 fn write_json_string(s: &str, buf: &mut String) {
@@ -454,6 +496,7 @@ mod tests {
     /// Most tests start from this and tweak one field.
     fn baseline_descriptor() -> PackDescriptor {
         PackDescriptor {
+            affn: None,
             bbox: BoundingBox {
                 min_lon_micro: -180_000_000,
                 min_lat_micro: -85_000_000,
@@ -493,7 +536,8 @@ mod tests {
         let d = baseline_descriptor();
         let bytes = canonical_descriptor_bytes(&d);
         let expected = concat!(
-            r#"{"bbox":[-180000000,-85000000,180000000,85000000]"#,
+            r#"{"affn":null"#,
+            r#","bbox":[-180000000,-85000000,180000000,85000000]"#,
             r#","format_version":[1,0]"#,
             r#","pixel_format":1"#,
             r#","projection":1"#,
@@ -783,6 +827,54 @@ mod tests {
     }
 
     #[test]
+    fn affn_bits_serialise_as_lowercase_hex() {
+        let mut d = baseline_descriptor();
+        // f64 bit-patterns for the six affine coefficients. Use a
+        // distinctive value (1.0 = 0x3ff0_0000_0000_0000) for the first
+        // slot and zero for the rest.
+        d.affn = Some([1.0_f64.to_bits(), 0, 0, 0, 0, 0]);
+        let bytes = canonical_descriptor_bytes(&d);
+        let s = core::str::from_utf8(&bytes).unwrap();
+        assert!(
+            s.starts_with(
+                "{\"affn\":[\"3ff0000000000000\",\"0000000000000000\",\"0000000000000000\",\"0000000000000000\",\"0000000000000000\",\"0000000000000000\"]"
+            ),
+            "got: {s}",
+        );
+    }
+
+    #[test]
+    fn affn_bits_change_changes_pack_uuid() {
+        // Two LocalLinear packs with different AFFN bit-patterns MUST
+        // produce different pack_uuids — closes the LocalLinear identity
+        // collision flagged in F-028.
+        let mut d_a = baseline_descriptor();
+        d_a.affn = Some([1, 2, 3, 4, 5, 6]);
+
+        let mut d_b = baseline_descriptor();
+        d_b.affn = Some([1, 2, 3, 4, 5, 7]); // last bit-pattern differs
+
+        assert_ne!(
+            derive_pack_uuid(&d_a),
+            derive_pack_uuid(&d_b),
+            "AFFN bits differing in any of 6 slots must change pack_uuid",
+        );
+    }
+
+    #[test]
+    fn affn_none_vs_some_changes_pack_uuid() {
+        // A WebMercator pack (affn = None) and a LocalLinear pack with
+        // some affn bits MUST produce different pack_uuids even if every
+        // other field is the same (which would never happen in practice,
+        // since projection differs too — but the canonical descriptor
+        // should still distinguish them on the affn axis alone).
+        let d_none = baseline_descriptor();
+        let mut d_some = baseline_descriptor();
+        d_some.affn = Some([0_u64; 6]);
+        assert_ne!(derive_pack_uuid(&d_none), derive_pack_uuid(&d_some));
+    }
+
+    #[test]
     fn style_source_with_different_content_hash_changes_pack_uuid() {
         // Two Style sources with identical zoom ranges but different
         // style JSONs MUST NOT collide on pack_uuid. This is the bug
@@ -873,7 +965,7 @@ mod tests {
         let d = baseline_descriptor();
         let uuid = derive_pack_uuid(&d);
         let expected =
-            Uuid::parse_str("53077f67-522e-5cb0-b2b5-ffddba17d0db").expect("valid UUID literal");
+            Uuid::parse_str("5146db8e-0859-561c-8580-45c6154e890d").expect("valid UUID literal");
         assert_eq!(
             uuid, expected,
             "baseline pack_uuid drifted; canonical bytes or namespace changed",

@@ -335,6 +335,7 @@ fn auth_kinds_from_options(opts: &BuildOptions) -> Vec<AuthKind> {
 
 fn synthetic_descriptor() -> PackDescriptor {
     PackDescriptor {
+        affn: None,
         bbox: world_bbox_micro(),
         format_version: FormatVersion { major: 1, minor: 0 },
         pixel_format: 1,
@@ -426,6 +427,7 @@ fn url_template_descriptor(
     auth_kinds: Vec<AuthKind>,
 ) -> PackDescriptor {
     PackDescriptor {
+        affn: None,
         bbox: bbox.to_micro(),
         format_version: FormatVersion { major: 1, minor: 0 },
         pixel_format: 1,
