@@ -222,6 +222,8 @@ A reader looking up the bytes for `(z, x, y)` SHOULD:
 2. Binary-search the `count` entries starting at `offset` for the `(x, y)` key. The within-zoom ordering by `(x, y)` guarantees a well-defined ordering.
 3. If found, read `length` bytes at the entry's `offset` from the file.
 
+**Reader API surface for the "absent" outcome is implementation-defined.** Readers MAY surface absence as a nullable / `Option`-typed return, a sentinel value, a distinguished error variant, or any other idiomatic shape for the host language. The spec mandates only the lookup *algorithm* and that absent tiles never return arbitrary bytes; it does not prescribe an API signature. (For reference, slippypack's Rust reader uses `Option<&[u8]>`; a C reader might use a `bool out_present` parameter; a panic/exception-throwing API would be non-conforming because it conflates "not in this pack" with "malformed pack.")
+
 ## 6. Tile blob
 
 The tile blob is the contiguous region from the (padded) end of the tile index to `extensions_offset`. It contains the raw tile bytes referenced by each index entry's `(offset, length)`.
@@ -264,6 +266,7 @@ The next section begins at the 4-byte-aligned offset following the previous sect
 - Each section's complete extent (`tag + length + payload + alignment padding`) MUST lie within `[extensions_offset, file_size − 4)` — i.e., before the 4-byte CRC footer.
 - `length` MUST NOT cause `section_start + 8 + length` to exceed `file_size − 4`.
 - The padding bytes between `payload` and the next section MUST be `0x00`.
+- The end of the final section's complete extent (padding inclusive) MUST equal `file_size − 4`. No bytes may exist between the last extension section and the CRC footer. When the pack has no extensions, `extensions_offset` MUST itself equal `file_size − 4` (zero-length extensions region, directly abutting the CRC).
 
 Readers MUST reject packs that violate any of these.
 
@@ -271,8 +274,9 @@ Readers MUST reject packs that violate any of these.
 
 The four-byte tag is compared verbatim. Case is normative for forward-compatibility behavior:
 
-- **Upper-case ASCII first byte** (`A–Z`): the tag is **SDK-reserved** ("critical" in PNG terms). Allocated by spec versions. Readers MUST reject any pack containing an upper-case tag they do not recognise.
-- **Lower-case ASCII first byte** (`a–z`): the tag is **application-private** ("ancillary"). Writers MAY emit any such tag for their own purposes; readers MUST accept the pack and MAY ignore unknown lower-case tags.
+- **Upper-case ASCII first byte** (`0x41–0x5A`, `A–Z`): the tag is **SDK-reserved** ("critical" in PNG terms). Allocated by spec versions. Readers MUST reject any pack containing an upper-case tag they do not recognise.
+- **Lower-case ASCII first byte** (`0x61–0x7A`, `a–z`): the tag is **application-private** ("ancillary"). Writers MAY emit any such tag for their own purposes; readers MUST accept the pack and MAY ignore unknown lower-case tags.
+- **Any other first byte** (digits, punctuation, control chars, non-ASCII, etc.): reserved for future spec use. Writers MUST NOT emit such tags in v1; readers MUST reject any pack containing one. This closes the otherwise-undefined behavior space between the upper/lower halves of the case bifurcation.
 
 Tag bytes 2–4 MAY be any printable ASCII; their case has no normative meaning.
 
@@ -394,6 +398,10 @@ Readers MUST verify this pairing against the header bytes at offsets 57 and 58 b
 
 Readers MUST reject `SingleImage` packs that violate any of these. v1.0 deliberately does NOT support tiled (multi-image) `SingleImage` packs — future tiled forms get a new `tile_addressing_scheme` enum value via a minor-version bump (§ 13), not an ambiguous reinterpretation of `SingleImage = 2`.
 
+**Quadtree tile-index constraint.** When `tile_addressing_scheme = Quadtree`:
+
+- `tile_count` MAY be `0`. A Quadtree pack with zero tiles is a valid v1 pack — useful for "metadata-only" packs that carry only extension sections (`NAME`, `SRCD`, `ATTR`) without any tile bytes (e.g. catalog stubs, source-attribution probes, or sentinel packs delivered ahead of the real tile data). When `tile_count == 0` every `zoom_offsets[z]` MUST be `(0, 0)` (§ 4.12), the tile blob is empty, and `extensions_offset == 292` (the tile index and tile blob both occupy zero bytes). Readers MUST accept such packs and report no tiles available rather than treat the pack as malformed.
+
 ## 9. Pixel formats
 
 ### 9.1 `ABGR2222`
@@ -455,13 +463,13 @@ A conforming v1 reader MUST:
 10. Reject the pack if entries are not sorted ascending by `(z, x, y)`, including the within-zoom `(x, y)` lexicographic order that § 5.3's binary search depends on.
 11. Reject any tile-index entry whose `offset` is not 4-byte aligned, lies before `tile_blob_start` (§ 3), or whose `offset + length` exceeds `extensions_offset`.
 12. Reject the pack if `zoom_offsets[z].count` does not equal the actual count of tile-index entries at zoom `z` for any `z`, or if `zoom_offsets[z].offset` does not equal the byte offset of the first index entry at zoom `z` (when `count > 0`) or is non-zero (when `count == 0`).
-13. Reject the pack if `extensions_offset` is not 4-byte aligned.
-14. Reject any extension section whose extent (`tag + length + payload + alignment padding`) is not contained in `[extensions_offset, file_size − 4)` (§ 7.1).
+13. Reject the pack if `extensions_offset` is not 4-byte aligned, or if `extensions_offset > file_size − 4` (a value past the CRC footer is structurally invalid). The upper-bound check is necessary because § 11 #14's section-walk loop (`while pos < file_size − 4`) starts from `extensions_offset` and would silently conclude "no extensions" instead of rejecting if the start pointer already overshoots the footer.
+14. Reject any extension section whose extent (`tag + length + payload + alignment padding`) is not contained in `[extensions_offset, file_size − 4)` (§ 7.1). Additionally, after the section-walk loop terminates, reject the pack if the walk's terminal position does not equal `file_size − 4` — i.e., stranded bytes exist between the last section's padded end and the CRC footer. The "no extensions" case (`extensions_offset == file_size − 4`) is the loop's zero-iteration form of this same invariant.
 15. Reject any pack containing an unknown extension tag whose first byte is upper-case ASCII (`A–Z`).
 16. Accept and MAY ignore any unknown extension tag whose first byte is lower-case ASCII.
 17. Reject `projection = LocalLinear` packs that do not contain an `AFFN` extension.
 18. Verify the CRC-32 footer per § 10 (eager, streaming, or caller-asserted-trust) and reject the pack on mismatch. Whichever window the reader chooses, no tile or extension bytes MUST be returned to the caller while a mismatch is possible.
-19. Reject any pack where `index_offset != 292` (§ 4.11) or `extensions_offset < tile_blob_start + tile_blob_size` (§ 4.13). Both conditions are MUST per the referenced sections; restated here so readers can validate them as part of the standard rejection sweep.
+19. Reject any pack where `index_offset != 292` (§ 4.11). Restated here from § 4.11 so readers can validate it as part of the standard rejection sweep. (The extensions-offset bound on the tile blob is already covered by #11's per-entry `offset + length ≤ extensions_offset` check; restating it as a global condition was tautological since the spec defines no separate `tile_blob_size` variable.)
 
 A conforming v1 reader SHOULD:
 

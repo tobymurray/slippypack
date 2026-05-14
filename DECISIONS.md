@@ -631,6 +631,23 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-039 — Spec batch: extensions upper-bound, undefined tag bytes, stranded-byte gap, `tile_count = 0`, absent-tile API
+Pre-1.0-freeze cleanup of six specification gaps surfaced in a final cold re-read. Each item closes an "undefined behavior" pocket where the spec implied an intent without nailing it down, leaving room for two conforming implementations to disagree.
+
+1. **§ 11 #19 tautological clause removed.** Original text referenced a `tile_blob_size` variable the spec never defines; the actual invariant (tile blob extents bounded by `extensions_offset`) is already enforced by § 11 #11's per-entry `offset + length ≤ extensions_offset` check. Restating it as a global condition added no constraint and invited reader-side reimplementation of a derivable value. Dropped, with a parenthetical pointing back to #11.
+2. **§ 11 #13 `extensions_offset` upper-bound MUST added.** § 7.1 said sections lie within `[extensions_offset, file_size − 4)` but did not constrain `extensions_offset` itself. A pack with `extensions_offset = file_size + 1000` would have § 11 #14's section-walk loop (`while pos < file_size − 4`) terminate after zero iterations and silently report "no extensions" instead of rejecting the malformed pack. Now § 11 #13 explicitly rejects `extensions_offset > file_size − 4` *before* the walk begins.
+3. **§ 7.2 third bullet added for non-letter first bytes.** The case bifurcation only covered `A–Z` (SDK-reserved, reject) and `a–z` (application-private, accept). A tag like `0x30 0x31 0x32 0x33` ("0123") was reader-undefined: a defensive reader would reject, a lenient reader would silently ignore. Now: writers MUST NOT emit such tags in v1; readers MUST reject.
+4. **§ 7.1 no-stranded-bytes MUST added; § 11 #14 cross-reference added.** § 7.1's section bounds did not require the last section's padded end to abut the CRC footer. A pack where the last section ended at `file_size − 12` (8 stranded bytes before CRC) had no defined reader behavior. Now the last section's padded end MUST equal `file_size − 4`; the "no extensions" case (`extensions_offset == file_size − 4`) is the zero-section degenerate form of the same invariant. § 11 #14 now requires readers to verify the walk's terminal position equals `file_size − 4`.
+5. **§ 8.6 Quadtree `tile_count = 0` blessed.** § 8.6 nailed down `tile_count = 1` for `SingleImage` but left Quadtree silent. Zero-tile Quadtree packs are useful for metadata-only/sentinel/catalog-stub use cases (carry only `NAME`/`SRCD`/`ATTR`). Without explicit blessing, two readers might disagree on whether to accept them. Now explicitly accepted, with the structural shape pinned: every `zoom_offsets[z] == (0, 0)`, tile blob empty, `extensions_offset == 292`.
+6. **§ 5.3 absent-tile API contract clarified.** The lookup *algorithm* was specified; the *reader API surface* for "absent" was not. Now: implementation-defined (nullable / sentinel / error variant — any idiomatic shape works), with the constraints that absent tiles never return arbitrary bytes and panic/exception-throwing APIs are non-conforming (they conflate "not in this pack" with "malformed pack").
+
+Two of the original 8 review items in the batch were stale — already fixed in F-036 (`index_offset == 292` MUST/SHOULD contradiction, fixed when § 11 #19 became MUST) and F-037 (CRC verification timing § 10 vs § 11 #18, fixed when streaming/trusted carve-outs landed). Verified by reading current spec state before editing; no re-edits needed.
+
+No wire-format change. No constant change. Spec-doc edits only; no code touched. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets --workspace -D warnings` clean, `cargo test --workspace` 6 passed.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 5.3, 7.1, 7.2, 8.6, 11 (#13, #14, #19).
+**Commit**: to land with the pre-freeze spec-batch slice.
+
 ### F-038 — Reader conformance corpus: per-tile SHA-256 tables
 Closing a real conformance gap. § 14.3 pinned the bytes of each golden pack; § 14.4 pinned the writer quantiser; § 14.2 ships a C++ validator that checks pack structure. None of these caught a reader that opens a golden pack but returns bytes for the *wrong* tile — off-by-one in binary search, wrong-zoom lookup, mis-extracted index entry. A reader could pass every existing gate and still be silently wrong.
 
