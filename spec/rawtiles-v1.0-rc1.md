@@ -92,22 +92,15 @@ where `align4(n) := (n + 3) & ~3` rounds up to a 4-byte boundary. With `index_of
 
 ### 4.1 `magic`
 
-The four ASCII bytes `RAWT`. Readers MUST reject any file whose first four bytes are not this sequence.
+The four ASCII bytes `RAWT`.
 
 ### 4.2 `format_version`
 
-A `(major, minor)` pair. This specification defines `(1, 0)`.
-
-- Readers MUST reject any pack whose `major ≠ 1`.
-- Readers MUST accept packs with `major = 1, minor > 0`. The fixed-size header layout is frozen per major version; minor bumps add extension tags or enum values, which a reader handles per §§ 7.2 and 8.
+A `(major, minor)` pair. This specification defines `(1, 0)`. The fixed-size header layout is frozen per major version; minor bumps add extension tags or enum values, which readers handle per §§ 7.2 and 8.
 
 ### 4.3 `pack_uuid`
 
-16 bytes, opaque to readers from the format's perspective.
-
-- MUST NOT be all-zero; writers MUST validate and readers MUST reject.
-- Writers MAY pick any non-zero 16-byte value. Slippypack derives it per Appendix A so that two builds with the same logical inputs produce identical `pack_uuid`s.
-- `pack_uuid` is an identity field, not an integrity check. Integrity is the CRC (§ 10).
+16 bytes, opaque from the format's perspective. The all-zero value is reserved. A non-zero `pack_uuid` is an identity field, not an integrity check (integrity is the CRC, § 10). Writers MAY pick any non-zero value. Appendix A defines a canonical derivation that lets two writers with the same logical inputs produce identical `pack_uuid`s — required for the offline-delivery dedup contract that consumers depend on.
 
 ### 4.4 `supersedes_uuid`
 
@@ -115,14 +108,11 @@ A `(major, minor)` pair. This specification defines `(1, 0)`.
 
 ### 4.5 `parent_uuid`
 
-16 bytes. Reserved in v1 for future pack-compositing support.
-
-- v1 writers MUST set this to all-zero.
-- v1 readers MUST reject packs where this field is not all-zero.
+16 bytes. Reserved in v1 for future pack-compositing support; the only legal v1 value is all-zero.
 
 ### 4.6 Enum bytes
 
-`pixel_format`, `projection`, `tile_addressing_scheme`, and `tile_axis_convention` are single-byte enums. See § 8 for legal values; readers MUST reject any unknown value.
+`pixel_format`, `projection`, `tile_addressing_scheme`, and `tile_axis_convention` are single-byte enums. See § 8 for legal values.
 
 ### 4.7 `tile_dim_px`
 
@@ -168,7 +158,7 @@ The value `0` is the sentinel for *"no freshness information available."*
 - `tile_count` (u32): total number of entries in the tile index across all zooms.
 - `index_offset` (u32): byte offset where the first tile-index entry begins.
 
-v1.0 writers MUST place the tile index immediately after the header. v1.0 readers MUST verify `index_offset == 292` and reject any other value. (A future minor version that needs to grow the inter-region area would do so via an explicit new field, not by repurposing the gap.) This tighter symmetry — writer and reader agree on the exact value — removes the ambiguity of "what's in bytes [292, index_offset)?" and matches the spec's general "no semantically undefined bytes" stance.
+v1.0 fixes the tile index immediately after the header: `index_offset == 292`. (A future minor version that needs to grow the inter-region area would do so via an explicit new field, not by repurposing the gap.) This tighter symmetry — writer and reader agree on the exact value — removes the ambiguity of "what's in bytes [292, index_offset)?" and matches the spec's general "no semantically undefined bytes" stance.
 
 ### 4.12 `zoom_offsets[24]`
 
@@ -602,11 +592,7 @@ Output (16 bytes, ABGR2222):
 0xEA, 0xEA, 0xFF, 0xCB
 ```
 
-### 14.5 CRC-32 check value
-
-See § 10 for the canonical CRC-32/ISO-HDLC check value (`"123456789"` → `0xCBF43926`). Conforming implementations MUST match it; this section exists to flag the check as a conformance requirement and avoid the duplication that would otherwise let § 10 and § 14 drift.
-
-### 14.6 Reader conformance — per-tile hash tables
+### 14.5 Reader conformance — per-tile hash tables
 
 § 14.3 pins the *bytes* of each golden pack; § 14.4 pins the *writer* quantiser; § 14.2 ships a C++ validator that checks *pack structure*. None of these catch a reader that opens a golden pack but returns bytes for the **wrong** tile — an off-by-one in binary search, a wrong-zoom lookup, a mis-extracted index entry. Such a reader would pass every previously-listed conformance gate and still be silently wrong.
 
@@ -623,7 +609,7 @@ Lines are sorted ascending by `(z, x, y)`. Comment lines begin with `#`. A third
 3. Computing SHA-256 of the returned bytes.
 4. Comparing to the committed hex digest.
 
-A reader that mis-implements the binary-search-within-zoom (§ 5.3), the `zoom_offsets[z]` indirection (§ 4.12), or the tile-index entry decoding (§ 5.1) will fail this test even though `spec_layout`-style byte-equality tests (§ 14.3) would pass. Together § 14.3 + § 14.6 cover **writer-side byte-output correctness** and **reader-side lookup correctness** respectively.
+A reader that mis-implements the binary-search-within-zoom (§ 5.3), the `zoom_offsets[z]` indirection (§ 4.12), or the tile-index entry decoding (§ 5.1) will fail this test even though the byte-equality fixtures of § 14.3 would pass. Together § 14.3 + § 14.5 cover **writer-side byte-output correctness** and **reader-side lookup correctness** respectively.
 
 The hash tables are committed at:
 

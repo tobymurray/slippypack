@@ -631,6 +631,28 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-042 — Spec scrub: cut duplication (§ 14.5 fold, § 14.6 spec_layout ref, § 4.x reject restatements)
+Pre-freeze cleanup of duplicated normative content. Two kinds of duplication had accumulated: (1) the CRC check value defined in § 10 was restated verbatim as § 14.5 "for emphasis"; (2) several § 4.x field definitions restated the corresponding "readers MUST reject" rule already covered in § 11. Duplication is a maintenance hazard — when one copy gets updated and the other doesn't, conforming implementations diverge.
+
+Cuts:
+
+- **§ 14.5 deleted entirely.** The CRC-32/ISO-HDLC check value (`"123456789"` → `0xCBF43926`) was defined in § 10 and restated in § 14.5 with a parenthetical "this section exists to avoid the duplication that would otherwise let § 10 and § 14 drift." That note was self-defeating — having two copies *is* the drift hazard. § 10 is the canonical site; § 14.5 added no information. § 14.6 (per-tile hash tables) renumbered to § 14.5; one self-reference in § 14.6's body updated to point at the new § 14.5 number.
+- **§ 14.6 (now § 14.5) `spec_layout` reference generalized.** "even though `spec_layout`-style byte-equality tests (§ 14.3) would pass" → "even though the byte-equality fixtures of § 14.3 would pass." `spec_layout` is a slippypack Rust test name — same flavor as the F-041 § A.5 cut.
+- **§ 4.1, § 4.2, § 4.3, § 4.5, § 4.6, § 4.11** — rejection-rule restatements removed. § 4 now describes what each field's bytes ARE; rejection rules live exclusively in § 11; writer rules live exclusively in § 12. Specifically dropped:
+  - § 4.1: "Readers MUST reject any file whose first four bytes are not this sequence." (§ 11 #2)
+  - § 4.2: "Readers MUST reject any pack whose `major ≠ 1`." (§ 11 #3) and "Readers MUST accept packs with `major = 1, minor > 0`." (§ 11 #4)
+  - § 4.3: "MUST NOT be all-zero; writers MUST validate and readers MUST reject." (§ 11 #5, § 12 #2) — replaced with "The all-zero value is reserved."
+  - § 4.5: "v1 writers MUST set this to all-zero. v1 readers MUST reject packs where this field is not all-zero." (§ 11 #6, § 12 #3) — replaced with "the only legal v1 value is all-zero."
+  - § 4.6: "readers MUST reject any unknown value." (§ 11 #7) — implicit in "See § 8 for legal values."
+  - § 4.11: "v1.0 writers MUST place the tile index immediately after the header. v1.0 readers MUST verify `index_offset == 292` and reject any other value." (§ 11 #19, § 12 #4) — replaced with "v1.0 fixes the tile index immediately after the header: `index_offset == 292`."
+
+Not touched in this slice (deferred — user scoped explicitly to § 4.x): § 5.2's "Readers MUST reject non-zero values" for flags/reserved, § 7.1's concluding "Readers MUST reject packs that violate any of these", § 7.3's AFFN-required reader-MUST, § 8's enum-table "reader MUST reject" cells and intro line, § 8.6's pairing-table and SingleImage reject lines, § 13's "v1 readers MUST reject v2 packs", Appendix B's reserved-value reject. These are all candidates for the same treatment if the spec wants single-site rejection rules; left for a follow-on if desired.
+
+Net spec change: 30 lines removed, 8 added (net −22). No wire-format change. No constant change. No semantic change to the conformance contract. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets --workspace -D warnings` clean, 281 tests passing.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 4.1, 4.2, 4.3, 4.5, 4.6, 4.11, 14.5 (deleted), 14.6 → 14.5 (renumbered).
+**Commit**: to land with the duplication-scrub slice.
+
 ### F-041 — Spec scrub: remove slippypack-internal references
 Pre-freeze cleanup. The spec had accumulated four references to slippypack's source tree, Rust test names, env vars, and internal docs — none of which belong in a format specification a third-party implementer would read. Cuts:
 
