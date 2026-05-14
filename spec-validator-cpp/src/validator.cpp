@@ -46,10 +46,10 @@ namespace rawtiles {
 // -------- Spec constants --------------------------------------------
 
 constexpr std::size_t kZoomOffsetsCount = 24;
-constexpr std::size_t kZoomOffsetSize = 12;  // u64 offset + u32 count
-constexpr std::size_t kIndexEntrySize = 24;
-// 98 fixed-field bytes + 24 * 12 zoom-directory bytes + 8 extensions_offset = 394.
-constexpr std::size_t kHeaderBaseSize = 98 + kZoomOffsetsCount * kZoomOffsetSize + 8;
+constexpr std::size_t kZoomOffsetSize = 8;  // u32 offset + u32 count
+constexpr std::size_t kIndexEntrySize = 20;
+// 94 fixed-field bytes + 24 * 8 zoom-directory bytes + 4 extensions_offset = 290.
+constexpr std::size_t kHeaderBaseSize = 94 + kZoomOffsetsCount * kZoomOffsetSize + 4;
 constexpr std::size_t kFooterCrcSize = 4;
 constexpr std::size_t kSectionHeaderSize = 8;  // tag(4) + len(4)
 constexpr std::array<std::uint8_t, 4> kMagic = {'R', 'A', 'W', 'T'};
@@ -76,8 +76,8 @@ constexpr std::size_t kOffZoomMax = 61;
 constexpr std::size_t kOffBbox = 62;              // 4 × i32 LE
 constexpr std::size_t kOffBuildTimestamp = 78;
 constexpr std::size_t kOffTileCount = 86;
-constexpr std::size_t kOffIndexOffset = 90;
-constexpr std::size_t kOffZoomOffsets = 98;       // 24 × 12 bytes = 288
+constexpr std::size_t kOffIndexOffset = 90;       // u32 LE (4 bytes)
+constexpr std::size_t kOffZoomOffsets = 94;       // 24 × 8 bytes = 192
 constexpr std::size_t kOffExtensionsOffset = kOffZoomOffsets + kZoomOffsetsCount * kZoomOffsetSize;
 
 // -------- Little-endian decoders ------------------------------------
@@ -148,7 +148,7 @@ struct Report {
 // -------- Decoded header --------------------------------------------
 
 struct ZoomOffset {
-  std::uint64_t offset;
+  std::uint32_t offset;
   std::uint32_t count;
 };
 
@@ -171,9 +171,9 @@ struct Header {
   std::int32_t bbox_max_lat_micro;
   std::uint64_t build_timestamp;
   std::uint32_t tile_count;
-  std::uint64_t index_offset;
+  std::uint32_t index_offset;
   std::array<ZoomOffset, kZoomOffsetsCount> zoom_offsets;
-  std::uint64_t extensions_offset;
+  std::uint32_t extensions_offset;
 };
 
 void uuid_copy(const std::uint8_t *src, std::array<std::uint8_t, 16> &dst) {
@@ -212,13 +212,13 @@ Header decode_header(const std::uint8_t *bytes) {
   h.bbox_max_lat_micro = le32_signed(bytes + kOffBbox + 12);
   h.build_timestamp = le64(bytes + kOffBuildTimestamp);
   h.tile_count = le32(bytes + kOffTileCount);
-  h.index_offset = le64(bytes + kOffIndexOffset);
+  h.index_offset = le32(bytes + kOffIndexOffset);
   for (std::size_t i = 0; i < kZoomOffsetsCount; ++i) {
     auto base = bytes + kOffZoomOffsets + i * kZoomOffsetSize;
-    h.zoom_offsets[i].offset = le64(base);
-    h.zoom_offsets[i].count = le32(base + 8);
+    h.zoom_offsets[i].offset = le32(base);
+    h.zoom_offsets[i].count = le32(base + 4);
   }
-  h.extensions_offset = le64(bytes + kOffExtensionsOffset);
+  h.extensions_offset = le32(bytes + kOffExtensionsOffset);
   return h;
 }
 
@@ -231,7 +231,7 @@ struct IndexEntry {
   std::uint8_t reserved;
   std::uint32_t x;
   std::uint32_t y;
-  std::uint64_t offset;
+  std::uint32_t offset;
   std::uint32_t length;
 };
 
@@ -243,8 +243,8 @@ IndexEntry decode_index_entry(const std::uint8_t *bytes) {
   e.reserved = bytes[3];
   e.x = le32(bytes + 4);
   e.y = le32(bytes + 8);
-  e.offset = le64(bytes + 12);
-  e.length = le32(bytes + 20);
+  e.offset = le32(bytes + 12);
+  e.length = le32(bytes + 16);
   return e;
 }
 
@@ -319,7 +319,7 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
         "bbox min_lat must be < max_lat");
 
   // index_offset must point past the header. In v1 the index sits
-  // immediately after the 394-byte header (index_offset == 394); the
+  // immediately after the 290-byte header (index_offset == 290); the
   // format is byte-oriented (LE-encoded with no native struct dumps),
   // so multi-byte fields don't require alignment in the file. Readers
   // that want aligned reads `memcpy` to a local before decoding.
@@ -327,20 +327,22 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
         "index_offset (" + std::to_string(h.index_offset) +
             ") must be >= header size (" + std::to_string(kHeaderBaseSize) + ")");
 
-  // The tile blob starts AFTER (index_offset + 24 * tile_count), but
-  // the writer pads to a 4-byte boundary first (since 322 + 24N has
-  // residue 2 mod 4 for the v1 header). Verify the index region fits.
-  std::uint64_t index_end = h.index_offset +
+  // The tile blob starts AFTER (index_offset + 20 * tile_count), with
+  // 0-3 zero padding bytes to a 4-byte boundary first. Compute in u64
+  // to keep intermediate arithmetic free of u32 overflow at the 4 GiB
+  // pack-size cap; the final result is bounded by file_size which we
+  // verified fits in size_t earlier.
+  std::uint64_t index_end = static_cast<std::uint64_t>(h.index_offset) +
                             static_cast<std::uint64_t>(h.tile_count) * kIndexEntrySize;
   std::uint64_t tile_blob_start = (index_end + 3) & ~static_cast<std::uint64_t>(3);
-  check(r, h.extensions_offset >= tile_blob_start,
+  check(r, static_cast<std::uint64_t>(h.extensions_offset) >= tile_blob_start,
         "extensions_offset must be after the tile blob");
   check(r, h.extensions_offset % 4 == 0,
         "extensions_offset must be 4-byte aligned");
 
   // The footer's 4-byte CRC must be at exactly file_size - 4.
   std::uint64_t file_size = bytes.size();
-  check(r, h.extensions_offset <= file_size - kFooterCrcSize,
+  check(r, static_cast<std::uint64_t>(h.extensions_offset) <= file_size - kFooterCrcSize,
         "extensions_offset (" + std::to_string(h.extensions_offset) +
             ") plus footer (4 B) overflows file size (" +
             std::to_string(file_size) + ")");
@@ -399,14 +401,17 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
     // Tile bytes must be inside the tile blob region:
     //   tile_blob_start <= offset
     //   offset + length <= extensions_offset.
-    if (e.offset < tile_blob_start) {
+    // u64 promotion guards against u32 wraparound at the 4 GiB cap.
+    std::uint64_t e_offset_u64 = e.offset;
+    std::uint64_t e_end_u64 = e_offset_u64 + e.length;
+    if (e_offset_u64 < tile_blob_start) {
       r.error("tile " + std::to_string(i) + ": offset " +
               std::to_string(e.offset) + " < tile-blob start " +
               std::to_string(tile_blob_start));
     }
-    if (e.offset + e.length > h.extensions_offset) {
+    if (e_end_u64 > static_cast<std::uint64_t>(h.extensions_offset)) {
       r.error("tile " + std::to_string(i) + ": offset+length " +
-              std::to_string(e.offset + e.length) +
+              std::to_string(e_end_u64) +
               " > extensions_offset " + std::to_string(h.extensions_offset));
     }
 
@@ -433,8 +438,9 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
             static_cast<std::uint64_t>(i) * kIndexEntrySize);
         if (e.z == z) {
           std::uint64_t expected_off =
-              h.index_offset + static_cast<std::uint64_t>(i) * kIndexEntrySize;
-          if (h.zoom_offsets[z].offset != expected_off) {
+              static_cast<std::uint64_t>(h.index_offset) +
+              static_cast<std::uint64_t>(i) * kIndexEntrySize;
+          if (static_cast<std::uint64_t>(h.zoom_offsets[z].offset) != expected_off) {
             r.error("zoom " + std::to_string(z) +
                     ": zoom_offsets.offset = " +
                     std::to_string(h.zoom_offsets[z].offset) +

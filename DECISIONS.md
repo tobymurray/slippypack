@@ -460,6 +460,28 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ## N — Naming
 
+### F-027 — Drop u64 offsets to u32 (header 290 bytes, tile-index entry 20 bytes)
+Pre-1.0-freeze structural fix triggered by review of the misaligned-u64 trap. The previous layout had u64 `index_offset`, `extensions_offset`, `zoom_offsets[].offset`, and per-tile `offset` — none of which were 8-byte aligned in the file, requiring readers to `memcpy`-then-decode and creating a misalignment trap on strict-alignment platforms (Cortex-M0). The PMTiles model of u64 offsets is for HTTP-range mega-archives; that isn't the rawtiles use case.
+
+Dropping all four to u32:
+- **Pack size capped at 4 GiB** — plenty for any device-sideload use case. PMTiles-style multi-GB archives aren't the target.
+- **Header shrinks 394 → 290 bytes** (−104 bytes).
+- **Tile-index entry shrinks 24 → 20 bytes** (−4 bytes per tile). For an 80k-tile pack that's 320 KB shaved.
+- **Eliminates the alignment question entirely**: all multi-byte fields in the on-disk layout are now u32 or u16, which u32-aligned readers handle natively. Even those that aren't naturally aligned have stricter alignment requirements only one level deep (memcpy-to-local-then-decode covers it).
+- **build_timestamp stays u64** (Unix epoch seconds; u32 maxes at 2106). One u64 field remains at an unaligned offset (78); a single memcpy on pack open is fine.
+
+Mechanical changes:
+- `tile_index.rs::INDEX_ENTRY_SIZE`: 24 → 20; `TileIndexEntry::offset`: u64 → u32; write/read functions updated.
+- `header.rs::HEADER_BASE_SIZE`: 394 → 290; `ZoomOffset::SIZE`: 12 → 8; `ZoomOffset::offset`: u64 → u32; `DerivedHeaderFields::{index_offset, extensions_offset}`: u64 → u32; field offsets in the layout table updated.
+- `rawtiles_writer.rs`: layout planning stays in u64 to avoid intermediate overflow; converts to u32 at the boundary with checked `try_from` (returns `PackTooLarge` if any offset exceeds 4 GiB).
+- `reader.rs`: parses u32 offsets; promotes to u64 only for bounds arithmetic.
+- `spec-validator-cpp`: matching constant + decoder changes.
+- spec/rawtiles-v1.0.md § 3, § 4, § 5: layout tables updated; "4 GiB cap" noted in § 3.
+- All 6 golden fixtures re-blessed (header shape changed → CRC changed → bytes changed).
+
+**Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
+**Commit**: to land with the u32-offset slice.
+
 ### N-001 — Rename: `.upack` / `UPCK` → `.rawtiles` / `RAWT`
 The format extension was originally `.upack` (Una Pack), naming it after the una-sdk project that motivated the design. As scope broadened to "any low-resource device that can do a memcpy" (per V-003 zoom expansion, V-004 quantiser trait, V-001 C++ validator), the vendor-named extension stopped fitting. `.upack` also clashed with Inedo's UPack universal-package format.
 

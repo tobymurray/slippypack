@@ -112,8 +112,10 @@ impl<'a> RawtilesReader<'a> {
 
         let parsed_header = read_header(bytes).map_err(ReaderError::Header)?;
 
-        // Bounds-check index_offset.
-        let index_offset = parsed_header.derived.index_offset;
+        // Bounds-check index_offset. u32 offsets cap the pack at 4 GiB
+        // (per spec § 5.1); convert to u64 only for the bounds arithmetic.
+        let index_offset_u32 = parsed_header.derived.index_offset;
+        let index_offset = u64::from(index_offset_u32);
         let tile_count = parsed_header.derived.tile_count;
         let index_size = u64::from(tile_count) * (INDEX_ENTRY_SIZE as u64);
         let index_end = index_offset
@@ -133,8 +135,7 @@ impl<'a> RawtilesReader<'a> {
             let entry = read_index_entry(&bytes[start..start + INDEX_ENTRY_SIZE])
                 .map_err(|err| ReaderError::TileIndex { entry: i, err })?;
             // Bounds-check the tile's bytes.
-            let tile_end = entry
-                .offset
+            let tile_end = u64::from(entry.offset)
                 .checked_add(u64::from(entry.length))
                 .ok_or(ReaderError::TileOutOfBounds { entry: i })?;
             if tile_end > crc_offset_u64 {
@@ -143,8 +144,9 @@ impl<'a> RawtilesReader<'a> {
             index.push(entry);
         }
 
-        // Bounds-check extensions_offset.
-        let extensions_offset = parsed_header.derived.extensions_offset;
+        // Bounds-check extensions_offset (u32 → u64 for the comparison).
+        let extensions_offset_u32 = parsed_header.derived.extensions_offset;
+        let extensions_offset = u64::from(extensions_offset_u32);
         if extensions_offset > crc_offset_u64 {
             return Err(ReaderError::ExtensionsOffsetOutOfBounds);
         }
@@ -205,9 +207,10 @@ impl<'a> RawtilesReader<'a> {
         }
         // Compute the slice of `self.index` covering this zoom.
         let start_entry_offset = zoom_dir.offset;
-        let entries_before = (start_entry_offset - self.parsed_header.derived.index_offset)
-            / INDEX_ENTRY_SIZE as u64;
-        let start = usize::try_from(entries_before).ok()?;
+        let index_entry_size = u32::try_from(INDEX_ENTRY_SIZE).ok()?;
+        let entries_before =
+            (start_entry_offset - self.parsed_header.derived.index_offset) / index_entry_size;
+        let start = entries_before as usize;
         let end = start + zoom_dir.count as usize;
         let zoom_slice = &self.index[start..end];
 
@@ -215,7 +218,7 @@ impl<'a> RawtilesReader<'a> {
             .binary_search_by(|e| (e.x, e.y).cmp(&(x, y)))
             .ok()?;
         let entry = &zoom_slice[pos];
-        let begin = usize::try_from(entry.offset).ok()?;
+        let begin = entry.offset as usize;
         let len = entry.length as usize;
         Some(&self.bytes[begin..begin + len])
     }

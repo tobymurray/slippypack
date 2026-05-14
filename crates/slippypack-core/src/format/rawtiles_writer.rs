@@ -9,8 +9,8 @@
 //! Layout produced (offsets little-endian, see `format::header` and
 //! `format::tile_index` modules for the per-section byte layouts):
 //!
-//! - `0..394`: header (= `HEADER_BASE_SIZE`)
-//! - `394..(394 + N*24)`: tile index, sorted by `(z, x, y)`
+//! - `0..290`: header (= `HEADER_BASE_SIZE`)
+//! - `290..(290 + N*20)`: tile index, sorted by `(z, x, y)`
 //! - `..`: 0-3 bytes of zero padding to reach a 4-byte boundary
 //! - tile blob: each tile starts at a 4-byte-aligned offset, followed by
 //!   0-3 zero padding bytes to align the next tile
@@ -224,10 +224,11 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
 
         let tile_count = u32::try_from(tiles.len()).map_err(|_| TileWriterError::PackTooLarge)?;
         let header_size = HEADER_BASE_SIZE as u64;
-        let index_size = u64::from(tile_count) * 24;
-        let index_offset = header_size;
+        let index_entry_size = crate::format::tile_index::INDEX_ENTRY_SIZE as u64;
+        let index_size = u64::from(tile_count) * index_entry_size;
+        let index_offset_u64 = header_size;
         // Tile blob starts at the next 4-byte-aligned offset after the index.
-        let tile_blob_start = align_up_u64(index_offset + index_size, 4);
+        let tile_blob_start = align_up_u64(index_offset_u64 + index_size, 4);
 
         // Per-tile offsets (each aligned to 4 bytes).
         let mut tile_offsets: Vec<u64> = Vec::with_capacity(tiles.len());
@@ -242,7 +243,7 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
 
         // Extensions follow the tile blob, with each section already
         // self-aligned (write_extension_section pads payload to 4 bytes).
-        let extensions_offset = cursor;
+        let extensions_offset_u64 = cursor;
         let mut ext_buffers: Vec<Vec<u8>> = Vec::with_capacity(state.extensions.len());
         for ext in &state.extensions {
             let section = ExtensionSection {
@@ -262,7 +263,14 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
         // exists to express the layout invariant in code.
         let _ = cursor;
 
-        // --- Build zoom_offsets[18] directory -------------------------
+        // Narrow the layout-plan u64s to the on-disk u32 width. Any
+        // overflow here means the pack exceeds the 4 GiB cap.
+        let index_offset =
+            u32::try_from(index_offset_u64).map_err(|_| TileWriterError::PackTooLarge)?;
+        let extensions_offset =
+            u32::try_from(extensions_offset_u64).map_err(|_| TileWriterError::PackTooLarge)?;
+
+        // --- Build zoom_offsets[24] directory -------------------------
         //
         // zoom_offsets[z] = (first_index_entry_offset_for_zoom_z,
         //                    count_of_tiles_at_zoom_z).
@@ -283,8 +291,11 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
                     j += 1;
                 }
                 let count = u32::try_from(run).map_err(|_| TileWriterError::PackTooLarge)?;
+                let zoom_off_u64 = index_offset_u64 + start_entry * index_entry_size;
+                let zoom_off =
+                    u32::try_from(zoom_off_u64).map_err(|_| TileWriterError::PackTooLarge)?;
                 zoom_offsets[z_us] = ZoomOffset {
-                    offset: index_offset + start_entry * 24,
+                    offset: zoom_off,
                     count,
                 };
                 entry_index += run;
@@ -309,9 +320,10 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
 
         // Tile index — entries in (z, x, y) order. The writer-side index
         // entry's `offset` and `length` come from our layout plan.
-        for (tile, &offset) in tiles.iter().zip(tile_offsets.iter()) {
+        for (tile, &offset_u64) in tiles.iter().zip(tile_offsets.iter()) {
             let length =
                 u32::try_from(tile.content.len()).map_err(|_| TileWriterError::TileTooLarge)?;
+            let offset = u32::try_from(offset_u64).map_err(|_| TileWriterError::PackTooLarge)?;
             let entry = TileIndexEntry {
                 z: tile.z,
                 compression: Compression::None,
@@ -326,7 +338,7 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
         }
 
         // Padding between index and tile blob.
-        let pad_after_index = usize::try_from(tile_blob_start - (index_offset + index_size))
+        let pad_after_index = usize::try_from(tile_blob_start - (index_offset_u64 + index_size))
             .map_err(|_| TileWriterError::PackTooLarge)?;
         if pad_after_index > 0 {
             write_padding(&mut output, pad_after_index, &mut crc)?;
@@ -555,10 +567,10 @@ mod tests {
         w.begin_pack(baseline_metadata()).unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
-        // Header (394) + 0-3 alignment pad + tile_blob (0) + extensions (0) + CRC (4)
-        // The empty index has size 0, tile_blob_start = align_up(394, 4) = 396.
-        // So total = 396 + 0 + 0 + 4 = 400.
-        assert_eq!(buf.len(), 400);
+        // Header (290) + 0-3 alignment pad + tile_blob (0) + extensions (0) + CRC (4)
+        // The empty index has size 0, tile_blob_start = align_up(290, 4) = 292.
+        // So total = 292 + 0 + 0 + 4 = 296.
+        assert_eq!(buf.len(), 296);
         // Magic check.
         assert_eq!(&buf[0..4], b"RAWT");
     }
@@ -571,12 +583,12 @@ mod tests {
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
-        // Layout: header (394) + index (24) = 418 → align to 420.
-        // Tile blob: 16_384 bytes → 420..16804. Aligned already.
+        // Layout: header (290) + index (20) = 310 → align to 312.
+        // Tile blob: 16_384 bytes → 312..16696. Aligned already.
         // Extensions: 0 bytes.
         // CRC: 4 bytes.
-        // Total: 420 + 16_384 + 4 = 16_808.
-        assert_eq!(buf.len(), 420 + 16_384 + 4);
+        // Total: 312 + 16_384 + 4 = 16_700.
+        assert_eq!(buf.len(), 312 + 16_384 + 4);
         assert_eq!(&buf[0..4], b"RAWT");
     }
 

@@ -20,11 +20,11 @@
 //! |  62    |   16  | `bbox` (4×i32 µ° LE)        |
 //! |  78    |    8  | `build_timestamp` (u64 LE)  |
 //! |  86    |    4  | `tile_count` (u32 LE)       |
-//! |  90    |    8  | `index_offset` (u64 LE)     |
-//! |  98    |  288  | `zoom_offsets[24]`          |
-//! |        |       |   per-zoom: u64 offset + u32 count |
-//! | 386    |    8  | `extensions_offset` (u64 LE)|
-//! | **394** |     | **header base size**        |
+//! |  90    |    4  | `index_offset` (u32 LE)     |
+//! |  94    |  192  | `zoom_offsets[24]`          |
+//! |        |       |   per-zoom: u32 offset + u32 count |
+//! | 286    |    4  | `extensions_offset` (u32 LE)|
+//! | **290** |     | **header base size**        |
 //!
 //! Fields the writer derives itself (`tile_count`, `index_offset`,
 //! `zoom_offsets`, `extensions_offset`) are passed via
@@ -38,9 +38,11 @@ use super::types::{
 
 /// Number of bytes in the fixed-size header.
 ///
-/// `98` fixed-field bytes + `ZOOM_OFFSETS_COUNT × 12` zoom-directory
-/// bytes + `8` for `extensions_offset` = `98 + 24*12 + 8 = 394`.
-pub const HEADER_BASE_SIZE: usize = 98 + ZOOM_OFFSETS_COUNT * 12 + 8;
+/// `94` fixed-field bytes (= 78 prefix + 8 `build_timestamp` + 4
+/// `tile_count` + 4 `index_offset`) + `ZOOM_OFFSETS_COUNT × 8`
+/// zoom-directory bytes + `4` for `extensions_offset` = `94 + 24*8 + 4
+/// = 290`.
+pub const HEADER_BASE_SIZE: usize = ZOOM_OFFSETS_START + ZOOM_OFFSETS_COUNT * ZoomOffset::SIZE + 4;
 
 /// Number of per-zoom directory entries baked into the header. The spec
 /// reserves 24 slots (zooms 0..=23 inclusive). Packs with zoom levels
@@ -51,16 +53,18 @@ pub const HEADER_BASE_SIZE: usize = 98 + ZOOM_OFFSETS_COUNT * 12 + 8;
 /// publish (~5 cm tiles at the equator); z=23 leaves one slot of headroom
 /// for very-high-detail kiosk / car-nav / GIS workflows. The watch use
 /// case lives at z=12..17 and doesn't strain this. Cost of the extra
-/// slots: 72 bytes in every pack's header — negligible.
+/// slots: 48 bytes in every pack's header — negligible.
 pub const ZOOM_OFFSETS_COUNT: usize = 24;
 
-/// File offset where the per-zoom directory begins. Pinned to keep
-/// the pre-directory fields stable across header-size changes.
-const ZOOM_OFFSETS_START: usize = 98;
+/// File offset where the per-zoom directory begins. With u32 offsets
+/// (per spec § 5.1) the fixed prefix is 94 bytes: 78 (magic + version +
+/// UUIDs + enums + `tile_dim` + `zoom_range` + `bbox`) + 8 (`build_timestamp`)
+/// + 4 (`tile_count`) + 4 (`index_offset`).
+const ZOOM_OFFSETS_START: usize = 94;
 
-/// File offset of the trailing `extensions_offset` u64 (the last 8
+/// File offset of the trailing `extensions_offset` u32 (the last 4
 /// bytes of the header, just past the zoom-directory).
-const EXTENSIONS_OFFSET_AT: usize = ZOOM_OFFSETS_START + ZOOM_OFFSETS_COUNT * 12;
+const EXTENSIONS_OFFSET_AT: usize = ZOOM_OFFSETS_START + ZOOM_OFFSETS_COUNT * ZoomOffset::SIZE;
 
 /// Per-zoom directory entry: `(offset, count)` pair describing where
 /// the tile index for zoom `z` starts and how many tile-index entries
@@ -68,13 +72,13 @@ const EXTENSIONS_OFFSET_AT: usize = ZOOM_OFFSETS_START + ZOOM_OFFSETS_COUNT * 12
 /// zoom `z`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ZoomOffset {
-    pub offset: u64,
+    pub offset: u32,
     pub count: u32,
 }
 
 impl ZoomOffset {
-    /// Per-zoom entry serialized size: u64 offset + u32 count = 12 bytes.
-    pub const SIZE: usize = 12;
+    /// Per-zoom entry serialized size: u32 offset + u32 count = 8 bytes.
+    pub const SIZE: usize = 8;
 }
 
 /// Header fields the writer computes from its accumulated state rather
@@ -82,9 +86,9 @@ impl ZoomOffset {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DerivedHeaderFields {
     pub tile_count: u32,
-    pub index_offset: u64,
+    pub index_offset: u32,
     pub zoom_offsets: [ZoomOffset; ZOOM_OFFSETS_COUNT],
-    pub extensions_offset: u64,
+    pub extensions_offset: u32,
 }
 
 /// Result of parsing a `.rawtiles` header back into typed fields.
@@ -203,18 +207,18 @@ pub fn write_header(
     // Build timestamp (offsets 78..86).
     buf[78..86].copy_from_slice(&metadata.build_timestamp.to_le_bytes());
 
-    // Tile count + index offset (offsets 86..98).
+    // Tile count + index offset (offsets 86..94).
     buf[86..90].copy_from_slice(&derived.tile_count.to_le_bytes());
-    buf[90..98].copy_from_slice(&derived.index_offset.to_le_bytes());
+    buf[90..94].copy_from_slice(&derived.index_offset.to_le_bytes());
 
-    // Zoom offsets directory (offsets 98..98 + ZOOM_OFFSETS_COUNT * 12).
+    // Zoom offsets directory (offsets ZOOM_OFFSETS_START..ZOOM_OFFSETS_START + ZOOM_OFFSETS_COUNT * 8).
     for (i, zo) in derived.zoom_offsets.iter().enumerate() {
         let base = ZOOM_OFFSETS_START + i * ZoomOffset::SIZE;
-        buf[base..base + 8].copy_from_slice(&zo.offset.to_le_bytes());
-        buf[base + 8..base + 12].copy_from_slice(&zo.count.to_le_bytes());
+        buf[base..base + 4].copy_from_slice(&zo.offset.to_le_bytes());
+        buf[base + 4..base + 8].copy_from_slice(&zo.count.to_le_bytes());
     }
 
-    // Extensions offset: u64 LE, the last 8 bytes of the header.
+    // Extensions offset: u32 LE, the last 4 bytes of the header.
     buf[EXTENSIONS_OFFSET_AT..HEADER_BASE_SIZE]
         .copy_from_slice(&derived.extensions_offset.to_le_bytes());
 
@@ -322,19 +326,19 @@ pub fn read_header(input: &[u8]) -> Result<ParsedHeader, HeaderError> {
 
     let build_timestamp = u64::from_le_bytes(input[78..86].try_into().expect("8 bytes"));
     let tile_count = u32::from_le_bytes(input[86..90].try_into().expect("4 bytes"));
-    let index_offset = u64::from_le_bytes(input[90..98].try_into().expect("8 bytes"));
+    let index_offset = u32::from_le_bytes(input[90..94].try_into().expect("4 bytes"));
 
     let mut zoom_offsets = [ZoomOffset::default(); ZOOM_OFFSETS_COUNT];
     for (i, zo) in zoom_offsets.iter_mut().enumerate() {
         let base = ZOOM_OFFSETS_START + i * ZoomOffset::SIZE;
-        zo.offset = u64::from_le_bytes(input[base..base + 8].try_into().expect("8 bytes"));
-        zo.count = u32::from_le_bytes(input[base + 8..base + 12].try_into().expect("4 bytes"));
+        zo.offset = u32::from_le_bytes(input[base..base + 4].try_into().expect("4 bytes"));
+        zo.count = u32::from_le_bytes(input[base + 4..base + 8].try_into().expect("4 bytes"));
     }
 
-    let extensions_offset = u64::from_le_bytes(
+    let extensions_offset = u32::from_le_bytes(
         input[EXTENSIONS_OFFSET_AT..HEADER_BASE_SIZE]
             .try_into()
-            .expect("8 bytes"),
+            .expect("4 bytes"),
     );
 
     let metadata = PackMetadata {
@@ -410,17 +414,17 @@ mod tests {
             tile_count: 68,
             // First plausible offset past the header. Whatever
             // HEADER_BASE_SIZE is, the index can start there.
-            index_offset: HEADER_BASE_SIZE as u64,
+            index_offset: u32::try_from(HEADER_BASE_SIZE).expect("header size fits u32"),
             zoom_offsets,
             extensions_offset: 50_000,
         }
     }
 
     #[test]
-    fn header_size_is_394_bytes() {
+    fn header_size_is_290_bytes() {
         let buf = write_header(&baseline_metadata(), &baseline_derived());
         assert_eq!(buf.len(), HEADER_BASE_SIZE);
-        assert_eq!(buf.len(), 394);
+        assert_eq!(buf.len(), 290);
     }
 
     #[test]
@@ -525,43 +529,43 @@ mod tests {
     fn tile_count_and_index_offset_serialize() {
         let mut d = baseline_derived();
         d.tile_count = 0x1234_5678;
-        d.index_offset = 0xDEAD_BEEF_CAFE_BABE;
+        d.index_offset = 0xDEAD_BEEF;
         let buf = write_header(&baseline_metadata(), &d);
         assert_eq!(
             u32::from_le_bytes(buf[86..90].try_into().unwrap()),
             0x1234_5678,
         );
         assert_eq!(
-            u64::from_le_bytes(buf[90..98].try_into().unwrap()),
-            0xDEAD_BEEF_CAFE_BABE,
+            u32::from_le_bytes(buf[90..94].try_into().unwrap()),
+            0xDEAD_BEEF,
         );
     }
 
     #[test]
-    fn zoom_offsets_serialize_at_offset_98() {
+    fn zoom_offsets_serialize_at_offset_94() {
         let d = baseline_derived();
         let buf = write_header(&baseline_metadata(), &d);
-        // zoom_offsets[6] starts at 98 + 6*12 = 170.
-        let base = 98 + 6 * ZoomOffset::SIZE;
+        // zoom_offsets[6] starts at 94 + 6*8 = 142.
+        let base = 94 + 6 * ZoomOffset::SIZE;
         assert_eq!(
-            u64::from_le_bytes(buf[base..base + 8].try_into().unwrap()),
+            u32::from_le_bytes(buf[base..base + 4].try_into().unwrap()),
             d.zoom_offsets[6].offset,
         );
         assert_eq!(
-            u32::from_le_bytes(buf[base + 8..base + 12].try_into().unwrap()),
+            u32::from_le_bytes(buf[base + 4..base + 8].try_into().unwrap()),
             d.zoom_offsets[6].count,
         );
     }
 
     #[test]
-    fn extensions_offset_at_offset_386() {
+    fn extensions_offset_at_offset_286() {
         let mut d = baseline_derived();
-        d.extensions_offset = 0xFEDC_BA98_7654_3210;
+        d.extensions_offset = 0xFEDC_BA98;
         let buf = write_header(&baseline_metadata(), &d);
-        // Extensions-offset u64 is the trailing 8 bytes of the header.
+        // Extensions-offset u32 is the trailing 4 bytes of the header.
         assert_eq!(
-            u64::from_le_bytes(buf[386..394].try_into().unwrap()),
-            0xFEDC_BA98_7654_3210,
+            u32::from_le_bytes(buf[286..290].try_into().unwrap()),
+            0xFEDC_BA98,
         );
     }
 

@@ -34,10 +34,10 @@ A `.rawtiles` file consists of five sections in fixed order:
 
 ```
 +---------------------------------+ offset 0
-|  Header                         |  fixed 394 bytes (§ 4)
-+---------------------------------+ 394
-|  Tile index                     |  24 × tile_count bytes (§ 5)
-+---------------------------------+ 394 + 24 × tile_count
+|  Header                         |  fixed 290 bytes (§ 4)
++---------------------------------+ 290
+|  Tile index                     |  20 × tile_count bytes (§ 5)
++---------------------------------+ 290 + 20 × tile_count
 |  0–3 zero padding bytes         |  to 4-byte alignment
 +---------------------------------+ tile_blob_start (4-aligned)
 |  Tile blob                      |  per-tile bytes, each 4-aligned (§ 6)
@@ -48,11 +48,13 @@ A `.rawtiles` file consists of five sections in fixed order:
 +---------------------------------+ file_size
 ```
 
-## 4. Header (offset 0, 394 bytes)
+A pack is at most **4 GiB** in total size. All on-disk offsets (`index_offset`, `extensions_offset`, `zoom_offsets[].offset`, tile-index `offset`) are u32 LE. A writer that would produce a larger pack MUST fail with a "pack too large" error rather than overflow.
+
+## 4. Header (offset 0, 290 bytes)
 
 | Offset | Size | Field | Notes |
 |------:|----:|---|---|
-| 0 | 4 | `magic` | ASCII `RAWT` (`0x55 0x50 0x43 0x4B`) |
+| 0 | 4 | `magic` | ASCII `RAWT` (`0x52 0x41 0x57 0x54`) |
 | 4 | 1 | `format_version_major` | u8; `1` in this version |
 | 5 | 1 | `format_version_minor` | u8; `0` in this version |
 | 6 | 16 | `pack_uuid` | non-zero, opaque |
@@ -71,10 +73,10 @@ A `.rawtiles` file consists of five sections in fixed order:
 | 74 | 4 | `bbox.max_lat` | i32 microdegrees |
 | 78 | 8 | `build_timestamp` | u64; Unix epoch seconds; 0 = "no freshness info" |
 | 86 | 4 | `tile_count` | u32; total entries in the tile index |
-| 90 | 8 | `index_offset` | u64; byte offset of tile-index start |
-| 98 | 288 | `zoom_offsets[24]` | per-zoom directory (§ 4.12) |
-| 386 | 8 | `extensions_offset` | u64; byte offset of first extension section |
-| **394** | | **end of header** | |
+| 90 | 4 | `index_offset` | u32; byte offset of tile-index start |
+| 94 | 192 | `zoom_offsets[24]` | per-zoom directory (§ 4.12) |
+| 286 | 4 | `extensions_offset` | u32; byte offset of first extension section |
+| **290** | | **end of header** | |
 
 ### 4.1 `magic`
 
@@ -143,26 +145,26 @@ The value `0` is the sentinel for *"no freshness information available."* (slipp
 ### 4.11 `tile_count` and `index_offset`
 
 - `tile_count` (u32): total number of entries in the tile index across all zooms.
-- `index_offset` (u64): byte offset where the first tile-index entry begins.
+- `index_offset` (u32): byte offset where the first tile-index entry begins.
 
-v1 writers MUST place the tile index immediately after the header, so `index_offset = 394`. Readers MUST accept any value `≥ 394` that points inside the file.
+v1 writers MUST place the tile index immediately after the header, so `index_offset = 290`. Readers MUST accept any value `≥ 290` that points inside the file.
 
 ### 4.12 `zoom_offsets[24]`
 
-A fixed-size directory of 24 entries, one per zoom level `z ∈ [0, 23]`. Each entry is 12 bytes:
+A fixed-size directory of 24 entries, one per zoom level `z ∈ [0, 23]`. Each entry is 8 bytes:
 
 | Field | Type | Notes |
 |---|---|---|
-| `offset` | u64 LE | byte offset of the first tile-index entry at this zoom |
+| `offset` | u32 LE | byte offset of the first tile-index entry at this zoom |
 | `count` | u32 LE | number of tile-index entries at this zoom |
 
-For zooms with no tiles, both fields MUST be `0`. For zooms with tiles, `offset` is the byte offset of the first tile-index entry at that zoom (computed as `index_offset + 24 × cumulative_count_of_lower_zooms`), and `count` equals the number of entries walked at that zoom in the index.
+For zooms with no tiles, both fields MUST be `0`. For zooms with tiles, `offset` is the byte offset of the first tile-index entry at that zoom (computed as `index_offset + 20 × cumulative_count_of_lower_zooms`), and `count` equals the number of entries walked at that zoom in the index.
 
 The 24-slot fixed size accommodates zooms 0 through 23 inclusive. Zoom 22 is the deepest level publicly served by OSM and Google Maps as of writing; zoom 23 is one slot of headroom.
 
 ### 4.13 `extensions_offset`
 
-u64 little-endian. Byte offset where the first extension section begins.
+u32 little-endian. Byte offset where the first extension section begins.
 
 - MUST be `≥` the end of the tile blob.
 - MUST be `≤ file_size − 4` (the CRC footer occupies the last 4 bytes).
@@ -170,9 +172,9 @@ u64 little-endian. Byte offset where the first extension section begins.
 
 ## 5. Tile index
 
-A contiguous array of 24-byte entries starting at `index_offset`, holding `tile_count` entries.
+A contiguous array of 20-byte entries starting at `index_offset`, holding `tile_count` entries.
 
-### 5.1 Entry layout (24 bytes)
+### 5.1 Entry layout (20 bytes)
 
 | Offset | Size | Field | Notes |
 |---|---|---|---|
@@ -182,9 +184,9 @@ A contiguous array of 24-byte entries starting at `index_offset`, holding `tile_
 | 3 | 1 | `reserved` | MUST be 0 |
 | 4 | 4 | `x` | u32 LE; tile column |
 | 8 | 4 | `y` | u32 LE; tile row (interpreted per `tile_axis_convention`) |
-| 12 | 8 | `offset` | u64 LE; byte offset of the tile bytes |
-| 20 | 4 | `length` | u32 LE; tile-bytes length |
-| **24** | | **end of entry** | |
+| 12 | 4 | `offset` | u32 LE; byte offset of the tile bytes |
+| 16 | 4 | `length` | u32 LE; tile-bytes length |
+| **20** | | **end of entry** | |
 
 ### 5.2 Constraints
 
@@ -433,8 +435,8 @@ A conforming v1 reader MUST:
 
 A conforming v1 reader SHOULD:
 
-15. Use byte-wise (`memcpy`-style) extraction when reading multi-byte fields. The per-zoom directory's `u64` entries are not 8-byte aligned relative to the file start; native pointer-cast reads fault on strict-alignment platforms (notably some Cortex-M configurations).
-16. Validate that `index_offset ≥ 394` and that `extensions_offset ≥ index_offset + 24 × tile_count + tile_blob_size`.
+15. Use byte-wise (`memcpy`-style) extraction when reading multi-byte fields. The format is byte-oriented; no multi-byte field is guaranteed to be naturally aligned in the file. Native pointer-cast reads fault on strict-alignment platforms (notably some Cortex-M configurations).
+16. Validate that `index_offset ≥ 290` and that `extensions_offset ≥ index_offset + 20 × tile_count + tile_blob_size`.
 
 ## 12. Writer requirements
 
@@ -443,7 +445,7 @@ A conforming v1 writer MUST:
 1. Emit exactly the bytes defined by §§ 4–10 for the inputs.
 2. Choose `pack_uuid` as a non-zero 16-byte value (or derive it per Appendix A).
 3. Set `parent_uuid` to all-zero.
-4. Place the tile index immediately after the header (`index_offset = 394`).
+4. Place the tile index immediately after the header (`index_offset = 290`).
 5. Sort the tile index ascending by `(z, x, y)`.
 6. Reject duplicate `(z, x, y)` tile inputs at write time.
 7. Pad the tile index to a 4-byte boundary before the tile blob.

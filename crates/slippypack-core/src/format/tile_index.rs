@@ -1,6 +1,6 @@
-//! Tile-index entry serialization. 24 bytes per entry, little-endian.
+//! Tile-index entry serialization. 20 bytes per entry, little-endian.
 //!
-//! Layout per the una-sdk spec (PLAN.md § Per-tile metadata):
+//! Layout per `spec/rawtiles-v1.0.md` § 5.1:
 //!
 //! | Offset | Size | Field            | v1 |
 //! |-------:|-----:|------------------|----|
@@ -10,16 +10,16 @@
 //! |  3     |   1  | `reserved`       | 0 (MUST) |
 //! |  4     |   4  | `x` (u32 LE)     |    |
 //! |  8     |   4  | `y` (u32 LE)     |    |
-//! | 12     |   8  | `offset` (u64 LE)|    |
-//! | 20     |   4  | `length` (u32 LE)|    |
-//! | **24** |      | **entry size**   |    |
+//! | 12     |   4  | `offset` (u32 LE)|    |
+//! | 16     |   4  | `length` (u32 LE)|    |
+//! | **20** |      | **entry size**   |    |
 //!
 //! The index is sorted by `(z, x, y)` ascending per the spec — readers
 //! binary-search within each zoom's range using the header's
-//! `zoom_offsets[18]` directory.
+//! `zoom_offsets[24]` directory.
 
 /// Size of one tile-index entry in bytes.
-pub const INDEX_ENTRY_SIZE: usize = 24;
+pub const INDEX_ENTRY_SIZE: usize = 20;
 
 /// Compression byte values. v1 supports only [`Compression::None`];
 /// reserved values fail the parser per the spec's v1 reader rules.
@@ -61,8 +61,9 @@ pub struct TileIndexEntry {
     pub y: u32,
     /// Byte offset of the tile's bytes within the pack file (from
     /// offset 0). Must be 4-byte-aligned per the tile-blob alignment
-    /// rule in the spec.
-    pub offset: u64,
+    /// rule in the spec. u32 caps total pack size at 4 GiB, which is
+    /// well past any realistic sideload-format use case.
+    pub offset: u32,
     /// Tile-bytes length. Per the spec, capped at `u32::MAX` — a single
     /// 128² ABGR2222 tile is 16 KB raw, well below the cap.
     pub length: u32,
@@ -85,7 +86,7 @@ pub enum TileIndexError {
 impl core::fmt::Display for TileIndexError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match *self {
-            Self::TooShort => f.write_str("tile-index entry input is shorter than 24 bytes"),
+            Self::TooShort => f.write_str("tile-index entry input is shorter than 20 bytes"),
             Self::UnsupportedCompression(b) => {
                 write!(f, "unsupported compression value {b} (v1 requires 0)")
             }
@@ -99,7 +100,7 @@ impl core::fmt::Display for TileIndexError {
 
 impl core::error::Error for TileIndexError {}
 
-/// Serialize a [`TileIndexEntry`] to its 24-byte on-disk form.
+/// Serialize a [`TileIndexEntry`] to its 20-byte on-disk form.
 #[must_use]
 pub fn write_index_entry(entry: &TileIndexEntry) -> [u8; INDEX_ENTRY_SIZE] {
     let mut buf = [0_u8; INDEX_ENTRY_SIZE];
@@ -109,18 +110,18 @@ pub fn write_index_entry(entry: &TileIndexEntry) -> [u8; INDEX_ENTRY_SIZE] {
     // buf[3] = 0 (reserved); already zero from initialization.
     buf[4..8].copy_from_slice(&entry.x.to_le_bytes());
     buf[8..12].copy_from_slice(&entry.y.to_le_bytes());
-    buf[12..20].copy_from_slice(&entry.offset.to_le_bytes());
-    buf[20..24].copy_from_slice(&entry.length.to_le_bytes());
+    buf[12..16].copy_from_slice(&entry.offset.to_le_bytes());
+    buf[16..20].copy_from_slice(&entry.length.to_le_bytes());
     buf
 }
 
-/// Parse a 24-byte tile-index entry, validating spec invariants
+/// Parse a 20-byte tile-index entry, validating spec invariants
 /// (`compression`, `flags`, `reserved` v1 rules).
 ///
 /// # Errors
 ///
-/// See [`TileIndexError`]. The function takes the first 24 bytes of
-/// `input`; extra bytes after byte 24 are ignored.
+/// See [`TileIndexError`]. The function takes the first 20 bytes of
+/// `input`; extra bytes after byte 20 are ignored.
 ///
 /// # Panics
 ///
@@ -144,8 +145,8 @@ pub fn read_index_entry(input: &[u8]) -> Result<TileIndexEntry, TileIndexError> 
         flags: input[2],
         x: u32::from_le_bytes(input[4..8].try_into().expect("4 bytes")),
         y: u32::from_le_bytes(input[8..12].try_into().expect("4 bytes")),
-        offset: u64::from_le_bytes(input[12..20].try_into().expect("8 bytes")),
-        length: u32::from_le_bytes(input[20..24].try_into().expect("4 bytes")),
+        offset: u32::from_le_bytes(input[12..16].try_into().expect("4 bytes")),
+        length: u32::from_le_bytes(input[16..20].try_into().expect("4 bytes")),
     })
 }
 
@@ -163,16 +164,16 @@ mod tests {
             flags: 0,
             x: 511,
             y: 340,
-            offset: 322,
+            offset: 290,
             length: 16_384,
         }
     }
 
     #[test]
-    fn entry_size_is_24_bytes() {
+    fn entry_size_is_20_bytes() {
         let buf = write_index_entry(&baseline_entry());
         assert_eq!(buf.len(), INDEX_ENTRY_SIZE);
-        assert_eq!(buf.len(), 24);
+        assert_eq!(buf.len(), 20);
     }
 
     #[test]
@@ -218,13 +219,13 @@ mod tests {
     }
 
     #[test]
-    fn offset_is_u64_little_endian() {
+    fn offset_is_u32_little_endian() {
         let mut e = baseline_entry();
-        e.offset = 0x0123_4567_89AB_CDEF;
+        e.offset = 0x89AB_CDEF;
         let buf = write_index_entry(&e);
         assert_eq!(
-            u64::from_le_bytes(buf[12..20].try_into().unwrap()),
-            0x0123_4567_89AB_CDEF,
+            u32::from_le_bytes(buf[12..16].try_into().unwrap()),
+            0x89AB_CDEF,
         );
     }
 
@@ -234,7 +235,7 @@ mod tests {
         e.length = 0x1234_5678;
         let buf = write_index_entry(&e);
         assert_eq!(
-            u32::from_le_bytes(buf[20..24].try_into().unwrap()),
+            u32::from_le_bytes(buf[16..20].try_into().unwrap()),
             0x1234_5678,
         );
     }
@@ -284,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn extra_bytes_after_24_are_ignored() {
+    fn extra_bytes_after_20_are_ignored() {
         let buf = write_index_entry(&baseline_entry());
         let mut padded = vec![0_u8; INDEX_ENTRY_SIZE + 10];
         padded[..INDEX_ENTRY_SIZE].copy_from_slice(&buf);
