@@ -467,6 +467,14 @@ Phase 1.x deliverable, prompted by the need to catch writer-side bugs (endiannes
 **Manifests**: `spec-validator-cpp/src/validator.cpp`; `spec-validator-cpp/tests/run.sh`.
 **Commit**: to land with the C++ validator slice.
 
+### I-010 — `Source::Style` carries a `content_hash` like every other file-backed source kind
+Bug closed by review. `Source::Style { zoom_min, zoom_max }` had no content identity, so two builds with identical zoom ranges but different MapLibre Style JSONs collided on `pack_uuid`. Now `Source::Style { content_hash, zoom_min, zoom_max }` mirrors Dir / Geotiff / Mbtiles / Pbf / Pmtiles.
+
+**Note on the top-level `style_hash` field** (PackDescriptor): this is *separate* and remains as-is. The top-level field captures the SHA-256 of the `--style` flag applied to a non-style source (typically a PBF), where the style is *external* to the source. `Source::Style`'s `content_hash` captures the SHA-256 of the style file that IS the source data (a `style:///path/to/style.json` source renders directly from the style's embedded `sources`). Two distinct concepts; both belong in the descriptor.
+
+**Manifests**: `crates/slippypack-core/src/identity.rs::Source::Style`; serializer now uses `write_file_kind` for Style (same shape as the other file-backed kinds); new test `style_source_with_different_content_hash_changes_pack_uuid` locks the collision-closure.
+**Commit**: to land with the Style content_hash slice.
+
 ### V-004 — `Quantiser` trait names the pixel-format seam; only `Abgr2222` ships in v1
 Triggered by the broader-device-usefulness review. The format itself supports multiple pixel formats (the `pixel_format` byte is an enum), but the quantiser monoculture meant slippypack only produced ABGR2222 output. Adding a `Quantiser` trait now (purely additive — `quantise_rgb888` and `QUANTISER_VERSION` stay) names the seam where RGB565 / RGB888 / indexed-palette quantisers can land later as companion impls without touching `slippypack-core`'s public surface.
 

@@ -104,6 +104,15 @@ pub enum Source {
         zoom_max: u8,
     },
     Style {
+        /// SHA-256 of the MapLibre Style Spec JSON file. The style file
+        /// IS this source's data (a `style:///path/to/style.json` source
+        /// renders tiles directly from the style's embedded `sources`),
+        /// so the style content is part of the source identity.
+        ///
+        /// Distinct from `PackDescriptor::style_hash` at the top level,
+        /// which is the SHA-256 of the `--style` flag applied to a
+        /// separate vector source (e.g. a PBF) at render time.
+        content_hash: [u8; 32],
         zoom_min: u8,
         zoom_max: u8,
     },
@@ -363,14 +372,11 @@ fn write_source(s: &Source, buf: &mut String) {
             zoom_min,
             zoom_max,
         } => write_file_kind(buf, "pmtiles", content_hash, *zoom_min, *zoom_max),
-        Source::Style { zoom_min, zoom_max } => {
-            // Keys: kind, zoom_max, zoom_min
-            buf.push_str("{\"kind\":\"style\",\"zoom_max\":");
-            write_uint(u64::from(*zoom_max), buf);
-            buf.push_str(",\"zoom_min\":");
-            write_uint(u64::from(*zoom_min), buf);
-            buf.push('}');
-        }
+        Source::Style {
+            content_hash,
+            zoom_min,
+            zoom_max,
+        } => write_file_kind(buf, "style", content_hash, *zoom_min, *zoom_max),
         Source::Synthetic { fixture_version } => {
             // Keys: fixture_version, kind
             buf.push_str("{\"fixture_version\":");
@@ -755,17 +761,54 @@ mod tests {
     }
 
     #[test]
-    fn style_source_serialises_without_content_hash() {
+    fn style_source_serialises_with_content_hash() {
         let mut d = baseline_descriptor();
+        let mut hash = [0_u8; 32];
+        hash[0] = 0xab;
+        hash[1] = 0xcd;
         d.sources = vec![Source::Style {
+            content_hash: hash,
             zoom_min: 6,
             zoom_max: 12,
         }];
         let bytes = canonical_descriptor_bytes(&d);
         let s = core::str::from_utf8(&bytes).unwrap();
         assert!(
-            s.contains("\"sources\":[{\"kind\":\"style\",\"zoom_max\":12,\"zoom_min\":6}]"),
+            s.contains(
+                "\"sources\":[{\"content_hash\":\"abcd00000000000000000000000000000000000000000000000000000000000\
+                 0\",\"kind\":\"style\",\"zoom_max\":12,\"zoom_min\":6}]"
+            ),
             "got: {s}",
+        );
+    }
+
+    #[test]
+    fn style_source_with_different_content_hash_changes_pack_uuid() {
+        // Two Style sources with identical zoom ranges but different
+        // style JSONs MUST NOT collide on pack_uuid. This is the bug
+        // closed by adding content_hash to Source::Style.
+        let mut d_a = baseline_descriptor();
+        let mut hash_a = [0_u8; 32];
+        hash_a[0] = 0x11;
+        d_a.sources = vec![Source::Style {
+            content_hash: hash_a,
+            zoom_min: 6,
+            zoom_max: 12,
+        }];
+
+        let mut d_b = baseline_descriptor();
+        let mut hash_b = [0_u8; 32];
+        hash_b[0] = 0x22;
+        d_b.sources = vec![Source::Style {
+            content_hash: hash_b,
+            zoom_min: 6,
+            zoom_max: 12,
+        }];
+
+        assert_ne!(
+            derive_pack_uuid(&d_a),
+            derive_pack_uuid(&d_b),
+            "Style sources with different content_hash must produce different pack_uuids",
         );
     }
 
