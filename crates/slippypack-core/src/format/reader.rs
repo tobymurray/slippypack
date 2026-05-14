@@ -44,6 +44,9 @@ pub enum ReaderError {
     Extensions(super::extensions::ExtensionError),
     /// The header's `index_offset` lies outside the buffer.
     IndexOffsetOutOfBounds,
+    /// The header's `index_offset` is not exactly `HEADER_BASE_SIZE`.
+    /// Spec § 4.11: v1.0 readers MUST verify `index_offset == 292`.
+    IndexOffsetNotAtHeaderEnd { got: u32, expected: u32 },
     /// The header's `extensions_offset` lies outside the buffer.
     ExtensionsOffsetOutOfBounds,
     /// A tile's declared `(offset, length)` extends past the buffer.
@@ -61,6 +64,10 @@ impl core::fmt::Display for ReaderError {
             Self::TileIndex { entry, err } => write!(f, "tile-index entry {entry}: {err}"),
             Self::Extensions(e) => write!(f, "extension sections: {e}"),
             Self::IndexOffsetOutOfBounds => f.write_str("index_offset out of bounds"),
+            Self::IndexOffsetNotAtHeaderEnd { got, expected } => write!(
+                f,
+                "index_offset must equal {expected} (header size) per spec § 4.11; got {got}",
+            ),
             Self::ExtensionsOffsetOutOfBounds => f.write_str("extensions_offset out of bounds"),
             Self::TileOutOfBounds { entry } => write!(f, "tile-index entry {entry} out of bounds"),
             Self::CrcMismatch { expected, got } => {
@@ -112,9 +119,17 @@ impl<'a> RawtilesReader<'a> {
 
         let parsed_header = read_header(bytes).map_err(ReaderError::Header)?;
 
-        // Bounds-check index_offset. u32 offsets cap the pack at 4 GiB
-        // (per spec § 5.1); convert to u64 only for the bounds arithmetic.
+        // Spec § 4.11: v1.0 readers MUST verify index_offset == 292
+        // (= HEADER_BASE_SIZE). Tighter than the bounds-only check the
+        // u32 width would otherwise allow.
         let index_offset_u32 = parsed_header.derived.index_offset;
+        let expected_index_offset = u32::try_from(HEADER_BASE_SIZE).expect("header size fits u32");
+        if index_offset_u32 != expected_index_offset {
+            return Err(ReaderError::IndexOffsetNotAtHeaderEnd {
+                got: index_offset_u32,
+                expected: expected_index_offset,
+            });
+        }
         let index_offset = u64::from(index_offset_u32);
         let tile_count = parsed_header.derived.tile_count;
         let index_size = u64::from(tile_count) * (INDEX_ENTRY_SIZE as u64);

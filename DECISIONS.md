@@ -460,6 +460,28 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ## N — Naming
 
+### F-033 — Eight more pre-1.0 spec refinements
+Pure-doc batch closing eight more rough spots flagged by review. One small Rust + C++ change for the `index_offset` symmetry.
+
+1. **§ 4 `reserved_v1_0` row** — clearer subject-first phrasing: "v1.0 writers MUST set this to `0x00 0x00`; readers MUST accept any value (forward-compat hole for v1.x minor bumps)."
+
+2. **§ 4.11 reader-vs-writer symmetry** — was asymmetric: writers MUST emit `index_offset = 292`, readers accept anything `≥ 292`. Bytes between 292 and the actual `index_offset` were semantically undefined. Tightened to MUST equal 292 on both sides — no inter-region gap, no undefined bytes. Future minor versions that need extra inter-region space can add explicit fields. **Implementation tracked**: Rust reader gained `ReaderError::IndexOffsetNotAtHeaderEnd`; C++ validator's check is now `==` not `>=`.
+
+3. **§ 14.3 implementation-specific bleed** — the env-var names `BLESS_SPEC_LAYOUT=1` / `BLESS_E2E=1` / `BLESS_CLI_SYNTHETIC=1` are slippypack test infrastructure, not normative spec. Rephrased generically: "the implementation's documented re-blessing procedure". Mechanics move out of scope for the spec.
+
+4. **§ A.3 banker's rounding precision** — replaced "less than 10⁻⁶ degrees produce identical descriptors" with the precise equivalence: "two inputs produce equivalent descriptors iff they round to the same integer microdegrees under banker's rounding." Added worked examples at the ties (`0.0000005°` → `0 µ°`, `0.0000015°` → `2 µ°`) since language defaults diverge on round-half (Python 3: banker's; C `lround`: away-from-zero; many JS paths: up).
+
+5. **§ A.4 sources without zoom fields** — `synthetic` and `image` kinds lack zoom_min/zoom_max but the sort key is `(zoom_min, zoom_max, derived_source_order)`. Pinned: treat such sources as `zoom_min = 0, zoom_max = 0` for sort purposes.
+
+6. **§ A.5 intermediate SHA-1 hex** — added the 20-byte SHA-1 of `namespace_bytes ‖ canonical_bytes` (`5146db8e0859661c858045c6154e890d752c55ca`) so independent implementations can bisect a UUID mismatch. If their SHA-1 differs, canonicalisation is the bug; if SHA-1 matches but UUID doesn't, the v5 version/variant fixup is the bug.
+
+7. **§ 7.4 NAME selection** — was MUST-mandate RFC 4647 lookup (a non-trivial parser). Relaxed to SHOULD; minimal readers MAY use byte-equal `bcp47_tag` comparison against the device locale with fallback to the unlocalized section. Embedded readers with kilobyte budgets don't have to ship an RFC 4647 implementation.
+
+8. **§ 14.5 CRC-32 cross-reference** — was duplicating § 10's check value `0xCBF43926` for `"123456789"`. Replaced with a cross-reference + note that § 14.5 exists to flag the check as a conformance requirement without inviting drift between the two sections.
+
+**Manifests**: `spec/rawtiles-v1.0.md` §§ 4 (row), 4.11, 7.4, 11 #20, 14.3, 14.5, A.3, A.4, A.5; `crates/slippypack-core/src/format/reader.rs::{ReaderError, open}`; `spec-validator-cpp/src/validator.cpp` (`==` vs `>=`).
+**Commit**: to land with the eight-fix batch.
+
 ### F-032 — Spec internal consistency: § 8 offsets, § 11 #19 alignment, § 12 numbering
 Three pure-doc cleanups triggered by review. None change wire format.
 

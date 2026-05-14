@@ -324,9 +324,11 @@ void validate(const std::vector<std::uint8_t> &bytes, Report &r) {
   // format is byte-oriented (LE-encoded with no native struct dumps),
   // so multi-byte fields don't require alignment in the file. Readers
   // that want aligned reads `memcpy` to a local before decoding.
-  check(r, h.index_offset >= kHeaderBaseSize,
+  // Per spec § 4.11, v1.0 readers MUST verify index_offset == 292.
+  check(r, h.index_offset == kHeaderBaseSize,
         "index_offset (" + std::to_string(h.index_offset) +
-            ") must be >= header size (" + std::to_string(kHeaderBaseSize) + ")");
+            ") MUST equal header size (" + std::to_string(kHeaderBaseSize) +
+            ") in v1.0 per spec § 4.11");
 
   // The tile blob starts AFTER (index_offset + 20 * tile_count), with
   // 0-3 zero padding bytes to a 4-byte boundary first. Compute in u64

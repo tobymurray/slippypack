@@ -67,7 +67,7 @@ where `align4(n) := (n + 3) & ~3` rounds up to a 4-byte boundary. With `index_of
 | 0 | 4 | `magic` | ASCII `RAWT` (`0x52 0x41 0x57 0x54`) |
 | 4 | 1 | `format_version_major` | u8; `1` in this version |
 | 5 | 1 | `format_version_minor` | u8; `0` in this version |
-| 6 | 2 | `reserved_v1_0` | MUST be `0x00 0x00` written by v1.0 writers; readers MUST accept any value (forward-compat for v1.x minor bumps) |
+| 6 | 2 | `reserved_v1_0` | v1.0 writers MUST set this to `0x00 0x00`; readers MUST accept any value (forward-compat hole for v1.x minor bumps) |
 | 8 | 16 | `pack_uuid` | non-zero, opaque |
 | 24 | 16 | `supersedes_uuid` | all-zero = none |
 | 40 | 16 | `parent_uuid` | reserved; MUST be all-zero in v1 |
@@ -160,7 +160,7 @@ The value `0` is the sentinel for *"no freshness information available."* (slipp
 - `tile_count` (u32): total number of entries in the tile index across all zooms.
 - `index_offset` (u32): byte offset where the first tile-index entry begins.
 
-v1 writers MUST place the tile index immediately after the header, so `index_offset = 292`. Readers MUST accept any value `≥ 292` that points inside the file.
+v1.0 writers MUST place the tile index immediately after the header. v1.0 readers MUST verify `index_offset == 292` and reject any other value. (A future minor version that needs to grow the inter-region area would do so via an explicit new field, not by repurposing the gap.) This tighter symmetry — writer and reader agree on the exact value — removes the ambiguity of "what's in bytes [292, index_offset)?" and matches the spec's general "no semantically undefined bytes" stance.
 
 ### 4.12 `zoom_offsets[24]`
 
@@ -309,7 +309,7 @@ Rules:
 
 Readers selecting a `NAME` section for display:
 
-1. If multiple sections are present, prefer the one whose `bcp47_tag` best matches the device locale per BCP-47 lookup rules (RFC 4647 § 3.4).
+1. Readers SHOULD use RFC 4647 § 3.4 lookup rules to find the best `bcp47_tag` match for the device locale. Readers MAY use a simpler strategy when an RFC 4647 parser isn't feasible (e.g., embedded readers with kilobyte budgets): byte-equal comparison of `bcp47_tag` against the device locale, falling back as below if no exact match.
 2. Fall back to the `tag_length = 0` section if no locale matches.
 3. If no fallback section exists, readers MAY pick any of the available `NAME` sections; the choice is implementation-defined.
 
@@ -463,7 +463,7 @@ A conforming v1 reader MUST:
 A conforming v1 reader SHOULD:
 
 19. Choose an alignment strategy that matches how the pack bytes were loaded. Every multi-byte header field and every multi-byte field within a tile-index entry is naturally aligned at its *file offset* (§ 3). Readers that load the pack into an 8-byte-aligned buffer (e.g. via `malloc` / `aligned_alloc` and `fread`) MAY do native pointer-cast loads — those file offsets translate directly into aligned memory addresses. Readers reading from `mmap`-mapped memory whose mapping base is not 8-byte aligned, or reading from byte buffers at arbitrary offsets, MUST `memcpy` each multi-byte field into a properly-aligned local before decoding. The format guarantees file-offset alignment, not memory-address alignment of any particular load.
-20. Validate that `index_offset ≥ 292` and that `extensions_offset ≥ tile_blob_start + tile_blob_size`.
+20. Validate that `index_offset == 292` (§ 4.11) and that `extensions_offset ≥ tile_blob_start + tile_blob_size`.
 
 ## 12. Writer requirements
 
@@ -548,12 +548,9 @@ Six golden fixtures are pinned in the slippypack repository:
 | `golden-png-to-pack-5tiles.rawtiles` | `crates/slippypack-core/tests/fixtures/e2e/` | end-to-end PNG-decode → quantise → pack output |
 | `golden-synthetic.rawtiles` | `crates/slippypack-cli/tests/fixtures/` | the path `slippypack make --source synthetic` writes; descriptor-derived `pack_uuid` |
 
-Their bytes are byte-pinned by tests (see `tests/spec_layout.rs`, `tests/end_to_end.rs`, `tests/cli_synthetic.rs`). Any drift requires either:
+Each fixture's bytes are byte-pinned by tests in the slippypack repository. Any drift in the pinned bytes requires either a deliberate `quantiser_version` / `format_version` bump (with paired CHANGELOG and decisions-log entries), or a re-bless under the implementation's documented procedure with explicit review.
 
-1. A deliberate `quantiser_version` / `format_version` bump (with this CHANGELOG entry updated, and a paired DECISIONS entry), OR
-2. A re-bless via the `BLESS_SPEC_LAYOUT=1` / `BLESS_E2E=1` / `BLESS_CLI_SYNTHETIC=1` env vars on the test runs, with an explicit reviewer ack.
-
-Third-party implementations SHOULD include these fixtures in their own conformance tests.
+Third-party implementations SHOULD include these fixtures in their own conformance tests; the implementation-specific mechanics of re-blessing pinned values are out of scope for this specification.
 
 ### 14.4 ABGR2222 quantiser test vector
 
@@ -579,7 +576,7 @@ Output (16 bytes, ABGR2222):
 
 ### 14.5 CRC-32 check value
 
-For the ASCII input `"123456789"`, the CRC-32/ISO-HDLC algorithm of § 10 produces `0xCBF43926`. Conforming implementations MUST match this value.
+See § 10 for the canonical CRC-32/ISO-HDLC check value (`"123456789"` → `0xCBF43926`). Conforming implementations MUST match it; this section exists to flag the check as a conformance requirement and avoid the duplication that would otherwise let § 10 and § 14 drift.
 
 ## 15. File extension and MIME type
 
@@ -620,7 +617,11 @@ where `canonical_descriptor_bytes` is defined in § A.3 and UUIDv5 is the SHA-1-
 - Integers in decimal; no leading zeros; no `+`/`.0`.
 - File-content hashes as lowercase hex SHA-256.
 - String escapes: `"` → `\"`, `\` → `\\`, any control character (codepoint < `0x20`) → `\uXXXX` (four lowercase hex digits). No other escape forms (`\n`, `\t`, `\/`, etc.) appear.
-- All numeric coordinates are integer microdegrees (= decimal degrees × 10⁶) using banker's rounding (half-to-even). Inputs differing by less than 10⁻⁶ degrees produce identical descriptors and identical `pack_uuid`s.
+- All numeric coordinates are integer microdegrees (= decimal degrees × 10⁶) using banker's rounding (half-to-even). Two inputs produce equivalent descriptors **iff they round to the same integer microdegrees under banker's rounding** — not "iff they differ by less than 10⁻⁶ degrees", since two inputs differing by `2×10⁻⁷` can still straddle a rounding boundary and produce different microdegrees. Banker's rounding (round-half-to-even) matters here because language defaults diverge: Python 3's `round()` is banker's; C's `lround()` is round-half-away-from-zero; many JavaScript paths are round-half-up. Writers MUST use banker's rounding for descriptor canonicalisation regardless of host-language default. Worked examples:
+  - `0.0000005°` → `0 µ°` (the exact-half `0.5` rounds toward even, which is `0`)
+  - `0.0000015°` → `2 µ°` (the exact-half `1.5` rounds toward even, which is `2`)
+  - `0.0000006°` → `1 µ°` (rounds up; not a tie)
+  - `0.0000004°` → `0 µ°` (rounds down; not a tie)
 
 Top-level keys, in lex order:
 
@@ -652,6 +653,8 @@ Example `affn` value for an arbitrary affine (a=1.0, b=0, c=−180.0, d=0, e=−
 ### A.4 `sources` ordering and per-kind shape
 
 The `sources` array is sorted ascending by `(zoom_min, zoom_max, derived_source_order)`. The derived order compares the source's `kind` name lexicographically (`dir < geotiff < image < mbtiles < pbf < pmtiles < style < synthetic < url`), then the source's *identity* (URL template for `url`; content hash for file-backed kinds; `fixture_version` for `synthetic`).
+
+**Sources without zoom fields.** Some kinds (`synthetic`, `image`) don't carry zoom_min / zoom_max in their per-source shape. For sort-key purposes such sources MUST be treated as `zoom_min = 0, zoom_max = 0`. This puts them ahead of any kind that does carry zoom fields with non-zero values, which is what writers and readers both need to agree on for byte-identical descriptor output.
 
 Per-kind entry shapes (keys in lex order within each object):
 
@@ -691,13 +694,19 @@ Baseline descriptor for a single-source pack of OSM tiles, z=6–12, world-scale
 {"affn":null,"bbox":[-180000000,-85000000,180000000,85000000],"format_version":[1,0],"pixel_format":1,"projection":1,"quantiser_version":1,"sources":[{"auth_kinds":[],"kind":"url","template":"https://tile.openstreetmap.org/{z}/{x}/{y}.png","zoom_max":12,"zoom_min":6}],"style_hash":null,"tile_addressing_scheme":1,"tile_axis_convention":1,"tile_dim_px":128,"zoom_range":[6,12]}
 ```
 
-Derived `pack_uuid`:
+Intermediate SHA-1 of (namespace bytes ‖ canonical bytes), 20 hex bytes:
+
+```
+5146db8e0859661c858045c6154e890d752c55ca
+```
+
+Derived `pack_uuid` (= first 16 bytes of the SHA-1 with the version-5 bit-stamp at byte 6 and the RFC 4122 variant fixup at byte 8 — see § A.2):
 
 ```
 5146db8e-0859-561c-8580-45c6154e890d
 ```
 
-Two writers can independently verify by feeding the canonical bytes above into any conformant UUIDv5 implementation with the namespace from § A.1. The exact bytes and the derived UUID are locked by the test `identity::tests::baseline_canonical_bytes_match_committed_string` and `identity::tests::determinism_baseline_pack_uuid_is_committed` in slippypack-core.
+The intermediate SHA-1 is included so independent implementations can bisect a mismatch: if your SHA-1 differs from the value above, your canonical-bytes formation is the bug; if your SHA-1 matches but your UUID doesn't, your UUIDv5 version/variant fixup is the bug. The exact canonical bytes and the derived UUID are locked by the tests `identity::tests::baseline_canonical_bytes_match_committed_string` and `identity::tests::determinism_baseline_pack_uuid_is_committed` in slippypack-core.
 
 ---
 
