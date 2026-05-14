@@ -631,6 +631,28 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-043 — Spec scrub: cut rationale/commentary
+Pre-freeze cleanup. The spec had accumulated nine sites of design-rationale text — paragraphs explaining *why* a choice was made rather than *what bytes the wire format defines*. A reader implementer doesn't need to know why length-prefix was chosen over a delimiter; they need to know the bytes. The rationale for each cut design choice is preserved in this file (F-022 through F-040) where it belongs.
+
+Cuts:
+
+- **§ 7.4 length-prefix-vs-delimiter rationale paragraph** — 5 lines explaining why the `NAME` payload uses length-prefixing. The bytes-level definition above the paragraph stands on its own. Decision rationale lives in F-023 / F-024.
+- **§ A.3 "Why bit-patterns, not decimal degrees or microunits" paragraph** — 5 lines explaining the `affn` hex-bit-pattern choice. Decision rationale lives in F-028.
+- **§ A.3 worked `affn` example** — 5 lines showing what an arbitrary affine looks like in hex. Useful for implementers but not normative; readers needing examples can consult the implementation tests. Cut.
+- **§ 4.10 sentinel collision note** — 4 sentences of editorial explanation compressed to one: "Writers needing to express exactly the Unix epoch SHOULD use `1` to avoid collision with the sentinel."
+- **§ 4.12 zoom-22-deepest-OSM-and-Google-Maps note** — 2 lines of rationale for why the per-zoom directory is 24 slots. The 24-slot accommodation is stated; why is design-decisions territory.
+- **§ 5.2 sort-rule "Equivalently:" restatement** — the same sort rule was given twice in different prose. Kept the formal phrasing (`z` non-decreasing + within-zoom `(x, y)` strictly ascending) and removed the "Equivalently:" lead-in.
+- **§ 6.2 "(= 16,384 bytes for the standard 128² watch tile)" parenthetical** — `tile_dim_px²` is the formula; the worked value for a specific watch's tile size is implementation context.
+- **§ 8.6 pairing-table description column** — explanations of *why* the two illegal pairs are illegal ("A 'single Mercator image' has no canonical bounds" / "Local-linear coordinates have no canonical pyramidal subdivision"). The ✅/❌ column is the normative content. Description column removed.
+- **§ 8.6 closing rationale on future tiled SingleImage forms** — "future tiled forms get a new `tile_addressing_scheme` enum value via a minor-version bump, not an ambiguous reinterpretation of `SingleImage = 2`". This belongs in § 13 versioning (which already covers the principle generally) and DECISIONS, not in the SingleImage constraint section. Cut.
+
+Not touched in this slice (could be candidates for the same treatment, not explicitly listed by the user): § 8.6 Quadtree-tile_count-0 rationale paragraph ("useful for catalog stubs, source-attribution probes, sentinel packs"), § 4.11 "tighter symmetry … no semantically undefined bytes" paragraph, § 5.3 "Reader API surface for the absent outcome is implementation-defined" sentence ending with the slippypack/C/panic example. These are debatable: each has a small normative payload mixed with rationale. Left intact pending explicit direction.
+
+Net spec change: 25 lines removed, 11 added (net −14). No wire-format change. No semantic change. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets --workspace -D warnings` clean, 281 tests passing.
+
+**Manifests**: `spec/rawtiles-v1.0-rc1.md` §§ 4.10, 4.12, 5.2, 6.2, 7.4, 8.6, A.3.
+**Commit**: to land with the rationale-scrub slice.
+
 ### F-042 — Spec scrub: cut duplication (§ 14.5 fold, § 14.6 spec_layout ref, § 4.x reject restatements)
 Pre-freeze cleanup of duplicated normative content. Two kinds of duplication had accumulated: (1) the CRC check value defined in § 10 was restated verbatim as § 14.5 "for emphasis"; (2) several § 4.x field definitions restated the corresponding "readers MUST reject" rule already covered in § 11. Duplication is a maintenance hazard — when one copy gets updated and the other doesn't, conforming implementations diverge.
 

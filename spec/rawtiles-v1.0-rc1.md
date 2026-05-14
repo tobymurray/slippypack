@@ -149,9 +149,7 @@ The value SHOULD represent the freshness of the underlying source data (e.g. mos
 
 Writers that advertise round-trip-byte-identical reproducibility to their consumers (the dedup contract) MUST set `build_timestamp` deterministically from the logical inputs — § 12 #20 promotes the SHOULD here to a MUST for that class of writer. Writers that do not claim reproducibility MAY use wall-clock time but MUST NOT then advertise `pack_uuid` equality as implying byte equality. § 14.1's round-trip property is the conformance gate that distinguishes the two classes.
 
-The value `0` is the sentinel for *"no freshness information available."*
-
-**Sentinel collision note**: a real source whose `mtime` happens to be exactly `1970-01-01T00:00:00Z` (the Unix epoch) is indistinguishable from the "no info" sentinel. This is acceptable because (a) no real-world tile data has an epoch-zero `mtime`, and (b) the consequence of conflating them is only that a recipient cannot distinguish "the writer didn't know the freshness" from "the data is exactly 56 years stale". Writers that genuinely need to express "exactly the epoch" SHOULD use `1` (one second past the epoch) instead.
+The value `0` is the sentinel for *"no freshness information available."* Writers needing to express exactly the Unix epoch SHOULD use `1` to avoid collision with the sentinel.
 
 ### 4.11 `tile_count` and `index_offset`
 
@@ -170,8 +168,6 @@ A fixed-size directory of 24 entries, one per zoom level `z ∈ [0, 23]`. Each e
 | `count` | u32 LE | number of tile-index entries at this zoom |
 
 For zooms with no tiles, both fields MUST be `0`. For zooms with tiles, `offset` is the byte offset of the first tile-index entry at that zoom (computed as `index_offset + 20 × cumulative_count_of_lower_zooms`), and `count` equals the number of entries walked at that zoom in the index.
-
-The 24-slot fixed size accommodates zooms 0 through 23 inclusive. Zoom 22 is the deepest level publicly served by OSM and Google Maps as of writing; zoom 23 is one slot of headroom.
 
 ### 4.13 `extensions_offset`
 
@@ -203,7 +199,7 @@ A contiguous array of 20-byte entries starting at `index_offset`, holding `tile_
 
 A conforming pack satisfies all of:
 
-- Entries are sorted ascending by `(z, x, y)`. Equivalently: across all entries the `z` values are non-decreasing, and within each contiguous run of entries sharing the same `z`, the `(x, y)` values are strictly ascending in lexicographic order. The within-zoom ordering is what § 5.3's binary search depends on.
+- Entries are sorted ascending by `(z, x, y)`: `z` values non-decreasing, and within each contiguous run of entries sharing the same `z`, the `(x, y)` values strictly ascending in lexicographic order (the order § 5.3's binary search depends on).
 - `z < 24` for every entry.
 - `compression` is a value supported by the writer's `format_version` per § 8.5. (v1: only `0 = None`.)
 - `flags = 0` and `reserved = 0` for every entry in v1. Readers MUST reject non-zero values.
@@ -235,7 +231,7 @@ The tile blob is the contiguous region from the (padded) end of the tile index t
 
 The byte content of a tile is determined by `pixel_format` (§ 8.1) and `compression` (§ 8.5).
 
-For v1 with `pixel_format = ABGR2222` and `compression = None`, every tile is exactly `tile_dim_px × tile_dim_px` bytes (= 16,384 bytes for the standard 128² watch tile).
+For v1 with `pixel_format = ABGR2222` and `compression = None`, every tile is exactly `tile_dim_px × tile_dim_px` bytes.
 
 ## 7. Extension sections
 
@@ -315,8 +311,6 @@ Readers selecting a `NAME` section for display:
 2. Fall back to the `tag_length = 0` section if no locale matches.
 3. If no fallback section exists, readers MAY pick any of the available `NAME` sections; the choice is implementation-defined.
 
-**Rationale for length-prefixing over delimiter-separation**: BCP-47 tags don't contain tabs, so a tab-delimited form would also work for v1; but length-prefixing is binary-clean (no need for readers to scan for an in-band delimiter), aligns with the rest of the format's length-prefix conventions (extension sections, tile-index entries), and is robust against any future tag-syntax expansion. Names containing tab characters (allowed under "free-form UTF-8") would break a tab-delimited form silently.
-
 ## 8. Enumerations
 
 In every enum, readers MUST reject any unknown value encountered in the header or tile index. Forward-compatible additions arrive via spec minor-version bumps (§ 13), not by injecting unknown values into v1 packs.
@@ -377,12 +371,12 @@ Meaningful only when `addressing_scheme = Quadtree`. For `SingleImage`, readers 
 
 Not every combination of `projection` × `tile_addressing_scheme` is meaningful. v1 defines exactly two legal pairs; readers MUST reject all others.
 
-| `projection` | `tile_addressing_scheme` | Legal in v1 | Description |
-|---|---|:---:|---|
-| `WebMercator` (1) | `Quadtree` (1) | ✅ | The standard slippy-map case: pyramidal tiles at zooms `[zoom_min, zoom_max]`, indexed by `(z, x, y)`. |
-| `WebMercator` (1) | `SingleImage` (2) | ❌ — MUST reject | Undefined. A "single Mercator image" has no canonical bounds. |
-| `LocalLinear` (3) | `Quadtree` (1) | ❌ — MUST reject | Undefined. Local-linear coordinates have no canonical pyramidal subdivision. |
-| `LocalLinear` (3) | `SingleImage` (2) | ✅ | One image with a corner-to-lat/lon affine (`AFFN`). For hand-drawn maps and similar uses. |
+| `projection` | `tile_addressing_scheme` | Legal in v1 |
+|---|---|:---:|
+| `WebMercator` (1) | `Quadtree` (1) | ✅ |
+| `WebMercator` (1) | `SingleImage` (2) | ❌ — MUST reject |
+| `LocalLinear` (3) | `Quadtree` (1) | ❌ — MUST reject |
+| `LocalLinear` (3) | `SingleImage` (2) | ✅ |
 
 Readers MUST verify this pairing against the header bytes at offsets 57 and 58 before doing any further parsing.
 
@@ -393,7 +387,7 @@ Readers MUST verify this pairing against the header bytes at offsets 57 and 58 b
 - `zoom_min` and `zoom_max` in the header MUST both be `0`.
 - `zoom_offsets[0]` is the only non-zero directory entry; `zoom_offsets[1..24]` MUST be all-zero.
 
-Readers MUST reject `SingleImage` packs that violate any of these. v1.0 deliberately does NOT support tiled (multi-image) `SingleImage` packs — future tiled forms get a new `tile_addressing_scheme` enum value via a minor-version bump (§ 13), not an ambiguous reinterpretation of `SingleImage = 2`.
+Readers MUST reject `SingleImage` packs that violate any of these.
 
 **Quadtree tile-index constraint.** When `tile_addressing_scheme = Quadtree`:
 
@@ -686,15 +680,7 @@ Top-level keys, in lex order:
 | `tile_dim_px` | int | from § 4.7 |
 | `zoom_range` | `[u8, u8]` | `[zoom_min, zoom_max]` from § 4.8 |
 
-The `affn` key is **always emitted**; for non-LocalLinear packs its value is `null`. This keeps the descriptor's shape uniform across projections.
-
-**Why bit-patterns, not decimal degrees or microunits**: the on-disk `AFFN` extension (§ 7.3) stores six little-endian `f64` values. Two writers given the same `f64`s (e.g. `1.234567890123456`) could compute different "integer microunit" approximations depending on rounding convention, language runtime, or float-to-decimal pathways — producing different `pack_uuid`s for byte-identical packs. Committing the exact `f64` bit-patterns (as 16-char lowercase hex u64s) sidesteps the rounding question entirely: byte-identical `AFFN` bytes ⇒ byte-identical canonical descriptor ⇒ byte-identical `pack_uuid`.
-
-Example `affn` value for an arbitrary affine (a=1.0, b=0, c=−180.0, d=0, e=−1.0, f=85.0):
-
-```json
-"affn":["3ff0000000000000","0000000000000000","c066800000000000","0000000000000000","bff0000000000000","4055400000000000"]
-```
+The `affn` key is **always emitted**; for non-LocalLinear packs its value is `null`.
 
 ### A.4 `sources` ordering and per-kind shape
 
