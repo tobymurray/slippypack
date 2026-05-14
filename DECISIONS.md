@@ -458,6 +458,27 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ---
 
+## V — Cross-implementation validation
+
+### V-001 — `spec-validator-cpp` exists as a second-opinion C++ reader
+Phase 1.x deliverable, prompted by the need to catch writer-side bugs (endianness, padding, offsets) that slippypack's own writer+reader pair would miss because they share logic. The validator re-derives byte decoding from PLAN.md + the in-tree `crates/slippypack-core/src/format/*.rs` layout tables; it does NOT call slippypack code. If the two implementations disagree on a `.upack`, the disagreement is the bug report.
+
+**Status**: passes against the synthetic-source pack and rejects byte-mutated packs via CRC-32 mismatch.
+**Manifests**: `spec-validator-cpp/src/validator.cpp`; `spec-validator-cpp/tests/run.sh`.
+**Commit**: to land with the C++ validator slice.
+
+### V-002 — `.upack` is byte-oriented; multi-byte fields are NOT required to be naturally aligned in the file
+The C++ validator initially assumed `index_offset` must be 4-byte aligned, which failed on the synthetic pack (322 % 4 = 2). On reflection: slippypack writes everything LE byte-by-byte and the Rust reader does byte-by-byte decoding. **No multi-byte field in the on-disk format requires natural alignment.** Readers that want aligned access `memcpy` to a local before decoding (cheap; matches what watch firmware would do anyway).
+
+**Caveat for watch firmware (ARM Cortex-M0/M0+):** unaligned `LDR` faults. Watch readers MUST do `memcpy`-then-decode, not direct dereference.
+
+**Open question for Phase 2+**: if we ever ship a `slippypack-watch-firmware` consumer that benchmarks badly because of `memcpy` overhead, consider bumping the header to a multiple-of-8-size and 8-byte-aligning the u64 offsets. For v1 first slice the byte-oriented design wins — keeps the format honest about being LE byte-level encoded.
+
+**Manifests**: removed the false 4-byte alignment check from `spec-validator-cpp/src/validator.cpp::validate`.
+**Commit**: to land with the C++ validator slice.
+
+---
+
 ## Cross-cutting
 
 ### X-001 — Inline `#[cfg(test)] mod tests` for module-level unit tests
