@@ -14,7 +14,7 @@ use clap::{Parser, Subcommand};
 mod build;
 mod sources;
 
-use build::{BuildError, BuildOptions, build};
+use build::{BboxDeg, BuildError, BuildOptions, build};
 
 #[derive(Parser)]
 #[command(name = "slippypack", version, about = "Build offline .upack map packs")]
@@ -41,6 +41,18 @@ struct MakeArgs {
     /// abort.
     #[arg(long)]
     out: PathBuf,
+
+    /// Bounding box in decimal degrees: `minLon,minLat,maxLon,maxLat`.
+    /// Required for URL-template / MBTiles / PMTiles / `dir://` sources.
+    /// Ignored for `synthetic` (which has a fixed world-bbox).
+    #[arg(long, value_parser = parse_bbox)]
+    bbox: Option<BboxDeg>,
+
+    /// Zoom range: single zoom (e.g. `8`) or inclusive range (e.g. `6-12`).
+    /// Required for URL-template / MBTiles / PMTiles / `dir://` sources.
+    /// Ignored for `synthetic` (which is fixed at z=2).
+    #[arg(long, value_parser = parse_zoom)]
+    zoom: Option<(u8, u8)>,
 
     /// CI override: pin `build_timestamp` to a fixed value (seconds
     /// since Unix epoch). Production builds derive this from input
@@ -77,10 +89,79 @@ fn run_make(args: MakeArgs) -> Result<(), BuildError> {
     let opts = BuildOptions {
         source: args.source,
         out: args.out,
+        bbox: args.bbox,
+        zoom_range: args.zoom,
         timestamp_override: args.timestamp,
         pack_uuid_override,
     };
     build(&opts)
+}
+
+fn parse_bbox(s: &str) -> Result<BboxDeg, String> {
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 4 {
+        return Err(format!(
+            "expected 'minLon,minLat,maxLon,maxLat' (4 comma-separated values), got {} part(s)",
+            parts.len(),
+        ));
+    }
+    let parse_one = |idx: usize, name: &str| -> Result<f64, String> {
+        parts[idx]
+            .trim()
+            .parse::<f64>()
+            .map_err(|e| format!("invalid {name}: {e}"))
+    };
+    let min_lon = parse_one(0, "minLon")?;
+    let min_lat = parse_one(1, "minLat")?;
+    let max_lon = parse_one(2, "maxLon")?;
+    let max_lat = parse_one(3, "maxLat")?;
+    if !(-180.0..=180.0).contains(&min_lon) || !(-180.0..=180.0).contains(&max_lon) {
+        return Err(format!(
+            "longitudes must be in [-180, 180]; got minLon={min_lon}, maxLon={max_lon}",
+        ));
+    }
+    if !(-90.0..=90.0).contains(&min_lat) || !(-90.0..=90.0).contains(&max_lat) {
+        return Err(format!(
+            "latitudes must be in [-90, 90]; got minLat={min_lat}, maxLat={max_lat}",
+        ));
+    }
+    if min_lon >= max_lon {
+        return Err(format!("minLon {min_lon} must be < maxLon {max_lon}"));
+    }
+    if min_lat >= max_lat {
+        return Err(format!("minLat {min_lat} must be < maxLat {max_lat}"));
+    }
+    Ok(BboxDeg {
+        min_lon,
+        min_lat,
+        max_lon,
+        max_lat,
+    })
+}
+
+fn parse_zoom(s: &str) -> Result<(u8, u8), String> {
+    let parse_z = |part: &str, name: &str| -> Result<u8, String> {
+        let z: u8 = part
+            .trim()
+            .parse()
+            .map_err(|e| format!("invalid {name}: {e}"))?;
+        // 18 is ZOOM_OFFSETS_COUNT - 1 (the spec's max addressable zoom).
+        if z > 17 {
+            return Err(format!("{name} must be in [0, 17]; got {z}"));
+        }
+        Ok(z)
+    };
+    if let Some((a, b)) = s.split_once('-') {
+        let min = parse_z(a, "min zoom")?;
+        let max = parse_z(b, "max zoom")?;
+        if min > max {
+            return Err(format!("min zoom {min} must be ≤ max zoom {max}"));
+        }
+        Ok((min, max))
+    } else {
+        let z = parse_z(s, "zoom")?;
+        Ok((z, z))
+    }
 }
 
 fn parse_pack_uuid(s: &str) -> Result<[u8; 16], BuildError> {
@@ -116,7 +197,7 @@ fn hex_nibble(b: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_pack_uuid;
+    use super::{parse_bbox, parse_pack_uuid, parse_zoom};
 
     #[test]
     fn parse_uuid_with_hyphens() {
@@ -165,5 +246,72 @@ mod tests {
     fn parse_rejects_all_zero() {
         assert!(parse_pack_uuid("00000000000000000000000000000000").is_err());
         assert!(parse_pack_uuid("00000000-0000-0000-0000-000000000000").is_err());
+    }
+
+    #[test]
+    fn parse_bbox_accepts_normal_form() {
+        let b = parse_bbox("-0.15,51.49,-0.10,51.52").unwrap();
+        assert!((b.min_lon - -0.15).abs() < 1e-12);
+        assert!((b.min_lat - 51.49).abs() < 1e-12);
+        assert!((b.max_lon - -0.10).abs() < 1e-12);
+        assert!((b.max_lat - 51.52).abs() < 1e-12);
+    }
+
+    #[test]
+    fn parse_bbox_tolerates_whitespace_around_components() {
+        let b = parse_bbox(" -1.0 , -2.0 , 3.0 , 4.0 ").unwrap();
+        assert!((b.min_lon - -1.0).abs() < 1e-12);
+        assert!((b.max_lat - 4.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn parse_bbox_rejects_wrong_part_count() {
+        assert!(parse_bbox("0,0,0").is_err());
+        assert!(parse_bbox("0,0,0,0,0").is_err());
+    }
+
+    #[test]
+    fn parse_bbox_rejects_out_of_range() {
+        assert!(parse_bbox("-181,0,1,1").is_err()); // lon < -180
+        assert!(parse_bbox("0,-91,1,1").is_err()); // lat < -90
+    }
+
+    #[test]
+    fn parse_bbox_rejects_inverted_corners() {
+        assert!(parse_bbox("10,0,5,1").is_err()); // minLon > maxLon
+        assert!(parse_bbox("0,10,1,5").is_err()); // minLat > maxLat
+    }
+
+    #[test]
+    fn parse_zoom_single() {
+        assert_eq!(parse_zoom("8").unwrap(), (8, 8));
+    }
+
+    #[test]
+    fn parse_zoom_range() {
+        assert_eq!(parse_zoom("6-12").unwrap(), (6, 12));
+    }
+
+    #[test]
+    fn parse_zoom_zero_to_zero() {
+        assert_eq!(parse_zoom("0").unwrap(), (0, 0));
+        assert_eq!(parse_zoom("0-0").unwrap(), (0, 0));
+    }
+
+    #[test]
+    fn parse_zoom_rejects_inverted_range() {
+        assert!(parse_zoom("12-6").is_err());
+    }
+
+    #[test]
+    fn parse_zoom_rejects_above_max() {
+        assert!(parse_zoom("18").is_err());
+        assert!(parse_zoom("0-18").is_err());
+    }
+
+    #[test]
+    fn parse_zoom_rejects_garbage() {
+        assert!(parse_zoom("abc").is_err());
+        assert!(parse_zoom("3-x").is_err());
     }
 }

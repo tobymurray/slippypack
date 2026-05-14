@@ -342,8 +342,8 @@ The synthetic source is for **pipeline validation**, not watch-loadability. The 
 **Commit:** to land with the Phase 1 first-slice commit.
 
 ### C-003 — Synthetic `pack_uuid` is a fixed deterministic 16-byte stand-in
-"synthetic_pack!\0" — visibly test-like, never zero. Phase 1.x will swap this for the proper UUIDv5-from-canonical-descriptor derivation (per identity.rs). Pinned now so the golden-synthetic.upack test stays stable across the v1 lifetime; the bytes match an ASCII string so anyone inspecting the pack header recognises it as a fixture, not a real pack.
-**Manifests:** `crates/slippypack-cli/src/build.rs::SYNTHETIC_PACK_UUID`.
+~~"synthetic_pack!\0" — visibly test-like, never zero. Phase 1.x will swap this for the proper UUIDv5-from-canonical-descriptor derivation (per identity.rs). Pinned now so the golden-synthetic.upack test stays stable across the v1 lifetime; the bytes match an ASCII string so anyone inspecting the pack header recognises it as a fixture, not a real pack.~~
+**Superseded by C-009** — pack_uuid for synthetic builds is now UUIDv5-derived from the canonical source descriptor, matching the production code path.
 **Commit:** to land with the Phase 1 first-slice commit.
 
 ### C-004 — Atomic write via `<out>.upack.partial` → rename, with RAII cleanup
@@ -365,6 +365,51 @@ The format module defines its own local `Write` trait (W-009 / F-011) to keep sl
 Both flags exist per the CLI synopsis pinned in PLAN.md. `--pack-uuid` accepts either hyphenated UUID form (`4e72f962-6632-4538-8e0a-7eab63350f3f`) or unhyphenated (`4e72f9626632...`); case-insensitive hex. The CLI rejects all-zero (spec-invariant: `pack_uuid` must be non-zero). `--timestamp` takes a u64 seconds-since-Unix-epoch value with no further validation (slippypack accepts 0 as the "no freshness info" sentinel per Q-001 / PLAN.md § Numeric input precision).
 **Manifests:** `crates/slippypack-cli/src/main.rs::parse_pack_uuid`; `crates/slippypack-cli/src/build.rs::BuildOptions`.
 **Commit:** to land with the Phase 1 first-slice commit.
+
+### C-008 — URL-template source routes on `http://` / `https://` prefix
+The CLI dispatcher in `build()` matches `--source` against a small set of literal prefixes: `synthetic` for the embedded fixture, `http://` / `https://` for URL templates. Future source kinds get their own prefix (`mbtiles://`, `pmtiles://`, `dir://` per PLAN.md § Source-kind details). Prefix-matching is simpler than registering a parser per kind and matches the user-facing CLI shape: `--source 'https://.../{z}/{x}/{y}.png'` is the documented form.
+**Manifests:** `crates/slippypack-cli/src/build.rs::build`.
+**Commit:** to land with the URL-template slice.
+
+### C-009 — `pack_uuid` derived from canonical descriptor for all source kinds
+Both `synthetic` and URL-template builds construct a `PackDescriptor` and pass it through `slippypack_core::identity::derive_pack_uuid` (UUIDv5 against `SLIPPYPACK_NAMESPACE`). Production code path is identical for every source kind — `--pack-uuid` override remains for CI determinism. Supersedes C-003 (which used a fixed `synthetic_pack!\0` stand-in).
+**Manifests:** `crates/slippypack-cli/src/build.rs::build_metadata`, `synthetic_descriptor`, `url_template_descriptor`.
+**Commit:** to land with the URL-template slice.
+
+### C-010 — Synthetic source's canonical descriptor uses `fixture_version` integer, not file hashes
+The synthetic source is built from PNG bytes embedded in the binary at compile time via `include_bytes!`. Hashing the fixtures at runtime to populate the descriptor would be wasted work (the fixtures don't change without a code change). Instead, the descriptor pins a `SYNTHETIC_FIXTURE_VERSION: u32 = 1` constant — bump it whenever a fixture is regenerated. Matches `Source::Synthetic { fixture_version }` per identity.rs § I-005.
+**Manifests:** `crates/slippypack-cli/src/build.rs::SYNTHETIC_FIXTURE_VERSION`, `synthetic_descriptor`.
+**Commit:** to land with the URL-template slice.
+
+### C-011 — `--bbox` is decimal degrees; converted to integer microdegrees via banker's rounding
+The CLI accepts `--bbox minLon,minLat,maxLon,maxLat` in decimal degrees (f64). Conversion to the on-disk integer microdegree form (i32, lat/lon × 10⁶) uses `f64::round_ties_even` so two inputs that differ by less than 10⁻⁶ degrees collapse to the same descriptor (and same `pack_uuid`). PLAN.md § Numeric input precision pins this rule.
+**Manifests:** `crates/slippypack-cli/src/build.rs::deg_to_micro`, `BboxDeg::to_micro`.
+**Commit:** to land with the URL-template slice.
+
+### C-012 — `--zoom` accepts single-zoom or `min-max` inclusive range
+`--zoom 8` builds just zoom 8; `--zoom 6-12` builds zooms 6 through 12 inclusive. Max zoom is capped at 17 (the spec's `ZOOM_OFFSETS_COUNT - 1`, since the header reserves 18 per-zoom directory entries for zooms 0..=17). Inverted ranges and non-numeric input are rejected at parse time.
+**Manifests:** `crates/slippypack-cli/src/main.rs::parse_zoom`.
+**Commit:** to land with the URL-template slice.
+
+### C-013 — URL-template build: pre-fetch all tiles, then assemble pack
+The URL-template path buffers every tile's bytes in memory before opening the writer. Three reasons: (1) lets `fetcher.max_last_modified()` accumulate across all responses before becoming the pack's `build_timestamp`; (2) surfaces fetch errors before any pack bytes are written (the `.partial` file is never created if any tile fails); (3) matches C-005's in-memory assembly model for the first-slice CLI. Phase 8's streaming path will refactor for large packs.
+**Manifests:** `crates/slippypack-cli/src/build.rs::build_url_template`.
+**Commit:** to land with the URL-template slice.
+
+### C-014 — `UrlFetcher` holds a reusable `ureq::Agent` and accumulates `Last-Modified`
+A single `ureq::Agent` instance is reused for every fetch in a build so TCP and TLS sessions stay pooled — typical slippy-map tile sources serve hundreds of tiles from one origin, and a fresh agent per request is wasteful. The fetcher tracks the maximum of every successful response's `Last-Modified` header (parsed via RFC 7231 IMF-fixdate) and that maximum becomes the pack's `build_timestamp`. Per PLAN.md § Pack identity: the timestamp records source-data freshness, not build wall-clock.
+**Manifests:** `crates/slippypack-cli/src/sources/url_template.rs::UrlFetcher`.
+**Commit:** to land with the URL-template slice.
+
+### C-015 — `parse_http_date` only supports IMF-fixdate; RFC 850 / asctime are not handled
+RFC 7231 defines three legal HTTP-date forms but mandates IMF-fixdate for new outputs. Every realistic tile-server response (OSM, MapTiler, Mapbox, Stadia) uses IMF-fixdate. Supporting the obsolete forms costs parser complexity for zero observed benefit; if a tile server emits a non-IMF-fixdate header, `parse_http_date` returns `None` and that response's freshness is skipped (worst-case: `build_timestamp` ends up smaller than reality).
+**Manifests:** `crates/slippypack-cli/src/sources/url_template.rs::parse_http_date`.
+**Commit:** to land with the URL-template slice.
+
+### C-016 — URL-template `expected_dim` hardcoded to 256 for the first slice
+Phase 1 first slice assumes the URL-template source serves 256×256 tiles — the dominant slippy-map size. The decode pipeline rejects tiles that don't match `expected_dim` with `BuildError::UnexpectedTileDimensions`. Phase 1.x will sample the first successfully decoded tile's dimensions and use those, allowing 128×128 sources (and the spec-pinned watch tile size).
+**Manifests:** `crates/slippypack-cli/src/build.rs::build_url_template` (the `let expected_dim = 256;` line).
+**Commit:** to land with the URL-template slice.
 
 ---
 

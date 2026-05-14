@@ -9,3 +9,4 @@
 //! `pmtiles`, `dir` sources land in Phase 1.x.
 
 pub mod synthetic;
+pub mod url_template;

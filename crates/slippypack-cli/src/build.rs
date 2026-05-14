@@ -1,8 +1,8 @@
 //! Build-pipeline orchestration: source → decode → quantise → format → output.
 //!
-//! Phase 1 first slice handles only `--source synthetic`. Phase 1.x adds
-//! URL templates, MBTiles, PMTiles, and `dir://` source kinds via the
-//! same orchestration shape.
+//! Phase 1 first slice supports `--source synthetic` and HTTPS URL
+//! templates (`--source 'https://.../{z}/{x}/{y}.png'`). Phase 1.x adds
+//! MBTiles, PMTiles, and `dir://` source kinds via the same shape.
 
 use core::convert::Infallible;
 use std::path::{Path, PathBuf};
@@ -12,10 +12,50 @@ use slippypack_core::format::{
     AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, TileContent,
     TileWriter, TileWriterError, UpackWriter,
 };
-use slippypack_core::identity::BoundingBox;
-use slippypack_core::quantise::quantise_rgb888;
+use slippypack_core::identity::{
+    AuthKind, BoundingBox, FormatVersion, PackDescriptor, Source, ZoomRange, derive_pack_uuid,
+};
+use slippypack_core::projection::{Mercator, Projection as ProjectionTrait};
+use slippypack_core::quantise::{QUANTISER_VERSION, quantise_rgb888};
 
 use crate::sources::synthetic;
+use crate::sources::url_template::{UrlFetcher, UrlTemplate, UrlTemplateError};
+
+/// Decimal-degree bounding box; CLI input shape before conversion to
+/// the on-disk microdegree representation.
+#[derive(Debug, Clone, Copy)]
+pub struct BboxDeg {
+    pub min_lon: f64,
+    pub min_lat: f64,
+    pub max_lon: f64,
+    pub max_lat: f64,
+}
+
+impl BboxDeg {
+    /// Convert to the spec-pinned integer microdegree representation
+    /// (lat/lon × 10⁶, banker's rounding).
+    #[must_use]
+    pub fn to_micro(self) -> BoundingBox {
+        BoundingBox {
+            min_lon_micro: deg_to_micro(self.min_lon),
+            min_lat_micro: deg_to_micro(self.min_lat),
+            max_lon_micro: deg_to_micro(self.max_lon),
+            max_lat_micro: deg_to_micro(self.max_lat),
+        }
+    }
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "value is in roughly [-180e6, 180e6] which fits comfortably in i32"
+)]
+fn deg_to_micro(deg: f64) -> i32 {
+    // banker's rounding: round-half-to-even.
+    let scaled = deg * 1_000_000.0;
+    let rounded = scaled.round_ties_even();
+    rounded as i32
+}
 
 /// Errors a build can surface to the CLI.
 #[derive(Debug)]
@@ -23,11 +63,18 @@ use crate::sources::synthetic;
 pub enum BuildError {
     /// `--source` value couldn't be parsed.
     UnknownSourceKind(String),
+    /// A `--source` URL was malformed.
+    UrlTemplate(UrlTemplateError),
+    /// `--bbox` is required for the given source kind but wasn't provided.
+    MissingBbox,
+    /// `--zoom` is required for the given source kind but wasn't provided.
+    MissingZoom,
     /// A PNG/JPEG decode failed.
     Decode(DecodeError),
     /// Decoded tile didn't fit the per-source expected dimensions
     /// (width × height ≠ `tile_dim_px²`).
     UnexpectedTileDimensions {
+        z: u8,
         x: u32,
         y: u32,
         got_width: u32,
@@ -47,8 +94,12 @@ impl core::fmt::Display for BuildError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::UnknownSourceKind(s) => write!(f, "unknown source kind: {s}"),
+            Self::UrlTemplate(e) => write!(f, "url-template source: {e}"),
+            Self::MissingBbox => f.write_str("--bbox is required for non-synthetic sources"),
+            Self::MissingZoom => f.write_str("--zoom is required for non-synthetic sources"),
             Self::Decode(e) => write!(f, "decode failed: {e}"),
             Self::UnexpectedTileDimensions {
+                z,
                 x,
                 y,
                 got_width,
@@ -56,7 +107,7 @@ impl core::fmt::Display for BuildError {
                 expected_dim,
             } => write!(
                 f,
-                "tile ({x},{y}) decoded to {got_width}×{got_height} but \
+                "tile (z={z}, x={x}, y={y}) decoded to {got_width}×{got_height} but \
                  the source's tile_dim_px is {expected_dim}",
             ),
             Self::Writer(e) => write!(f, "writer rejected: {e:?}"),
@@ -80,6 +131,12 @@ impl From<std::io::Error> for BuildError {
     }
 }
 
+impl From<UrlTemplateError> for BuildError {
+    fn from(e: UrlTemplateError) -> Self {
+        Self::UrlTemplate(e)
+    }
+}
+
 impl From<TileWriterError<Infallible, std::io::Error>> for BuildError {
     fn from(e: TileWriterError<Infallible, std::io::Error>) -> Self {
         Self::Writer(e)
@@ -90,18 +147,19 @@ impl From<TileWriterError<Infallible, std::io::Error>> for BuildError {
 pub struct BuildOptions {
     pub source: String,
     pub out: PathBuf,
+    pub bbox: Option<BboxDeg>,
+    /// `(zoom_min, zoom_max)` inclusive.
+    pub zoom_range: Option<(u8, u8)>,
     /// CI override: pin `build_timestamp` to a fixed value (seconds
-    /// since Unix epoch). `None` → derive from inputs (always `0` for
-    /// the synthetic source, which has no `Last-Modified`).
+    /// since Unix epoch). `None` → derive from inputs.
     pub timestamp_override: Option<u64>,
     /// CI override: pin `pack_uuid` to a fixed value. `None` → derive
-    /// from the canonical source descriptor. For Phase 1 first slice,
-    /// synthetic-source builds use a fixed descriptor-derived UUID.
+    /// via UUIDv5 from the canonical source descriptor.
     pub pack_uuid_override: Option<[u8; 16]>,
 }
 
 /// `Write` adapter so any `std::io::Write` can serve as the writer's
-/// output sink. The wrapped `error::Error` type is `std::io::Error`.
+/// output sink. The wrapped error type is `std::io::Error`.
 struct IoWriteAdapter<W: std::io::Write> {
     inner: W,
 }
@@ -156,47 +214,216 @@ impl Drop for PartialFile {
 pub fn build(opts: &BuildOptions) -> Result<(), BuildError> {
     if opts.source == "synthetic" {
         build_synthetic(opts)
+    } else if opts.source.starts_with("http://") || opts.source.starts_with("https://") {
+        build_url_template(opts)
     } else {
         Err(BuildError::UnknownSourceKind(opts.source.clone()))
     }
 }
 
+// --- Synthetic source ----------------------------------------------
+
 fn build_synthetic(opts: &BuildOptions) -> Result<(), BuildError> {
-    let metadata = synthetic_metadata(opts);
+    let descriptor = synthetic_descriptor();
+    let metadata = build_metadata(opts, &descriptor, 0);
+    run_build(opts, metadata, |writer| {
+        for (x, y) in synthetic::all_tile_coords() {
+            let png_bytes = synthetic::tile_png_bytes(x, y)
+                .expect("all_tile_coords yields coords that have fixtures");
+            add_decoded_tile(
+                writer,
+                synthetic::ZOOM,
+                x,
+                y,
+                png_bytes,
+                synthetic::TILE_DIM_PX,
+            )?;
+        }
+        Ok(())
+    })
+}
+
+fn synthetic_descriptor() -> PackDescriptor {
+    PackDescriptor {
+        bbox: world_bbox_micro(),
+        format_version: FormatVersion { major: 1, minor: 0 },
+        pixel_format: 1,
+        projection: 1,
+        quantiser_version: QUANTISER_VERSION,
+        sources: vec![Source::Synthetic {
+            fixture_version: SYNTHETIC_FIXTURE_VERSION,
+        }],
+        style_hash: None,
+        tile_addressing_scheme: 1,
+        tile_axis_convention: 1,
+        tile_dim_px: synthetic::TILE_DIM_PX,
+        zoom_range: ZoomRange {
+            min: synthetic::ZOOM,
+            max: synthetic::ZOOM,
+        },
+    }
+}
+
+/// Bumped on any change to the committed PNG fixtures under
+/// `crates/slippypack-cli/fixtures/synthetic-pattern/`. Carries forward
+/// to the canonical source descriptor so a fixture refresh produces a
+/// distinct `pack_uuid`.
+const SYNTHETIC_FIXTURE_VERSION: u32 = 1;
+
+fn world_bbox_micro() -> BoundingBox {
+    BoundingBox {
+        min_lon_micro: -180_000_000,
+        min_lat_micro: -85_051_129,
+        max_lon_micro: 180_000_000,
+        max_lat_micro: 85_051_129,
+    }
+}
+
+// --- URL-template source -------------------------------------------
+
+fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
+    let bbox = opts.bbox.ok_or(BuildError::MissingBbox)?;
+    let zoom = opts.zoom_range.ok_or(BuildError::MissingZoom)?;
+    let template = UrlTemplate::parse(&opts.source)?;
+
+    let descriptor = url_template_descriptor(&opts.source, bbox, zoom);
+    let mut fetcher = UrlFetcher::new();
+
+    // Pre-fetch all tiles before opening the writer. This lets us:
+    //   1. Use `fetcher.max_last_modified()` as `build_timestamp`
+    //      (PLAN.md § Pack identity: timestamp records source freshness,
+    //      not build wall-clock).
+    //   2. Surface fetch errors before writing any pack bytes — the
+    //      .partial file is never created if any tile fails.
+    //
+    // For Phase 1 first slice, we hold all tile bytes in memory. Typical
+    // bbox builds are < 1000 tiles × ~10 KB = ~10 MB, which is fine.
+    // Phase 1.x refactors to stream fetches into the writer for larger
+    // packs.
+    let mut tile_bytes: Vec<(u8, u32, u32, Vec<u8>)> = Vec::new();
+    for z in zoom.0..=zoom.1 {
+        for (x, y) in tile_range_for_zoom(bbox, z) {
+            let url = template.url_for(z, x, y);
+            let bytes = fetcher.fetch(&url)?;
+            tile_bytes.push((z, x, y, bytes));
+        }
+    }
+
+    let metadata = build_metadata(opts, &descriptor, fetcher.max_last_modified());
+
+    run_build(opts, metadata, move |writer| {
+        for (z, x, y, bytes) in tile_bytes {
+            // Phase 1 first slice assumes tile_dim_px = 256 — the
+            // dominant slippy-map tile size. Phase 1.x will sample the
+            // first response's actual decoded dimensions and use those.
+            let expected_dim = 256;
+            add_decoded_tile(writer, z, x, y, &bytes, expected_dim)?;
+        }
+        Ok(())
+    })
+}
+
+fn url_template_descriptor(url: &str, bbox: BboxDeg, zoom: (u8, u8)) -> PackDescriptor {
+    PackDescriptor {
+        bbox: bbox.to_micro(),
+        format_version: FormatVersion { major: 1, minor: 0 },
+        pixel_format: 1,
+        projection: 1,
+        quantiser_version: QUANTISER_VERSION,
+        sources: vec![Source::Url {
+            template: url.to_string(),
+            auth_kinds: Vec::<AuthKind>::new(),
+            zoom_min: zoom.0,
+            zoom_max: zoom.1,
+        }],
+        style_hash: None,
+        tile_addressing_scheme: 1,
+        tile_axis_convention: 1,
+        tile_dim_px: 256,
+        zoom_range: ZoomRange {
+            min: zoom.0,
+            max: zoom.1,
+        },
+    }
+}
+
+fn tile_range_for_zoom(bbox: BboxDeg, zoom: u8) -> impl Iterator<Item = (u32, u32)> {
+    let m = Mercator;
+    // NW corner: (min_lon, max_lat). SE corner: (max_lon, min_lat). In
+    // Mercator y increases southward, so the NW corner has the smaller y.
+    let (x_nw, y_nw) = m.lonlat_to_tile(bbox.min_lon, bbox.max_lat, zoom);
+    let (x_se, y_se) = m.lonlat_to_tile(bbox.max_lon, bbox.min_lat, zoom);
+    (y_nw..=y_se).flat_map(move |y| (x_nw..=x_se).map(move |x| (x, y)))
+}
+
+// --- Shared build scaffolding --------------------------------------
+
+fn build_metadata(
+    opts: &BuildOptions,
+    descriptor: &PackDescriptor,
+    build_timestamp: u64,
+) -> PackMetadata {
+    let pack_uuid = opts
+        .pack_uuid_override
+        .unwrap_or_else(|| *derive_pack_uuid(descriptor).as_bytes());
+    let build_timestamp = opts.timestamp_override.unwrap_or(build_timestamp);
+    let bbox = descriptor.bbox;
+    let zoom_range = (descriptor.zoom_range.min, descriptor.zoom_range.max);
+    PackMetadata {
+        pack_uuid,
+        supersedes_uuid: None,
+        parent_uuid: None,
+        pixel_format: PixelFormat::Abgr2222,
+        projection: Projection::WebMercator,
+        tile_addressing_scheme: AddressingScheme::Quadtree,
+        tile_axis_convention: AxisConvention::Xyz,
+        tile_dim_px: descriptor.tile_dim_px,
+        zoom_range,
+        bbox,
+        build_timestamp,
+    }
+}
+
+/// Per-tile decode → quantise → add. Verifies the decoded dimensions
+/// match the metadata's `tile_dim_px`.
+fn add_decoded_tile(
+    writer: &mut UpackWriter<Infallible, std::io::Error>,
+    z: u8,
+    x: u32,
+    y: u32,
+    png_or_jpeg: &[u8],
+    expected_dim: u16,
+) -> Result<(), BuildError> {
+    let decoded = decode_rgb888(png_or_jpeg)?;
+    if decoded.width != u32::from(expected_dim) || decoded.height != u32::from(expected_dim) {
+        return Err(BuildError::UnexpectedTileDimensions {
+            z,
+            x,
+            y,
+            got_width: decoded.width,
+            got_height: decoded.height,
+            expected_dim,
+        });
+    }
+    let mut quantised = vec![0_u8; usize::from(expected_dim) * usize::from(expected_dim)];
+    quantise_rgb888(&decoded.rgb888, &mut quantised);
+    writer.add_tile_ref(z, x, y, TileContent::Inline(quantised))?;
+    Ok(())
+}
+
+/// Inner build scaffolding: open the writer, run the tile-population
+/// closure, write the .partial file, atomic rename to final.
+fn run_build<F>(opts: &BuildOptions, metadata: PackMetadata, populate: F) -> Result<(), BuildError>
+where
+    F: FnOnce(&mut UpackWriter<Infallible, std::io::Error>) -> Result<(), BuildError>,
+{
     let partial_path = partial_path_for(&opts.out);
     let partial = PartialFile::new(partial_path.clone());
 
-    // Build the pack in-memory first, then write to .partial in one go.
-    // For the synthetic fixture (16 tiles × ~16 bytes each), this fits
-    // in RAM trivially. Phase 8 (OPFS streaming) will replace the
-    // in-memory buffer with a streaming approach for country-scale packs.
     let mut writer: UpackWriter<Infallible, std::io::Error> = UpackWriter::new();
     writer.begin_pack(metadata).map_err(BuildError::Writer)?;
+    populate(&mut writer)?;
 
-    for (x, y) in synthetic::all_tile_coords() {
-        let png_bytes = synthetic::tile_png_bytes(x, y)
-            .expect("all_tile_coords yields coords that have fixtures");
-        let decoded = decode_rgb888(png_bytes).map_err(BuildError::Decode)?;
-        if decoded.width != u32::from(synthetic::TILE_DIM_PX)
-            || decoded.height != u32::from(synthetic::TILE_DIM_PX)
-        {
-            return Err(BuildError::UnexpectedTileDimensions {
-                x,
-                y,
-                got_width: decoded.width,
-                got_height: decoded.height,
-                expected_dim: synthetic::TILE_DIM_PX,
-            });
-        }
-        let mut quantised =
-            vec![0_u8; usize::from(synthetic::TILE_DIM_PX) * usize::from(synthetic::TILE_DIM_PX)];
-        quantise_rgb888(&decoded.rgb888, &mut quantised);
-        writer
-            .add_tile_ref(synthetic::ZOOM, x, y, TileContent::Inline(quantised))
-            .map_err(BuildError::Writer)?;
-    }
-
-    // Create the .partial file and stream the pack into it.
     let partial_file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
@@ -207,51 +434,9 @@ fn build_synthetic(opts: &BuildOptions) -> Result<(), BuildError> {
     };
     writer.finalize(&mut adapter).map_err(BuildError::Writer)?;
     adapter.inner.sync_all()?;
-
-    // Atomic rename: .partial → .upack.
     partial.commit(&opts.out)?;
     Ok(())
 }
-
-fn synthetic_metadata(opts: &BuildOptions) -> PackMetadata {
-    // World bbox in microdegrees. The synthetic fixture nominally
-    // covers the whole world at z=2.
-    let bbox = BoundingBox {
-        min_lon_micro: -180_000_000,
-        min_lat_micro: -85_051_129,
-        max_lon_micro: 180_000_000,
-        max_lat_micro: 85_051_129,
-    };
-    // Synthetic-source pack_uuid: derived from the canonical descriptor
-    // when --pack-uuid is unset. For Phase 1 first slice we use a fixed
-    // deterministic value baked into the synthetic source's identity
-    // (Phase 1.x will run the actual UUIDv5 derivation per the descriptor
-    // schema in identity.rs).
-    let pack_uuid = opts.pack_uuid_override.unwrap_or(SYNTHETIC_PACK_UUID);
-    PackMetadata {
-        pack_uuid,
-        supersedes_uuid: None,
-        parent_uuid: None,
-        pixel_format: PixelFormat::Abgr2222,
-        projection: Projection::WebMercator,
-        tile_addressing_scheme: AddressingScheme::Quadtree,
-        tile_axis_convention: AxisConvention::Xyz,
-        tile_dim_px: synthetic::TILE_DIM_PX,
-        zoom_range: (synthetic::ZOOM, synthetic::ZOOM),
-        bbox,
-        build_timestamp: opts.timestamp_override.unwrap_or(0),
-    }
-}
-
-/// Stand-in `pack_uuid` for the synthetic source until Phase 1.x lands
-/// the proper UUIDv5-from-canonical-descriptor derivation. Pinned so
-/// the golden-synthetic test stays stable.
-///
-/// Bytes: `73 79 6e 74 68 65 74 69 63 5f 70 61 63 6b 21 00`
-/// (`"synthetic_pack!\0"` — visibly test-like, never zero).
-const SYNTHETIC_PACK_UUID: [u8; 16] = [
-    0x73, 0x79, 0x6E, 0x74, 0x68, 0x65, 0x74, 0x69, 0x63, 0x5F, 0x70, 0x61, 0x63, 0x6B, 0x21, 0x00,
-];
 
 fn partial_path_for(out: &Path) -> PathBuf {
     let mut s = out.as_os_str().to_owned();
@@ -261,7 +446,7 @@ fn partial_path_for(out: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::partial_path_for;
+    use super::{BboxDeg, deg_to_micro, partial_path_for, tile_range_for_zoom};
     use std::path::PathBuf;
 
     #[test]
@@ -276,5 +461,52 @@ mod tests {
         let out = PathBuf::from("output");
         let partial = partial_path_for(&out);
         assert_eq!(partial, PathBuf::from("output.partial"));
+    }
+
+    #[test]
+    fn deg_to_micro_round_trip() {
+        assert_eq!(deg_to_micro(-180.0), -180_000_000);
+        assert_eq!(deg_to_micro(0.0), 0);
+        assert_eq!(deg_to_micro(180.0), 180_000_000);
+        assert_eq!(deg_to_micro(-0.1278), -127_800);
+    }
+
+    #[test]
+    fn deg_to_micro_uses_banker_rounding() {
+        // 0.5 ties round to even.
+        assert_eq!(deg_to_micro(0.000_000_5), 0); // exactly halfway → even (0)
+        assert_eq!(deg_to_micro(0.000_001_5), 2); // halfway → even (2)
+    }
+
+    #[test]
+    fn tile_range_covers_london_at_zoom_10() {
+        // London-ish bbox.
+        let bbox = BboxDeg {
+            min_lon: -0.15,
+            min_lat: 51.49,
+            max_lon: -0.10,
+            max_lat: 51.52,
+        };
+        let tiles: Vec<_> = tile_range_for_zoom(bbox, 10).collect();
+        // Charing Cross at z=10 is tile (511, 340); a narrow bbox around
+        // it covers at least that tile.
+        assert!(tiles.iter().any(|&(x, y)| x == 511 && y == 340));
+    }
+
+    #[test]
+    fn tile_range_single_zoom_includes_corners() {
+        // A bbox covering the whole world.
+        let bbox = BboxDeg {
+            min_lon: -180.0,
+            min_lat: -85.0,
+            max_lon: 180.0,
+            max_lat: 85.0,
+        };
+        let tiles: Vec<_> = tile_range_for_zoom(bbox, 1).collect();
+        // At z=1 there are 4 tiles total: (0,0), (0,1), (1,0), (1,1).
+        assert_eq!(tiles.len(), 4);
+        let mut sorted = tiles.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![(0, 0), (0, 1), (1, 0), (1, 1)]);
     }
 }

@@ -24,8 +24,8 @@ vector  = []
 [dependencies]
 slippypack-core = { path = "../slippypack-core" }
 clap = { version = "4", features = ["derive"] }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 # Phase 1.x dependencies — uncomment as features land:
-# ureq    = { version = "3", default-features = false, features = ["rustls"] }
 # ctrlc   = "3"
 
 # Phase 2 dependencies (gated behind `vector`):
