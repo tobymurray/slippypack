@@ -329,6 +329,45 @@ PLAN.md § The load-bearing observation lists "source-mtime / Last-Modified accu
 
 ---
 
+## C — CLI (slippypack-cli)
+
+### C-001 — Synthetic fixture: 16 distinct PNG tiles, 16×16 each
+Per PLAN.md "gradient pattern, single zoom, 4×4 tiles." Each tile is a 16×16 solid-color PNG with a distinct hue (16 HSL hue steps around the colour wheel). Total fixture size ~1.4 KB. Each PNG is committed at `crates/slippypack-cli/fixtures/synthetic-pattern/tile-{x}-{y}.png` and `include_bytes!`-embedded into the CLI binary at compile time, so `cargo install`-ed binaries work without the source repo present.
+**Manifests:** `crates/slippypack-cli/src/sources/synthetic.rs::tile_png_bytes`.
+**Commit:** to land with the Phase 1 first-slice commit.
+
+### C-002 — Synthetic packs use `tile_dim_px = 16`, not the spec-mandated 128
+The synthetic source is for **pipeline validation**, not watch-loadability. The watch's TilePack reader will refuse a pack with `tile_dim_px != 128` per the una-sdk spec. Using 16 keeps the committed fixture small (each PNG ~85 bytes, the produced pack ~5 KB) without losing coverage of the decode → quantise → format pipeline. Phase 1.x or a follow-up can swap to 128×128 fixtures if/when watch-loadable synthetic packs become useful.
+**Manifests:** `crates/slippypack-cli/src/sources/synthetic.rs::TILE_DIM_PX`.
+**Commit:** to land with the Phase 1 first-slice commit.
+
+### C-003 — Synthetic `pack_uuid` is a fixed deterministic 16-byte stand-in
+"synthetic_pack!\0" — visibly test-like, never zero. Phase 1.x will swap this for the proper UUIDv5-from-canonical-descriptor derivation (per identity.rs). Pinned now so the golden-synthetic.upack test stays stable across the v1 lifetime; the bytes match an ASCII string so anyone inspecting the pack header recognises it as a fixture, not a real pack.
+**Manifests:** `crates/slippypack-cli/src/build.rs::SYNTHETIC_PACK_UUID`.
+**Commit:** to land with the Phase 1 first-slice commit.
+
+### C-004 — Atomic write via `<out>.upack.partial` → rename, with RAII cleanup
+Per PLAN.md § CLI cancellation and atomic write. The CLI writes to `<out>.upack.partial` first, then atomically renames on success. A `PartialFile` RAII struct deletes the partial file on drop if `commit()` wasn't called — so panics, error returns, and (Phase 1.x) SIGINT handlers all leave a clean filesystem.
+**Manifests:** `crates/slippypack-cli/src/build.rs::PartialFile`.
+**Commit:** to land with the Phase 1 first-slice commit.
+
+### C-005 — In-memory pack assembly (no streaming) for first slice
+The CLI fully buffers the synthetic pack's tile bytes in RAM before writing to disk. Phase 8 (PWA OPFS streaming) introduces the streaming path that flushes tile bytes through an external `TileByteSource`. For the synthetic source (16 tiles × 256 bytes = 4 KB), in-memory is trivial. For URL templates (Phase 1.x), in-memory works up to ~100 MB packs; country-scale packs need Phase 8's streaming.
+**Manifests:** `crates/slippypack-cli/src/build.rs::build_synthetic` (uses `TileContent::Inline` exclusively, no `register_byte_source`).
+**Commit:** to land with the Phase 1 first-slice commit.
+
+### C-006 — `IoWriteAdapter` bridges `std::io::Write` to `slippypack_core::format::Write`
+The format module defines its own local `Write` trait (W-009 / F-011) to keep slippypack-core no_std-ready. CLI-side, `std::fs::File` implements `std::io::Write` but not the format crate's `Write`. A thin wrapper `IoWriteAdapter` translates calls. Same shape will be used in slippypack-cli's URL-template path (Phase 1.x).
+**Manifests:** `crates/slippypack-cli/src/build.rs::IoWriteAdapter`.
+**Commit:** to land with the Phase 1 first-slice commit.
+
+### C-007 — `--pack-uuid` and `--timestamp` overrides for CI reproducibility
+Both flags exist per the CLI synopsis pinned in PLAN.md. `--pack-uuid` accepts either hyphenated UUID form (`4e72f962-6632-4538-8e0a-7eab63350f3f`) or unhyphenated (`4e72f9626632...`); case-insensitive hex. The CLI rejects all-zero (spec-invariant: `pack_uuid` must be non-zero). `--timestamp` takes a u64 seconds-since-Unix-epoch value with no further validation (slippypack accepts 0 as the "no freshness info" sentinel per Q-001 / PLAN.md § Numeric input precision).
+**Manifests:** `crates/slippypack-cli/src/main.rs::parse_pack_uuid`; `crates/slippypack-cli/src/build.rs::BuildOptions`.
+**Commit:** to land with the Phase 1 first-slice commit.
+
+---
+
 ## Cross-cutting
 
 ### X-001 — Inline `#[cfg(test)] mod tests` for module-level unit tests
