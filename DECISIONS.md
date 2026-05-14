@@ -505,6 +505,44 @@ On macOS the new f64 outputs happen to be bit-identical to the previous std-libm
 **Manifests**: `crates/slippypack-core/Cargo.toml` (libm dep); `crates/slippypack-core/src/projection/mercator.rs::{lonlat_to_tile, tile_to_lonlat}`; new test `determinism_committed_f64_bits_for_known_tiles`.
 **Commit**: to land with the libm-swap slice.
 
+### F-026 — Spec § 8.6 pins `tile_count = 1` and `z = 0` for `SingleImage` packs
+Pre-1.0-freeze closure of a spec ambiguity. v1.0 `SingleImage` (the future `LocalLinear` use case in Phase 10) is a one-image format; the constraint wasn't stated, leaving readers free to disagree on what a multi-tile `SingleImage` pack should mean. Pinned now:
+
+- `tile_count = 1`
+- The lone index entry's `z = 0`
+- `zoom_min = zoom_max = 0`
+- Only `zoom_offsets[0]` is non-zero
+
+Readers MUST reject violations. If we ever want tiled multi-image packs, that's a new `tile_addressing_scheme` enum value via minor-version bump — not ambiguity in v1.0.
+
+**Manifests**: `spec/rawtiles-v1.0.md` § 8.6 (added in the same section as F-025).
+**Commit**: to land with the spec-alignment slice.
+
+### F-025 — Spec § 8.6 pins legal `projection` × `tile_addressing_scheme` pairs
+The previous § 8.3 said "Quadtree | v1 (used with `WebMercator`)" — advisory text, no reader MUST. Different readers were free to disagree on what `WebMercator + SingleImage` or `LocalLinear + Quadtree` mean. Closed now: exactly two pairs are legal in v1, readers MUST reject the rest:
+
+| `projection` | `tile_addressing_scheme` | Legal |
+|---|---|:---:|
+| WebMercator | Quadtree | ✅ |
+| WebMercator | SingleImage | ❌ MUST reject |
+| LocalLinear | Quadtree | ❌ MUST reject |
+| LocalLinear | SingleImage | ✅ |
+
+Future projections / addressing schemes paired with existing values can be added via minor-version bumps.
+
+**Manifests**: `spec/rawtiles-v1.0.md` § 8.6 (new section); § 8.3 cross-references § 8.6.
+**Commit**: to land with the spec-alignment slice.
+
+### F-024 — Spec § 7.3 / § 7.4 aligned to NAME length-prefixed payload
+The spec doc shipped (briefly) describing the NAME payload as "optional BCP-47 language-tag prefix followed by a tab and the name" — a tab-delimited form. The implementation in `format/extensions.rs::build_name_payload` / `parse_name_payload` uses the length-prefixed form `uint8 tag_length | tag | name` (per F-023). A silent format divergence: every spec-faithful third-party reader would have failed on every slippypack-produced `NAME` section.
+
+Fixed pre-1.0-freeze by updating spec § 7.3 to point at § 7.4, and adding § 7.4 with the length-prefixed payload table + the rationale for choosing length-prefixing over delimiter-separation (BCP-47 tags don't contain tabs, but names *could*, and the format's other conventions are length-prefixed).
+
+The implementation is unchanged; only the spec catches up.
+
+**Manifests**: `spec/rawtiles-v1.0.md` § 7.3 (row description) and new § 7.4 (full payload layout). Implementation reference: `crates/slippypack-core/src/format/extensions.rs::build_name_payload`, `parse_name_payload`.
+**Commit**: to land with the spec-alignment slice.
+
 ### F-023 — `NAME` extension payload structured as `uint8 tag_length | bcp47_tag | name`
 The slippypack `TAG_NAME` constant existed; the *payload* structure was only described vaguely in doc strings ("UTF-8 content with an optional BCP-47 language-tag prefix"). Now committed to match the una-sdk MapTrack spec exactly:
 

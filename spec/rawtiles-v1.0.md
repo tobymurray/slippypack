@@ -254,7 +254,7 @@ Tag bytes 2–4 MAY be any printable ASCII; their case has no normative meaning.
 
 | Tag | Meaning | Payload |
 |---|---|---|
-| `NAME` | Pack display name | UTF-8; optional BCP-47 language-tag prefix followed by a tab and the name. Multiple `NAME` sections MAY appear (one per locale). |
+| `NAME` | Pack display name | Length-prefixed BCP-47 tag + UTF-8 name; see § 7.4. Multiple `NAME` sections MAY appear (one per locale). |
 | `SRCD` | Source description | Free-form UTF-8 provenance text (e.g. *"OSM 2026-04 Geofabrik Italy extract, MapLibre watch-tuned style v2"*). |
 | `ATTR` | Attribution | UTF-8; newline-separated attribution strings, one per active source, no trailing newline. |
 | `PLET` | Palette | Packed pixel-format bytes (one per palette entry). Required when `pixel_format` is an indexed format; reserved for future use in v1. |
@@ -264,6 +264,31 @@ Conditional requirements:
 
 - `AFFN` MUST be present when `projection = LocalLinear`. Readers MUST reject LocalLinear packs without `AFFN`.
 - `PLET` MUST be present when `pixel_format` is an indexed format (none in v1; reserved).
+
+### 7.4 `NAME` payload layout
+
+The `NAME` section's payload is length-prefixed, not delimiter-separated:
+
+| Offset within payload | Size | Field |
+|---:|---:|---|
+| 0 | 1 | `tag_length` (u8) — number of bytes in the BCP-47 language tag |
+| 1 | `tag_length` | `bcp47_tag` — BCP-47 language tag bytes, UTF-8 (ASCII in practice; RFC 5646 tags are ASCII-only) |
+| 1 + `tag_length` | — | `name` — UTF-8 pack name, occupies the remainder of the payload |
+
+Rules:
+
+- `tag_length` MAY be `0`, indicating "no locale specified". A pack with multiple `NAME` sections SHOULD include exactly one section with `tag_length = 0` as the unlocalized fallback name.
+- `bcp47_tag` MUST be a syntactically valid BCP-47 language tag per RFC 5646. Readers SHOULD NOT validate the semantic correctness of the tag (e.g. whether a region subtag is registered) — that's the writer's responsibility.
+- `name` MUST be valid UTF-8 and SHOULD NOT be empty.
+- The total payload length is `1 + tag_length + name.len()`; the section header's `length` field carries this total.
+
+Readers selecting a `NAME` section for display:
+
+1. If multiple sections are present, prefer the one whose `bcp47_tag` best matches the device locale per BCP-47 lookup rules (RFC 4647 § 3.4).
+2. Fall back to the `tag_length = 0` section if no locale matches.
+3. If no fallback section exists, readers MAY pick any of the available `NAME` sections; the choice is implementation-defined.
+
+**Rationale for length-prefixing over delimiter-separation**: BCP-47 tags don't contain tabs, so a tab-delimited form would also work for v1; but length-prefixing is binary-clean (no need for readers to scan for an in-band delimiter), aligns with the rest of the format's length-prefix conventions (extension sections, tile-index entries), and is robust against any future tag-syntax expansion. Names containing tab characters (allowed under "free-form UTF-8") would break a tab-delimited form silently.
 
 ## 8. Enumerations
 
@@ -295,9 +320,11 @@ In every enum, readers MUST reject any unknown value encountered in the header o
 | Value | Name | Status |
 |---:|---|---|
 | 0 | reserved | reader MUST reject |
-| 1 | `Quadtree` | v1 (used with `WebMercator`) |
-| 2 | `SingleImage` | v1 (used with `LocalLinear`) |
+| 1 | `Quadtree` | v1 |
+| 2 | `SingleImage` | v1 |
 | 3–255 | reserved | reader MUST reject |
+
+`projection` and `tile_addressing_scheme` are not independently combinable; see § 8.6 for the legal pair table.
 
 ### 8.4 `tile_axis_convention` (header byte 57)
 
@@ -318,6 +345,28 @@ Meaningful only when `addressing_scheme = Quadtree`. For `SingleImage`, readers 
 | 1 | reserved (`LZ4`) | reader MUST reject |
 | 2 | reserved (`QOI`) | reader MUST reject |
 | 3–255 | reserved | reader MUST reject |
+
+### 8.6 Legal enum combinations and structural constraints
+
+Not every combination of `projection` × `tile_addressing_scheme` is meaningful. v1 defines exactly two legal pairs; readers MUST reject all others.
+
+| `projection` | `tile_addressing_scheme` | Legal in v1 | Description |
+|---|---|:---:|---|
+| `WebMercator` (1) | `Quadtree` (1) | ✅ | The standard slippy-map case: pyramidal tiles at zooms `[zoom_min, zoom_max]`, indexed by `(z, x, y)`. |
+| `WebMercator` (1) | `SingleImage` (2) | ❌ — MUST reject | Undefined. A "single Mercator image" has no canonical bounds. |
+| `LocalLinear` (3) | `Quadtree` (1) | ❌ — MUST reject | Undefined. Local-linear coordinates have no canonical pyramidal subdivision. |
+| `LocalLinear` (3) | `SingleImage` (2) | ✅ | One image with a corner-to-lat/lon affine (`AFFN`). For hand-drawn maps and similar uses. |
+
+Readers MUST verify this pairing against the header bytes at offsets 55 and 56 before doing any further parsing.
+
+**SingleImage tile-index constraint.** When `tile_addressing_scheme = SingleImage`:
+
+- `tile_count` MUST be exactly `1`.
+- The lone index entry's `z` MUST be `0`. (Its `x` and `y` are unconstrained by the spec but conventionally both `0`.)
+- `zoom_min` and `zoom_max` in the header MUST both be `0`.
+- `zoom_offsets[0]` is the only non-zero directory entry; `zoom_offsets[1..24]` MUST be all-zero.
+
+Readers MUST reject `SingleImage` packs that violate any of these. v1.0 deliberately does NOT support tiled (multi-image) `SingleImage` packs — future tiled forms get a new `tile_addressing_scheme` enum value via a minor-version bump (§ 13), not an ambiguous reinterpretation of `SingleImage = 2`.
 
 ## 9. Pixel formats
 
