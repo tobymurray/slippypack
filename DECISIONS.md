@@ -467,6 +467,16 @@ Phase 1.x deliverable, prompted by the need to catch writer-side bugs (endiannes
 **Manifests**: `spec-validator-cpp/src/validator.cpp`; `spec-validator-cpp/tests/run.sh`.
 **Commit**: to land with the C++ validator slice.
 
+### V-004 — `Quantiser` trait names the pixel-format seam; only `Abgr2222` ships in v1
+Triggered by the broader-device-usefulness review. The format itself supports multiple pixel formats (the `pixel_format` byte is an enum), but the quantiser monoculture meant slippypack only produced ABGR2222 output. Adding a `Quantiser` trait now (purely additive — `quantise_rgb888` and `QUANTISER_VERSION` stay) names the seam where RGB565 / RGB888 / indexed-palette quantisers can land later as companion impls without touching `slippypack-core`'s public surface.
+
+Each impl pins three associated `const`s — `VERSION`, `PIXEL_FORMAT`, `BYTES_PER_PIXEL` — and a `quantise(rgb888, output)` method. The trait is dyn-compatible (no associated types, no `Self: Sized` defaults) so future code paths can pick a quantiser at runtime from the metadata's `pixel_format` byte.
+
+**Why not refactor the existing callsites to use the trait now**: the callsite (`build.rs::add_decoded_tile`) hardcodes ABGR2222. The refactor that lets the CLI pick a quantiser from `--pixel-format` is a Phase 1.x or Phase 2 follow-on. Naming the seam is cheap and unblocks the follow-on; doing the full refactor speculatively is over-engineering.
+
+**Manifests**: `crates/slippypack-core/src/quantise.rs::{Quantiser, Abgr2222}`; `QUANTISER_VERSION` is now an alias for `Abgr2222::VERSION`.
+**Commit**: to land with the Quantiser-trait slice.
+
 ### V-003 — `ZOOM_OFFSETS_COUNT` bumped from 18 to 24 (header 322→394 bytes)
 Triggered by the "is anything watch-specific?" review — z=17 (max under 18 slots) is plenty for a watch displaying maps at walking pace, but constraining for car-nav (z=20), kiosk (z=18-20), and offline-GIS use cases. OSM and Google Maps publish through z=22. Bumping to z=0..=23 costs 72 bytes per pack's header (negligible) and unlocks devices beyond watches.
 

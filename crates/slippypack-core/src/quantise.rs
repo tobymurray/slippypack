@@ -1,20 +1,35 @@
-//! ABGR2222 quantiser. Converts RGB888 pixels to ABGR2222 bytes using
-//! integer-only arithmetic so the output is byte-identical across
-//! architectures (no float semantics, no FMA, no platform-dependent
-//! rounding).
+//! Quantisers from RGB888 to a tile pack's on-disk pixel format.
 //!
-//! See `PLAN.md` § The load-bearing observation: shared Rust core for the
-//! design context, and the una-sdk `.upack` spec's pixel-format enum for
-//! the byte-level shape. Bumping [`QUANTISER_VERSION`] is required whenever
-//! the quantiser's byte output changes for any input — the canonical
-//! source descriptor carries the version so packs produced by different
-//! quantisers get distinct `pack_uuid` values.
+//! v1 ships one quantiser: [`Abgr2222`], which maps each RGB channel
+//! to a 2-bit quantum (4 displayed levels per channel) and packs the
+//! result as one byte per pixel in `AABBGGRR` MSB→LSB order with
+//! alpha always opaque. Watch-tuned by default; one byte per pixel
+//! gives ~MB-scale packs for country-size bounding boxes.
+//!
+//! The [`Quantiser`] trait names the seam for future pixel formats
+//! (RGB565 for ~480p+ displays, RGB888 for phone/desktop offline-nav,
+//! indexed-palette for e-readers). Adding a new quantiser is a
+//! companion impl plus a `pixel_format` enum value; the format
+//! [`PackMetadata`]-side stays unchanged. Bumping a quantiser's
+//! `VERSION` is required whenever its byte output changes for any
+//! input — the canonical source descriptor carries the version so
+//! packs produced by different quantiser versions get distinct
+//! `pack_uuid` values even when all other inputs match.
+//!
+//! Integer-only by construction across every impl: no floats, no FMA,
+//! no `f32` semantics that vary across architectures. Cross-platform
+//! byte-identical output is a load-bearing claim of the format.
+//!
+//! [`PackMetadata`]: crate::format::PackMetadata
 
 /// Bumped on any change to the quantiser's byte output. Carried in the
 /// canonical source descriptor (per `PLAN.md` § Canonical source descriptor)
 /// so that packs produced by different quantiser versions get distinct
 /// `pack_uuid` values even when all other inputs match.
-pub const QUANTISER_VERSION: u32 = 1;
+///
+/// Equal to [`Abgr2222::VERSION`] — retained as a module-level constant
+/// for callers that don't want to name the quantiser type.
+pub const QUANTISER_VERSION: u32 = Abgr2222::VERSION;
 
 /// Quantise a single RGB888 pixel to ABGR2222.
 ///
@@ -85,9 +100,80 @@ pub fn quantise_rgb888(input: &[u8], output: &mut [u8]) {
     }
 }
 
+/// A pixel-format-specific quantiser. Each impl converts an RGB888
+/// buffer to its target pixel format's bytes, integer-only, byte-
+/// identical across architectures.
+///
+/// **Adding a new quantiser** (RGB565, indexed-palette, etc.):
+///
+/// 1. Implement [`Quantiser`] on a zero-sized type.
+/// 2. Pin a [`VERSION`] (start at 1) and a [`PIXEL_FORMAT`] byte that
+///    matches a reserved value in the format's pixel-format enum.
+/// 3. Add a determinism test that locks the byte output for a fixed
+///    input. Bumping `VERSION` later is mandatory for any output-byte
+///    change.
+///
+/// [`VERSION`]: Abgr2222::VERSION
+/// [`PIXEL_FORMAT`]: Abgr2222::PIXEL_FORMAT
+pub trait Quantiser {
+    /// This quantiser's output-version. Equal to its impl's
+    /// `const VERSION: u32`. Bumped on any byte-output change.
+    fn version(&self) -> u32;
+
+    /// The pixel-format byte the output bytes target (matches the
+    /// format's pixel-format enum — `1` for ABGR2222, future values
+    /// reserved).
+    fn pixel_format(&self) -> u8;
+
+    /// Number of bytes per quantised output pixel.
+    fn bytes_per_pixel(&self) -> usize;
+
+    /// Quantise a flat RGB888 buffer (3 bytes per pixel, R-G-B order)
+    /// into a flat output buffer ([`bytes_per_pixel`] per pixel).
+    ///
+    /// `output.len() == input.len() / 3 * bytes_per_pixel()` is a
+    /// caller invariant; impls panic if it's violated.
+    ///
+    /// [`bytes_per_pixel`]: Quantiser::bytes_per_pixel
+    fn quantise(&self, rgb888: &[u8], output: &mut [u8]);
+}
+
+/// The ABGR2222 quantiser. 2 bits per channel + 2 bits alpha (always
+/// opaque) packed into one byte per pixel, `AABBGGRR` MSB→LSB.
+///
+/// Zero-sized: construct via `Abgr2222` or `Abgr2222::default()`.
+/// The trait impl delegates to [`quantise_rgb888`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Abgr2222;
+
+impl Abgr2222 {
+    /// Quantiser version. Bumped on any output-byte change.
+    pub const VERSION: u32 = 1;
+    /// Pixel-format enum byte for ABGR2222 (matches the format's
+    /// `PixelFormat::Abgr2222 = 1`).
+    pub const PIXEL_FORMAT: u8 = 1;
+    /// One output byte per pixel.
+    pub const BYTES_PER_PIXEL: usize = 1;
+}
+
+impl Quantiser for Abgr2222 {
+    fn version(&self) -> u32 {
+        Self::VERSION
+    }
+    fn pixel_format(&self) -> u8 {
+        Self::PIXEL_FORMAT
+    }
+    fn bytes_per_pixel(&self) -> usize {
+        Self::BYTES_PER_PIXEL
+    }
+    fn quantise(&self, rgb888: &[u8], output: &mut [u8]) {
+        quantise_rgb888(rgb888, output);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{QUANTISER_VERSION, quantise_pixel, quantise_rgb888};
+    use super::{Abgr2222, QUANTISER_VERSION, Quantiser, quantise_pixel, quantise_rgb888};
 
     /// The four displayed levels of a 2-bit channel.
     const LEVELS: [u8; 4] = [0, 85, 170, 255];
@@ -310,5 +396,57 @@ mod tests {
             output, expected,
             "quantiser output drifted from committed values; bump QUANTISER_VERSION if intentional",
         );
+    }
+
+    // --- Quantiser trait tests --------------------------------------
+
+    #[test]
+    fn abgr2222_trait_constants_are_consistent() {
+        let q = Abgr2222;
+        assert_eq!(q.version(), Abgr2222::VERSION);
+        assert_eq!(q.pixel_format(), Abgr2222::PIXEL_FORMAT);
+        assert_eq!(q.bytes_per_pixel(), Abgr2222::BYTES_PER_PIXEL);
+        // QUANTISER_VERSION is the back-compat alias for Abgr2222::VERSION.
+        assert_eq!(QUANTISER_VERSION, Abgr2222::VERSION);
+    }
+
+    #[test]
+    fn abgr2222_pixel_format_byte_is_one() {
+        // The pixel_format enum byte for ABGR2222 is 1 (see format::types).
+        assert_eq!(Abgr2222::PIXEL_FORMAT, 1);
+    }
+
+    #[test]
+    fn abgr2222_trait_matches_free_function_byte_for_byte() {
+        // Same input through both paths must produce identical output —
+        // the trait is purely a wrapper over the free function.
+        let input: [u8; 48] = [
+            255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 128, 0, 0, 0, 128, 0, 0, 0, 128, 128,
+            128, 128, 42, 42, 42, 43, 43, 43, 85, 85, 85, 127, 127, 127, 170, 170, 170, 212, 212,
+            212, 213, 213, 213, 255, 128, 0,
+        ];
+        let mut via_free = [0_u8; 16];
+        let mut via_trait = [0_u8; 16];
+        quantise_rgb888(&input, &mut via_free);
+        Abgr2222.quantise(&input, &mut via_trait);
+        assert_eq!(via_free, via_trait);
+    }
+
+    #[test]
+    fn abgr2222_works_through_dyn_dispatch() {
+        // Verify the trait is dyn-compatible — important for future
+        // code paths that pick a quantiser at runtime based on a
+        // pixel_format byte.
+        let q: &dyn Quantiser = &Abgr2222;
+        assert_eq!(q.version(), Abgr2222::VERSION);
+        assert_eq!(q.pixel_format(), 1);
+        assert_eq!(q.bytes_per_pixel(), 1);
+
+        let input = [255_u8, 0, 0, 0, 255, 0];
+        let mut output = [0_u8; 2];
+        q.quantise(&input, &mut output);
+        // (255,0,0) → A=3, B=0, G=0, R=3 → 0b1100_0011
+        // (0,255,0) → A=3, B=0, G=3, R=0 → 0b1100_1100
+        assert_eq!(output, [0b1100_0011, 0b1100_1100]);
     }
 }
