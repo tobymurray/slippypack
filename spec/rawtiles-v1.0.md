@@ -426,14 +426,9 @@ Conformance test vectors are in § 14.4.
 
 ## 10. Footer (CRC)
 
-The last 4 bytes of the file are a u32 little-endian CRC-32 value.
+The last 4 bytes of the file are a u32 little-endian **CRC-32/ISO-HDLC** value — the variant defined in [ITU-T Rec. V.42 § 8.1.1.6.1](https://www.itu.int/rec/T-REC-V.42) and used by PNG ([RFC 2083 § 15](https://www.rfc-editor.org/rfc/rfc2083#section-15)) and zlib. Check value for the ASCII input `"123456789"` is `0xCBF43926`. Most language standard libraries ship this exact variant: Python `zlib.crc32`, Go `hash/crc32.IEEETable`, Java `java.util.zip.CRC32`, Rust `crc32fast`, Node `zlib.crc32`.
 
-- **Algorithm:** CRC-32/ISO-HDLC (the "PNG/zlib" CRC).
-  - Polynomial: `0xEDB88320` (reflected form of `0x04C11DB7`).
-  - Initial value: `0xFFFFFFFF`.
-  - Input reflected, output reflected, XOR-out `0xFFFFFFFF`.
-  - Check value for ASCII `"123456789"`: `0xCBF43926`.
-- **Scope:** every byte from offset 0 up to (but not including) the CRC's own 4 bytes.
+**Scope**: every byte from offset 0 up to (but not including) the CRC's own 4 bytes.
 
 Readers MUST verify the CRC at open time and reject the pack on mismatch.
 

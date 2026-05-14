@@ -460,6 +460,14 @@ PLAN.md § Source-kind details and identity.rs § "Auth values are deliberately 
 
 ## N — Naming
 
+### F-035 — Spec § 10 cites CRC-32/ISO-HDLC by standard name + language references
+Pre-1.0-freeze refinement. § 10 was hand-spelling the CRC-32 polynomial, init, reflection, and XOR-out — which is exactly the canonical specification of CRC-32/ISO-HDLC (a.k.a. the PNG / zlib CRC). Trimmed to a name-citation: ITU-T V.42 § 8.1.1.6.1 + RFC 2083 § 15, with the check value (`0xCBF43926` for `"123456789"`) kept as a quick gate. Added a one-liner pointing implementers at the variant in their standard library (`zlib.crc32`, `hash/crc32.IEEETable`, `java.util.zip.CRC32`, `crc32fast`, etc.) so nobody re-implements the polynomial unnecessarily.
+
+Same "external standard, no need to restate" pattern as F-034 (JCS for canonicalization). Same wins: smaller conformance surface, third-party readers/writers get the algorithm from their language's standard library.
+
+**Manifests**: `spec/rawtiles-v1.0.md` § 10 (rewritten, ~5 lines shorter).
+**Commit**: to land with the CRC-cite slice.
+
 ### F-034 — Canonicalisation aligned to RFC 8785 (JCS)
 Pre-1.0-freeze fix. Spec § A.3 was hand-rolling a partial restatement of RFC 8785's JSON Canonicalization Scheme: no whitespace, lex key order, no trailing newline, integer formatting rules, string escape rules, control-char `\uXXXX`. JCS already specifies all of that. Third-party writers should be able to use any off-the-shelf JCS library (Rust, Go, Python, JS, …) instead of re-implementing.
 
