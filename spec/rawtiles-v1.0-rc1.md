@@ -139,7 +139,6 @@ Four `i32` little-endian values, in this byte order: `min_lon`, `min_lat`, `max_
   - `lon_east_µ°(z, x) = lon_west_µ°(z, x + 1)`.
   - `lat_north_µ°(z, y)` = `+85_051_129` if `y == 0`; otherwise `round_half_even(atan(sinh(π · (1 − 2 · y / 2^z))) · (180_000_000 / π))` evaluated in IEEE-754 binary64 with strict rounding (no fused multiply-add, no contracted operations, no extended intermediate precision). `π` and `180_000_000 / π` are the binary64 nearest-rounded values of those mathematical constants.
   - `lat_south_µ°(z, y)` = `−85_051_129` if `y == 2^z − 1`; otherwise `lat_north_µ°(z, y + 1)`.
-  - The pole constants `±85_051_129 µ°` are normative and supersede any host-libm `atan`/`sinh` result for `y == 0` and `y == 2^z − 1`.
   - `bbox.min_lon`, `bbox.max_lon`, `bbox.min_lat`, `bbox.max_lat` are the componentwise min/max over `{lon_west_µ°, lon_east_µ°, lat_south_µ°, lat_north_µ°}` across all tile-index entries.
 - **Quadtree, `tile_count == 0`** (metadata-only packs, § 8.6): `bbox` is `(0, 0, 0, 0)`. With no tiles there is no tile-coverage region to bound; the canonical sentinel is the origin point. A writer that needs to advertise a different bbox on a zero-tile pack falls outside cross-writer-reproducible packs and MUST document its own convention.
 - **SingleImage with `projection = LocalLinear`**: `bbox` is the tight i32-microdegree bounding box of the four image-corner points `(0, 0)`, `(W, 0)`, `(0, H)`, `(W, H)` transformed by the AFFN matrix (§ 7.3), where `W = H = tile_dim_px`. Each corner maps to `(lon, lat) = (a·u + b·v + c, d·u + e·v + f)`; the four results' componentwise min/max give `bbox`, rounded to the nearest microdegree.
@@ -152,8 +151,8 @@ The value SHOULD represent the freshness of the underlying source data (e.g. mos
 
 **Canonical derivation (reproducibility-claiming writers).** `build_timestamp` is the **maximum** over all sources of each source's freshness-timestamp (Unix epoch seconds). The per-source freshness is the source's filesystem `mtime` (file-backed kinds) or HTTP `Last-Modified` (URL kinds) at the time the writer ingested it; sources for which no freshness signal is available (HTTP responses lacking `Last-Modified`, HTTP responses whose `Last-Modified` fails the parser rule below, the `synthetic` kind, etc.) contribute `0` and do NOT count in the max. If no source carries a freshness signal, `build_timestamp` is `0`. Max-over-sources matches the field's semantic ("how fresh is this pack's content?"); a single stale source MUST NOT drag the timestamp below a fresher source's freshness.
 
-- **Filesystem `mtime` conversion.** Sub-second precision MUST be discarded by flooring toward the Unix epoch (truncation of fractional seconds), regardless of host filesystem resolution. Future-dated `mtime` (greater than the writer's wall-clock at ingestion time) MUST be passed through unchanged — no clipping to "now."
-- **HTTP `Last-Modified` parser.** The value MUST be parsed as RFC 7231 § 7.1.1.1 IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`). The obsolete RFC 850 and ANSI C `asctime()` formats listed in RFC 7231 § 7.1.1.1 MUST be rejected; a response carrying a non-IMF-fixdate `Last-Modified` is treated as lacking a freshness signal and contributes `0` to the max.
+- Filesystem `mtime` sub-second precision MUST be floored toward the Unix epoch. Future-dated `mtime` MUST be passed through unchanged.
+- HTTP `Last-Modified` MUST be parsed as RFC 7231 § 7.1.1.1 IMF-fixdate; obsolete RFC 850 and `asctime()` formats are treated as no freshness signal.
 
 The value `0` is the sentinel for *"no freshness information available."*
 
@@ -179,10 +178,10 @@ For zooms with no tiles, both fields MUST be `0`. For zooms with tiles, `offset`
 
 u32 little-endian. Byte offset where the first extension section begins.
 
-- MUST equal the byte immediately following the last tile's padded extent, i.e. `tile_blob_start + Σ⟨padded_length(i) : i ∈ [0, tile_count)⟩` where `padded_length(i) = (length(i) + 3) & ~3`. No slack bytes between the tile blob and the extensions region are permitted.
-- For `tile_count == 0` Quadtree packs (§ 8.6), `extensions_offset` MUST equal `tile_blob_start` (= `index_offset + 20 × 0 = 292`).
-- MUST be `≤ file_size − 4` (the CRC footer occupies the last 4 bytes).
-- For packs with no extension sections, `extensions_offset` equals `file_size − 4` (the CRC footer's start).
+- MUST equal `tile_blob_start + Σ⟨padded_length(i) : i ∈ [0, tile_count)⟩` where `padded_length(i) = (length(i) + 3) & ~3`.
+- For `tile_count == 0` Quadtree packs (§ 8.6), MUST equal `tile_blob_start` (= `292`).
+- MUST be `≤ file_size − 4`.
+- For packs with no extension sections, MUST equal `file_size − 4`.
 
 ## 5. Tile index
 
@@ -237,7 +236,7 @@ The tile blob is the contiguous region from the (padded) end of the tile index t
 
 The byte content of a tile is determined by `pixel_format` (§ 8.1) and `compression` (§ 8.5).
 
-For v1 with `pixel_format = ABGR2222` and `compression = None`, every tile is exactly `tile_dim_px × tile_dim_px` bytes laid out in **row-major** order: top-to-bottom rows, left-to-right within each row, one byte per pixel. "Top" and "bottom" follow the rendered orientation under `tile_axis_convention` (§ 8.4) — the top row of byte 0 is the northernmost pixel row of the tile under `XYZ`, the southernmost under `TMS`. No padding bytes are inserted within a tile.
+For v1 with `pixel_format = ABGR2222` and `compression = None`, every tile is exactly `tile_dim_px × tile_dim_px` bytes in row-major order: top-to-bottom rows, left-to-right within each row, one byte per pixel. The first row is the northernmost pixel row under `tile_axis_convention = XYZ` and the southernmost under `TMS` (§ 8.4). No intra-tile padding.
 
 ## 7. Extension sections
 
@@ -293,15 +292,15 @@ Tag bytes 2–4 MAY be any printable ASCII; their case has no normative meaning.
 Conditional requirements:
 
 - `AFFN` MUST appear exactly once when `projection = LocalLinear` and MUST NOT appear otherwise. All six coefficients MUST be finite IEEE-754 `f64` values (no NaN, no ±∞). Readers MUST reject violations. The pack's `bbox` MUST be derived from `AFFN` per § 4.9.
-- **Signed-zero normalization.** Writers MUST emit positive zero (`0x0000000000000000`) for any AFFN coefficient that evaluates to mathematical zero. The negative-zero bit pattern (`0x8000000000000000`) MUST NOT appear in any of the six coefficients on disk.
-- **Strict IEEE-754 arithmetic.** AFFN coefficient computation MUST be performed in IEEE-754 binary64 with strict rounding: no fused multiply-add, no contracted operations, no `-ffast-math`-class reordering, no extended intermediate precision (e.g. x87 80-bit), no signaling-NaN-quieting shortcuts.
-- **Non-finite intermediates.** Writers MUST reject input whose AFFN computation produces a NaN or ±∞ at any step (intermediate or final). No substitution, clipping, or NaN-quieting is permitted; the build MUST abort.
+- Writers MUST emit positive zero (`0x0000000000000000`) for any AFFN coefficient that evaluates to mathematical zero. The negative-zero bit pattern (`0x8000000000000000`) MUST NOT appear on disk.
+- AFFN coefficient computation MUST use IEEE-754 binary64 strict rounding: no fused multiply-add, no contracted operations, no extended intermediate precision.
+- Writers MUST abort the build if AFFN computation produces a NaN or ±∞ at any intermediate or final step.
 
 **ATTR payload rules.**
 
 - Lines are separated by a single LF byte (`0x0A`, U+000A). CRLF and bare CR are NOT permitted. The payload MUST contain no ASCII C0 control character (U+0001–U+001F) other than U+000A (LF), no DEL (U+007F), and no Unicode line-break codepoint U+0085 (NEL), U+2028 (LS), or U+2029 (PS). Writers MUST reject sources carrying any of these in attribution strings; readers MAY reject or strip.
 - No trailing LF after the last string.
-- Payload length MUST NOT be zero. A pack with zero sources (e.g. a metadata-only Quadtree pack with no source contributions) MUST omit the `ATTR` section rather than emit a zero-byte payload — a zero-length payload would be ambiguous between "one empty attribution string" and "zero attribution strings" under any reader split-on-LF semantic.
+- Payload length MUST NOT be zero. A pack with zero sources MUST omit the `ATTR` section.
 - For byte-identical reproducibility across writers, the strings MUST be ordered to match the canonical `sources` array order defined in Appendix A.4 (sorted by `(zoom_min, zoom_max, kind, identity)`).
 
 **SRCD is OPTIONAL.** Writers claiming cross-writer reproducibility (§ 14.1) MUST omit SRCD from v1 packs — v1 does not define a canonical SRCD-derivation function. Writers that emit SRCD MUST treat its bytes as part of their intra-writer deterministic surface.
@@ -323,12 +322,12 @@ Rules:
 - `bcp47_tag` MUST conform to the **v1 restricted BCP-47 subset** (see below). The full RFC 5646 grammar is not in scope for v1 — its ABNF is non-trivial enough that BCP-47 libraries across languages implement it partially, which would let two writers given the same locale tag produce different acceptance behavior (cross-writer divergence trap).
 - `name` MUST be valid UTF-8 and SHOULD NOT be empty.
 
-**v1 restricted BCP-47 subset.** The subset applies only when `tag_length > 0`. The `tag_length = 0` case represents the unlocalized-fallback marker (no BCP-47 tag bytes present) and is exempt from the subset constraints below. When `tag_length > 0`, the `bcp47_tag` byte sequence MUST match one of:
+**v1 restricted BCP-47 subset.** When `tag_length > 0`, the `bcp47_tag` byte sequence MUST match one of:
 
 - `language` — exactly two ASCII letters, lowercase (`[a-z]{2}`). Example: `en`, `it`, `ja`.
 - `language-REGION` — two lowercase ASCII letters, a hyphen `0x2D`, two uppercase ASCII letters (`[a-z]{2}-[A-Z]{2}`). Example: `en-US`, `pt-BR`.
 
-Writers MUST emit only these two shapes (or `tag_length = 0`). Readers MUST accept these two shapes (and `tag_length = 0`) and MUST reject any other shape (§ 11 #37). The case requirement (lowercase language, uppercase region) is normative: `en-us` is non-conforming in v1, as is `EN-US`. This matches the BCP-47 conventional case but is a strict requirement for byte-identical cross-writer output.
+Writers MUST emit only these two shapes (or `tag_length = 0`). Readers MUST accept these two shapes (and `tag_length = 0`) and MUST reject any other shape (§ 11 #37). The case requirement (lowercase language, uppercase region) is normative.
 
 - The total payload length is `1 + tag_length + name.len()`; the section header's `length` field carries this total.
 
@@ -336,7 +335,7 @@ Readers selecting a `NAME` section for display:
 
 1. Readers SHOULD use RFC 4647 § 3.4 lookup rules to find the best `bcp47_tag` match for the device locale. Readers MAY use a simpler strategy when an RFC 4647 parser isn't feasible (e.g., embedded readers with kilobyte budgets): byte-equal comparison of `bcp47_tag` against the device locale, falling back as below if no exact match.
 2. Fall back to the `tag_length = 0` section if no locale matches.
-3. If no `tag_length = 0` section exists, readers MUST select the first `NAME` section in pack-file order (which is canonical per § 12.1's extension-section ordering). The choice is determinate, not implementation-defined.
+3. If no `tag_length = 0` section exists, readers MUST select the first `NAME` section in pack-file order (canonical per § 12.1).
 
 ## 8. Enumerations
 
@@ -467,9 +466,9 @@ Readers MUST verify the CRC and reject the pack on mismatch. The verification wi
 
 This section is the complete reader-side conformance checklist. Every byte-format MUST defined in §§ 4–10 that a reader is responsible for verifying is restated or cross-referenced here, so a reader-implementer can validate against this single list without back-deriving requirements from prose in §§ 4–10.
 
-**Rejection timing.** All rejection rules below (#1 – #37) MUST be enforced before any tile bytes, extension-payload bytes, or extension-tag information are returned to the caller. A reader that interleaves these checks with the CRC verification window of § 10 — i.e. structural rejections folded into the same byte pass as the CRC fold — is conforming. A reader that defers structural rejections to first-lookup time (lazy validation) is NOT conforming. Rule #38 governs decode mechanics rather than rejection, but applies at the same point in the open path (before any 64-bit-payload-derived value is returned to the caller).
+**Rejection timing.** All rejection rules below (#1 – #37) MUST be enforced before any tile bytes, extension-payload bytes, or extension-tag information are returned to the caller. A reader that interleaves these checks with the CRC verification window of § 10 — i.e. structural rejections folded into the same byte pass as the CRC fold — is conforming. A reader that defers structural rejections to first-lookup time (lazy validation) is NOT conforming. Rule #38 (alignment + endian conversion) applies before any 64-bit-payload-derived value is returned to the caller.
 
-**Conformance scope.** Conforming readers MUST accept any pack that does not violate one of the MUST rules below. § 11 is the complete reader-side rejection checklist: every reader-binding MUST appearing elsewhere in §§ 4–10 is restated or cross-referenced in this section. Readers facing operational limits (RAM budgets, locale-rendering capability, large `tile_dim_px`, large `tile_count`, large `file_size`) MAY surface those as runtime errors at lookup or render time, and MAY additionally refuse to open packs whose declared resource footprint exceeds the reader's configured limits — provided that such resource-driven open-time refusals are reported through a distinct error path from conformance rejections (e.g. a separate error class or status code) so callers can distinguish "malformed pack" from "valid pack the reader cannot service."
+**Conformance scope.** Conforming readers MUST accept any pack that does not violate one of the MUST rules below. § 11 is the complete reader-side rejection checklist; every reader-binding MUST in §§ 4–10 is restated or cross-referenced here. Readers facing operational limits MAY surface those as runtime errors at lookup or render time, and MAY refuse to open packs whose declared resource footprint exceeds the reader's configured limits, provided such refusals are reported through a distinct error path from conformance rejections.
 
 **Allocation ordering.** Before allocating any buffer sized by the header-supplied `tile_count`, readers MUST validate that the tile index fits within the file. Compute the check overflow-safely as `file_size ≥ 296` AND `tile_count ≤ (file_size − 296) / 20` (division; u32-safe). The naive multiplicative formulation `296 + 20 × tile_count ≤ file_size` wraps on u32 for `tile_count` near `u32::MAX / 20` and MUST NOT be used directly. This bounds malformed-`tile_count` claims to legal file-size budgets and is enforced before rules below that depend on parsed tile-index entries.
 
@@ -488,17 +487,11 @@ A conforming v1 reader MUST:
 11. Reject `bbox` values outside the integer-microdegree ranges of § 4.9: `min_lon` and `max_lon` outside `[−180_000_000, 180_000_000]`, or `min_lat` and `max_lat` outside `[−90_000_000, 90_000_000]`. Reject `min_lon > max_lon` or `min_lat > max_lat`.
 12. Reject any tile-index entry with non-zero `flags` or non-zero `reserved` (§ 5.2).
 13. Reject the pack if entries are not sorted ascending by `(z, x, y)` — `z` non-decreasing across all entries; within each zoom, `(x, y)` strictly ascending lexicographically. The strict-within-zoom property forbids duplicate `(z, x, y)` triples and is what § 5.3's binary search depends on.
-14. For each tile-index entry, reject the pack if any of the following hold (evaluated in this order — order matters for u32 arithmetic safety):
-    (a) `offset` is not 4-byte aligned.
-    (b) `offset < tile_blob_start` (§ 3).
-    (c) `offset ≥ extensions_offset`.
-    (d) `length > extensions_offset − offset`.
-    
-    Step (c) MUST precede step (d): the u32 subtraction `extensions_offset − offset` is only well-defined as an unsigned non-wrapping value once `offset ≤ extensions_offset` has been established. A reader skipping (c) and computing `length ≤ extensions_offset − offset` in u32 underflows for hostile `offset > extensions_offset` (the difference wraps to ≈ `2^32 − (offset − extensions_offset)`), accepts the entry, and redirects subsequent tile reads into the extensions region or past the file end. Readers MAY alternatively perform (c)+(d) as a single u64 check `(u64)offset + (u64)length ≤ (u64)extensions_offset`; both forms are conforming.
+14. For each tile-index entry, reject the pack if any of the following hold, evaluated in order: (a) `offset` is not 4-byte aligned; (b) `offset < tile_blob_start` (§ 3); (c) `offset ≥ extensions_offset`; (d) `length > extensions_offset − offset`. (c) MUST precede (d) — the u32 subtraction underflows otherwise. Readers MAY substitute the single u64 check `(u64)offset + (u64)length ≤ (u64)extensions_offset` for (c)+(d).
 15. Reject any tile-index entry with `z > zoom_max` or `z < zoom_min` (§ 4.8).
 16. Reject any tile-index entry whose `length` does not match the format-implied tile-bytes size. For v1's only pixel/compression pair (`pixel_format = ABGR2222`, `compression = None`), `length MUST equal tile_dim_px × tile_dim_px` for every entry.
 17. Reject the pack if `zoom_offsets[z].count` does not equal the actual count of tile-index entries at zoom `z` for any `z`, or if `zoom_offsets[z].offset` does not equal the byte offset of the first index entry at zoom `z` (when `count > 0`) or is non-zero (when `count == 0`).
-18. Reject the pack if `extensions_offset` is not 4-byte aligned, if `extensions_offset > file_size − 4` (a value past the CRC footer is structurally invalid), if `extensions_offset < tile_blob_start` (covers `tile_count == 0` packs where a malformed `extensions_offset` could point inside the header), or if `extensions_offset` does not equal `tile_blob_start + Σ⟨padded_length(i) : i ∈ [0, tile_count)⟩` where `padded_length(i) = (length(i) + 3) & ~3` — i.e., the byte immediately following the last tile's padded extent (§ 4.13). For `tile_count == 0` Quadtree packs (§ 8.6), this equality reduces to `extensions_offset == 292`. The `extensions_offset ≤ file_size − 4` check is necessary because § 11 #19's section-walk loop (`while pos < file_size − 4`) starts from `extensions_offset` and would silently conclude "no extensions" instead of rejecting if the start pointer already overshoots the footer.
+18. Reject the pack if `extensions_offset` is not 4-byte aligned, if `extensions_offset > file_size − 4`, if `extensions_offset < tile_blob_start`, or if `extensions_offset ≠ tile_blob_start + Σ⟨padded_length(i) : i ∈ [0, tile_count)⟩` where `padded_length(i) = (length(i) + 3) & ~3` (§ 4.13). For `tile_count == 0` Quadtree packs, the equality reduces to `extensions_offset == 292`.
 19. Reject any extension section whose extent (`tag + length + payload + alignment padding`) is not contained in `[extensions_offset, file_size − 4)` (§ 7.1). Compute the upper-bound check overflow-safely as `length ≤ (file_size − 4) − section_start − 8` (subtraction; u32-safe), not `section_start + 8 + length ≤ file_size − 4` (addition; wraps for large `length`). Additionally: (a) verify that the section's padding bytes (0–3 bytes between `payload` and the next 4-byte boundary) are all `0x00` (§ 7.1) — readers MUST reject non-zero padding; (b) after the section-walk loop terminates, reject the pack if the walk's terminal position does not equal `file_size − 4` — i.e., stranded bytes exist between the last section's padded end and the CRC footer.
 20. Reject any pack containing an unknown extension tag whose first byte is upper-case ASCII (`A–Z`).
 21. Accept and MAY ignore any unknown extension tag whose first byte is lower-case ASCII.
@@ -510,15 +503,15 @@ A conforming v1 reader MUST:
 27. Reject any extension section whose tag's first byte is outside `[A-Z, a-z]` (digits, punctuation, control chars, non-ASCII, etc., per § 7.2).
 28. Reject any extension section whose tag bytes 2–4 contain any byte outside printable ASCII (`0x20`–`0x7E`), per § 7.2.
 29. Reject any pack containing two or more sections with the same upper-case extension tag, except `NAME` (per § 7.3 Cardinality); reject any pack containing two or more `NAME` sections sharing the same `bcp47_tag` value (per § 7.4).
-30. Reject any pack where `file_size > 2^32 − 1` (4 GiB). All on-disk offsets (`index_offset`, `extensions_offset`, `zoom_offsets[].offset`, tile-index `offset`) are u32 LE per § 3; a `file_size` beyond u32 range admits non-unique offset aliasing on 64-bit hosts.
-31. For `tile_addressing_scheme = Quadtree`, reject any tile-index entry where `x ≥ 2^z` or `y ≥ 2^z`. The legal tile grid at zoom `z` is `(2^z) × (2^z)` cells (§ 5.1); entries outside this grid have no defined WebMercator coverage and break § 4.9's `bbox` derivation.
-32. For each tile-index entry `i ∈ [0, tile_count)`, reject the pack if `offset(i) ≠ tile_blob_start + Σ⟨padded_length(j) : j ∈ [0, i)⟩` where `padded_length(j) = (length(j) + 3) & ~3`. This enforces the writer's blob-layout obligation of § 12 #8: tile bytes appear in the blob in tile-index order with no gaps beyond per-tile alignment padding and no overlapping ranges. For entry `i = 0`, the rule reduces to `offset(0) == tile_blob_start`.
-33. Reject the pack if any byte of per-tile alignment padding in the tile blob (the 0–3 zero bytes between a tile's last data byte and the next 4-byte boundary, § 6.1) is non-zero.
-34. Reject any `AFFN` extension whose section `length` field is not `48` (§ 7.3): the payload MUST contain exactly six little-endian IEEE-754 `f64` coefficients.
-35. Reject any `AFFN` extension whose six coefficient values, decoded as IEEE-754 binary64, are not all finite (NaN, +∞, −∞, signaling NaN, and any reserved-encoding pattern MUST be rejected; § 7.3).
-36. Reject any pack with `projection ≠ LocalLinear` (i.e. `WebMercator`) that contains an `AFFN` extension section (§ 7.3).
-37. Reject any `NAME` section whose `name` field (the bytes after the BCP-47 tag) is not valid UTF-8, or whose `bcp47_tag` field (when `tag_length > 0`) does not match the v1 restricted BCP-47 subset of § 7.4 (`[a-z]{2}` or `[a-z]{2}-[A-Z]{2}`, byte-for-byte).
-38. `memcpy` 64-bit values within extension-section payloads into 8-aligned locals before decoding, then convert the little-endian on-disk bytes to host byte order for the host's IEEE-754 binary64 type. The 4-byte alignment guarantee of § 7.1 covers section starts only; payload-internal 64-bit fields (notably `AFFN`'s six `f64`s, § 7.3) may land 4-aligned-not-8-aligned, and big-endian hosts MUST perform the byte-order swap before interpreting the values as `f64`.
+30. Reject any pack where `file_size > 2^32 − 1`.
+31. For `tile_addressing_scheme = Quadtree`, reject any tile-index entry where `x ≥ 2^z` or `y ≥ 2^z` (§ 5.1).
+32. For each tile-index entry `i ∈ [0, tile_count)`, reject the pack if `offset(i) ≠ tile_blob_start + Σ⟨padded_length(j) : j ∈ [0, i)⟩` where `padded_length(j) = (length(j) + 3) & ~3` (§ 12 #8).
+33. Reject the pack if any per-tile alignment padding byte in the tile blob (§ 6.1) is non-zero.
+34. Reject any `AFFN` section whose `length` field is not `48` (§ 7.3).
+35. Reject any `AFFN` section whose six decoded IEEE-754 binary64 coefficients are not all finite (§ 7.3).
+36. Reject any pack with `projection ≠ LocalLinear` that contains an `AFFN` section (§ 7.3).
+37. Reject any `NAME` section whose `name` field is not valid UTF-8, or whose `bcp47_tag` field (when `tag_length > 0`) does not match the v1 restricted BCP-47 subset of § 7.4.
+38. `memcpy` 64-bit values within extension-section payloads into 8-aligned locals before decoding, then convert the little-endian on-disk bytes to host byte order. Payload-internal 64-bit fields (notably `AFFN`'s six `f64`s, § 7.3) may land 4-aligned-not-8-aligned under § 7.1's section-start-only alignment guarantee.
 
 ## 12. Writer requirements
 
@@ -533,11 +526,11 @@ A conforming v1 writer MUST:
 5. Sort the tile index ascending by `(z, x, y)`. The within-zoom `(x, y)` ordering MUST be strictly ascending lexicographic — § 5.3's binary search depends on it (§ 5.2).
 6. Reject duplicate `(z, x, y)` tile inputs at write time, **after** applying the canonical conflict-resolution policy below. The policy applies to multi-source writers where two or more sources supply the same `(z, x, y)`:
 
-   **Canonical conflict resolution (later-source-wins).** Apply § A.4's canonical `sources` ordering to the writer's source list. The policy is applied **after** every source has been rendered through its writer-defined preprocessing pipeline (§ A.4) to the pre-quantise RGB888 surface, and applies uniformly across all source kinds (e.g. `url` vs `mbtiles`, `style` vs `pmtiles` at the same `(z, x, y)`). When two sources supply the same `(z, x, y)` tile, the tile from the source that appears LATER in § A.4's canonical ordering wins; earlier-source tiles for that `(z, x, y)` are silently dropped. After this resolution pass, no two tile-index entries share `(z, x, y)`. If the writer's source list collapses to a single source, the policy is a no-op.
+   **Canonical conflict resolution (later-source-wins).** Apply § A.4's canonical `sources` ordering to the writer's source list. The policy is applied after every source has been rendered through the writer's preprocessing pipeline (§ A.4) to the pre-quantise RGB888 surface, uniformly across source kinds. When two sources supply the same `(z, x, y)` tile, the tile from the source that appears LATER in § A.4's canonical ordering wins; earlier-source tiles for that `(z, x, y)` are silently dropped. After this resolution pass, no two tile-index entries share `(z, x, y)`. If the source list contains a single source, the policy is a no-op.
 
    Writers that apply a different conflict policy (e.g. first-source-wins, alpha-blend, or strict-reject-any-conflict) MUST NOT claim cross-writer reproducibility — their pack bytes will differ from canonical-policy writers given the same multi-source input. Writers that do NOT accept multi-source input (e.g. only ever one source) need not implement the policy; § 12 #6's strict-reject-duplicate-input rule covers their case directly.
 7. Pad the tile index to a 4-byte boundary before the tile blob.
-8. Place tile bytes in the tile blob in ascending `(z, x, y)` order matching the tile-index order (§ 5.2). For tile-index entry `i` (0-based), the entry's `offset` MUST equal `tile_blob_start + Σ⟨padded_length(j) : j < i⟩` where `padded_length(j) = (length(j) + 3) & ~3`. Each tile starts at a 4-byte-aligned offset; pad with 0–3 zero bytes between tiles so the next tile (or `extensions_offset`) is 4-byte aligned. Padding bytes are NOT counted in the entry's `length`. No gap bytes (beyond the per-tile 0–3 alignment padding) are permitted within the tile blob.
+8. Place tile bytes in the tile blob in ascending `(z, x, y)` order matching the tile-index order (§ 5.2). For tile-index entry `i` (0-based), `offset(i)` MUST equal `tile_blob_start + Σ⟨padded_length(j) : j < i⟩` where `padded_length(j) = (length(j) + 3) & ~3`. Each tile starts at a 4-byte-aligned offset; pad with 0–3 zero bytes between tiles. Padding bytes are not counted in the entry's `length`.
 9. Place each extension section starting at a 4-byte-aligned offset; pad each payload to a 4-byte boundary with zero bytes.
 10. Emit extension sections in a deterministic, input-derivable order — see § 12.1.
 11. Populate `zoom_offsets[z] = (0, 0)` for every zoom `z` with no tiles, and `(byte_offset_of_first_entry_at_z, count_at_z)` otherwise.
@@ -555,8 +548,8 @@ A conforming v1 writer MUST (reproducibility-claiming subset):
 A writer that advertises round-trip-byte-identical output to its downstream consumers (the dedup contract that drives offline-delivery cache invalidation) MUST additionally:
 
 20. Set `build_timestamp` to a value deterministically derived from the logical inputs — typically the most-recent source-data freshness time (mtime / `Last-Modified`), **never** wall-clock build time. `build_timestamp` is in the CRC scope but NOT in the canonical descriptor (Appendix A), so a wall-clock value produces byte-different packs with the same `pack_uuid` — exactly the dedup failure mode § 14.1 exists to prevent. Writers that do not claim round-trip reproducibility MAY use wall-clock time, but in that case they MUST NOT advertise `pack_uuid` equality as implying byte equality to consumers.
-21. Abort the build with a non-zero exit on any source-tile fetch failure (HTTP 4xx, HTTP 5xx, TLS handshake failure, transport error, timeout, DNS failure). Implicit skip-on-error, retry-loop-then-skip, and blank-fill substitution are NOT permitted; retries are permitted only as long as a final outcome of "success with the same response bytes that would have been observed had the first attempt succeeded" is preserved.
-22. Abort the build with a non-zero exit on any malformed source-tile decoding error (corrupt or unparseable PNG/JPEG/GeoTIFF/PBF payload, dimension mismatch against `tile_dim_px`, palette decode failure, ICC-profile parse failure that the pipeline does not tolerate). Synthetic-pixel substitution (e.g. transparent, black, or "broken-tile" placeholder) is NOT permitted.
+21. Abort the build with a non-zero exit on any source-tile fetch failure (HTTP 4xx/5xx, TLS handshake failure, transport error, timeout, DNS failure). Skip-on-error and blank-fill substitution are not permitted. Retries are permitted if the final retained response bytes are identical to a successful first-attempt fetch.
+22. Abort the build with a non-zero exit on any malformed source-tile decoding error (corrupt or unparseable payload, dimension mismatch against `tile_dim_px`, palette decode failure). Synthetic-pixel substitution is not permitted.
 
 A conforming v1 writer MUST NOT:
 
@@ -713,7 +706,7 @@ Two rawtiles-specific rules apply *on top of* JCS — both about content shape, 
 
 The JCS canonicalization rules this spec relies on are: UTF-8 encoding, no whitespace, top-level keys sorted by UTF-16 codepoint order, no trailing newline, ECMAScript `Number.toString` for numeric values (for the integers used by this descriptor, just the decimal representation: no leading zeros, no `+`/`.0`), and ECMAScript `JSON.stringify` string escape rules (`\"`, `\\`, `\b`, `\t`, `\n`, `\f`, `\r` for the five shortcut control chars; `\u00XX` for other control chars below U+0020; non-ASCII chars emitted as UTF-8 bytes verbatim). The descriptor schema (integers, strings, arrays, nulls — no floats) lands cleanly in the subset of JSON values for which JCS is fully deterministic.
 
-**v1 descriptor invariants.** All keys at every level of the v1 descriptor are ASCII; v1.x extensions to the descriptor schema MUST preserve this invariant. All integer values in the v1 descriptor (including `bbox` µ° components, `tile_dim_px`, `zoom_range`, `quantiser_version`, `format_version` components, and per-source `zoom_min`/`zoom_max`/`fixture_version`) fit within the closed range `[−(2^53 − 1), +(2^53 − 1)]`; v1.x extensions MUST preserve this invariant.
+**v1 descriptor invariants.** All keys at every level of the v1 descriptor are ASCII. All integer values in the v1 descriptor fit within `[−(2^53 − 1), +(2^53 − 1)]`. v1.x extensions to the descriptor schema MUST preserve both invariants.
 
 Top-level keys, in lex order:
 
@@ -752,9 +745,9 @@ Per-kind entry shapes (keys in lex order within each object):
 
   The `content_hash` domain depends on the kind. **Critically, for every kind it represents the *deterministic surface* of the writer's preprocessing pipeline — never the raw source-file bytes for raster kinds.** This distinction closes the offline-delivery dedup contract: a recipient that has cached `pack_uuid X` and sees a new pack announcement for the same UUID is entitled to assume *byte-identical* tile blobs, not just "same logical inputs". Hashing source-file bytes does not give that guarantee (two writers can decode the same PNG through different sRGB / linear / alpha-handling pipelines and yield different RGB888, producing the same source-file SHA-256 but different tile blobs).
 
-  - **Raster sources** (`dir`, `geotiff`, `mbtiles`, `pmtiles`): `content_hash` is the SHA-256 of the writer's **pre-quantisation RGB888 byte stream** for this source — the bytes that feed § 9.1.1, *after* the writer's decode/resample/alpha-handling pipeline has run. The canonical byte stream is the concatenation of every tile's pixel matrix in **ascending `(z, x, y)` order** (matching the on-disk tile-index order, § 5.2). Within each tile, pixels are in **row-major order**: top-to-bottom rows, left-to-right within each row, matching § 6.2's on-disk pixel order. Each pixel is exactly **3 bytes: R, G, B** (no alpha, no padding, no compression, no inter-tile separator bytes). The writer's preprocessing pipeline (gamma, alpha-compositing, resampling) is implementation-defined; what `content_hash` promises is the pipeline's byte output. Two writers with different pipelines yield different `content_hash` → different `pack_uuid` → no false dedup hit.
+  - **Raster sources** (`dir`, `geotiff`, `mbtiles`, `pmtiles`): `content_hash` is the SHA-256 of the writer's **pre-quantisation RGB888 byte stream** for this source — the bytes that feed § 9.1.1, after the writer's decode/resample/alpha-handling pipeline has run. The canonical byte stream is the concatenation of every tile's pixel matrix in ascending `(z, x, y)` order (matching the on-disk tile-index order, § 5.2). Within each tile, pixels are in row-major order: top-to-bottom rows, left-to-right within each row (§ 6.2). Each pixel is exactly 3 bytes: R, G, B (no alpha, no intra-tile padding, no inter-tile separator bytes). The writer's preprocessing pipeline (gamma, alpha-compositing, resampling) is implementation-defined; `content_hash` pins the pipeline's byte output.
   - **Vector sources** (`pbf`): `content_hash` is the SHA-256 of the concatenated raw Mapbox Vector Tile bytes in ascending `(z, x, y)` order. v1 does not specify PBF-to-pixel rendering (reserved for a future minor); the hash exists so future PBF-rendering writers can pin their tile output by the source PBF stream.
-  - **Style** (`style`): `content_hash` is the SHA-256 of the MapLibre style JSON as supplied to the writer, UTF-8 bytes verbatim: no BOM stripping, no newline normalization (CRLF / CR / LF preserved as-supplied), no whitespace normalization, no JSON canonicalization, no encoding conversion. Two stylesheets that differ in any byte are distinct `style` sources. Style-driven raster output, when used as input to a raster source, is captured by that raster source's `content_hash` per the rule above.
+  - **Style** (`style`): `content_hash` is the SHA-256 of the MapLibre style JSON as supplied to the writer, UTF-8 bytes verbatim: no BOM stripping, no newline normalization, no whitespace normalization, no JSON canonicalization, no encoding conversion. Style-driven raster output, when used as input to a raster source, is captured by that raster source's `content_hash` per the rule above.
 
   This shifts the `pack_uuid → tile-blob` determinism guarantee from "writers must agree on every preprocessing step" to "writers must agree on their pipeline's *output*". The spec does NOT prescribe a specific decode/resample/alpha pipeline; writers MUST document their convention. The round-trip property of § 14.1 enforces this: if two runs of the same writer produce the same `pack_uuid` they MUST produce byte-identical packs, which (because tile blobs flow from `content_hash`-pinned RGB888 through the locked § 9.1.1 quantiser) reduces to "same RGB888 in, same tile blob out".
 
@@ -772,9 +765,9 @@ Per-kind entry shapes (keys in lex order within each object):
 
   `auth_kinds` is a sorted, deduplicated array drawn from `"header"` and `"query"`. Authentication *values* (API keys, tokens) MUST NOT appear in the descriptor — only the *kinds* of authentication in use. This keeps `pack_uuid` stable across credential rotations.
 
-  `template` is the URL string as supplied to the writer, byte-verbatim: no scheme/host case folding, no percent-encoding canonicalization, no path normalization (no removal of `.` / `..` segments), no query-parameter sorting, no trailing-slash addition or removal. Two configured templates that differ in any byte (including case, escape form, or query-string order) are distinct `url` sources.
+  `template` is the URL string as supplied to the writer, byte-verbatim: no scheme/host case folding, no percent-encoding canonicalization, no path normalization, no query-parameter sorting, no trailing-slash addition or removal.
 
-  `zoom_min` and `zoom_max` reflect the **realized** range of tile-index entries this source contributed to the pack — i.e. the min and max `z` of `(z, x, y)` tiles ingested from this source, after conflict resolution (§ 12 #6). For reproducibility-claiming writers (§ 12 #21), fetch failures abort the build, so configured and realized ranges coincide.
+  `zoom_min` and `zoom_max` reflect the realized range of tile-index entries this source contributed to the pack — the min and max `z` of `(z, x, y)` tiles ingested from this source, after conflict resolution (§ 12 #6).
 
 - **`image`** (LocalLinear hand-drawn):
 
