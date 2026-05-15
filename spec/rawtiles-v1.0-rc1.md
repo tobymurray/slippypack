@@ -153,6 +153,7 @@ The value SHOULD represent the freshness of the underlying source data (e.g. mos
 
 - Filesystem `mtime` sub-second precision MUST be floored toward the Unix epoch. Future-dated `mtime` MUST be passed through unchanged.
 - HTTP `Last-Modified` MUST be parsed as RFC 7231 § 7.1.1.1 IMF-fixdate; obsolete RFC 850 and `asctime()` formats are treated as no freshness signal.
+- If the canonical derivation produces `0` while at least one source carried a real freshness signal (i.e. a source's `mtime` or parsed `Last-Modified` was exactly `0`), writers MUST emit `1` instead of `0`.
 
 The value `0` is the sentinel for *"no freshness information available."*
 
@@ -466,7 +467,7 @@ Readers MUST verify the CRC and reject the pack on mismatch. The verification wi
 
 This section is the complete reader-side conformance checklist. Every byte-format MUST defined in §§ 4–10 that a reader is responsible for verifying is restated or cross-referenced here, so a reader-implementer can validate against this single list without back-deriving requirements from prose in §§ 4–10.
 
-**Rejection timing.** All rejection rules below (#1 – #37) MUST be enforced before any tile bytes, extension-payload bytes, or extension-tag information are returned to the caller. A reader that interleaves these checks with the CRC verification window of § 10 — i.e. structural rejections folded into the same byte pass as the CRC fold — is conforming. A reader that defers structural rejections to first-lookup time (lazy validation) is NOT conforming. Rule #38 (alignment + endian conversion) applies before any 64-bit-payload-derived value is returned to the caller.
+**Rejection timing.** All rejection rules below (#1 – #38) MUST be enforced before any tile bytes, extension-payload bytes, or extension-tag information are returned to the caller. A reader that interleaves these checks with the CRC verification window of § 10 — i.e. structural rejections folded into the same byte pass as the CRC fold — is conforming. A reader that defers structural rejections to first-lookup time (lazy validation) is NOT conforming. Rule #39 (alignment + endian conversion) applies before any 64-bit-payload-derived value is returned to the caller.
 
 **Conformance scope.** Conforming readers MUST accept any pack that does not violate one of the MUST rules below. § 11 is the complete reader-side rejection checklist; every reader-binding MUST in §§ 4–10 is restated or cross-referenced here. Readers facing operational limits MAY surface those as runtime errors at lookup or render time, and MAY refuse to open packs whose declared resource footprint exceeds the reader's configured limits, provided such refusals are reported through a distinct error path from conformance rejections.
 
@@ -511,7 +512,8 @@ A conforming v1 reader MUST:
 35. Reject any `AFFN` section whose six decoded IEEE-754 binary64 coefficients are not all finite (§ 7.3).
 36. Reject any pack with `projection ≠ LocalLinear` that contains an `AFFN` section (§ 7.3).
 37. Reject any `NAME` section whose `name` field is not valid UTF-8, or whose `bcp47_tag` field (when `tag_length > 0`) does not match the v1 restricted BCP-47 subset of § 7.4.
-38. `memcpy` 64-bit values within extension-section payloads into 8-aligned locals before decoding, then convert the little-endian on-disk bytes to host byte order. Payload-internal 64-bit fields (notably `AFFN`'s six `f64`s, § 7.3) may land 4-aligned-not-8-aligned under § 7.1's section-start-only alignment guarantee.
+38. Reject any `SRCD` or `ATTR` section whose payload is not valid UTF-8 (§ 7.3).
+39. `memcpy` 64-bit values within extension-section payloads into 8-aligned locals before decoding, then convert the little-endian on-disk bytes to host byte order. Payload-internal 64-bit fields (notably `AFFN`'s six `f64`s, § 7.3) may land 4-aligned-not-8-aligned under § 7.1's section-start-only alignment guarantee.
 
 ## 12. Writer requirements
 
