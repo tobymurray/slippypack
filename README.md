@@ -8,7 +8,7 @@ See [PLAN.md](PLAN.md) for the design and phasing.
 
 ## What this is
 
-A Rust toolkit for building offline tile packs in the `.rawtiles` format. One core library, two front-ends — a native CLI and a browser PWA — both writing byte-identical packs. The `.rawtiles` format's design home is the sibling `una-sdk` watch firmware project; slippypack is the canonical writer and mirrors the spec at [spec/rawtiles-v1.0-rc1.md](spec/rawtiles-v1.0-rc1.md).
+A Rust toolkit for building offline tile packs in the `.rawtiles` format. One core library, two front-ends — a native CLI and a browser PWA — both writing byte-identical packs. The `.rawtiles` byte format is defined by the standalone [rawtiles spec](https://github.com/tobymurray/rawtiles); slippypack is one writer against that contract.
 
 ## Repository layout
 
@@ -20,8 +20,9 @@ A Rust toolkit for building offline tile packs in the `.rawtiles` format. One co
 | `crates/slippypack-web-mbtiles/` | MBTiles reader; lazy-loaded WASM module |
 | `crates/slippypack-web-pmtiles/` | PMTiles reader; lazy-loaded WASM module |
 | `www/` | TypeScript shell + assets for the PWA (lands in Phase 4) |
-| `PLAN.md` | Design, phasing, and spec-level details |
-| `spec/rawtiles-v1.0-rc1.md` | Authoritative `.rawtiles` v1.0 byte-level specification |
+| `PLAN.md` | Design, phasing, and slippypack-specific details |
+
+The `.rawtiles` byte-level specification lives in its own repository at [github.com/tobymurray/rawtiles](https://github.com/tobymurray/rawtiles).
 
 ## Building
 

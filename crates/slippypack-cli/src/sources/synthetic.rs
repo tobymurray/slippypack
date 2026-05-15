@@ -18,7 +18,7 @@
 ///
 /// Note: this is **not** the spec-mandated `128` — synthetic packs are
 /// for pipeline validation, not for watch-loadability (the watch's
-/// reader will refuse `tile_dim_px != 128` per the una-sdk spec).
+/// reader will refuse `tile_dim_px != 128` per the rawtiles spec).
 pub const TILE_DIM_PX: u16 = 16;
 
 /// Side length of the synthetic 4×4 tile grid.

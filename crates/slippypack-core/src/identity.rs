@@ -1,6 +1,7 @@
 //! Canonical source descriptor + UUIDv5 `pack_uuid` derivation.
 //!
-//! See `PLAN.md` § Canonical source descriptor for the wire-level rules
+//! See the rawtiles spec Appendix A
+//! (<https://github.com/tobymurray/rawtiles>) for the wire-level rules
 //! this module enforces:
 //!
 //! - UTF-8 JSON object, no whitespace, keys sorted lexicographically by
@@ -8,7 +9,7 @@
 //! - Integers in decimal, no leading zeros, no `+`/`.0`.
 //! - Coordinates as integer microdegrees (lat/lon × 10⁶, banker's rounding).
 //! - File-content hashes as lowercase hex SHA-256.
-//! - `pack_uuid = UUIDv5(rawtiles_namespace, canonical_descriptor_bytes)`.
+//! - `pack_uuid = UUIDv5(RAWTILES_NAMESPACE, canonical_descriptor_bytes)`.
 //!
 //! The serializer is hand-rolled (not `serde_json`) for three reasons:
 //! one canonical form (no surprises from `serde_json`'s defaults), zero
@@ -44,10 +45,11 @@ pub struct ZoomRange {
 /// Bounding box in integer microdegrees (lat/lon × 10⁶, banker's rounding).
 ///
 /// See PLAN.md § Canonical source descriptor → "Numeric input precision"
-/// for the rationale: the CLI/TOML accept decimal-degree floats; this
-/// module's callers convert to microdegrees before constructing the
-/// descriptor. Two inputs differing by less than 10⁻⁶ degrees collapse to
-/// the same descriptor (and therefore the same `pack_uuid`).
+/// for the slippypack-side rationale: the CLI/TOML accept decimal-degree
+/// floats; this module's callers convert to microdegrees before
+/// constructing the descriptor. Two inputs differing by less than 10⁻⁶
+/// degrees collapse to the same descriptor (and therefore the same
+/// `pack_uuid`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BoundingBox {
     pub min_lon_micro: i32,
@@ -57,7 +59,8 @@ pub struct BoundingBox {
 }
 
 /// Authentication mechanism used by a URL-template source. Auth *values*
-/// (API keys, etc.) are deliberately NOT in the descriptor — see PLAN.md.
+/// (API keys, etc.) are deliberately NOT in the descriptor — see the
+/// rawtiles spec Appendix A.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AuthKind {
     /// HTTP header-based auth (e.g. `Authorization: Bearer ...`).
@@ -69,13 +72,14 @@ pub enum AuthKind {
 /// A single source entry in the canonical descriptor's `sources` array.
 ///
 /// Variants are declared in alphabetical kind-name order so the derived
-/// `Ord` implementation matches the canonical sort rule (per PLAN.md):
+/// `Ord` implementation matches the canonical sort rule (per the
+/// rawtiles spec Appendix A):
 /// `dir < geotiff < mbtiles < pbf < pmtiles < style < synthetic < url`.
 ///
 /// **Per-variant field order also matters**: derived `Ord` compares
 /// fields in declaration order, which determines tie-breaking when two
 /// sources share `(zoom_min, zoom_max, kind)`. The first field is the
-/// "identity" per PLAN.md § Canonical source descriptor.
+/// "identity" per the rawtiles spec Appendix A.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Source {
     Dir {
@@ -163,10 +167,10 @@ impl Source {
 
 /// The fields that go into the `pack_uuid` derivation.
 ///
-/// See PLAN.md § Canonical source descriptor for the full schema. The
-/// top-level key set is **fixed**; new keys are a format-version bump
-/// (which becomes part of the descriptor itself, so old packs and new
-/// packs get distinct `pack_uuid` values cleanly).
+/// See the rawtiles spec Appendix A for the full schema. The top-level
+/// key set is **fixed**; new keys are a format-version bump (which
+/// becomes part of the descriptor itself, so old packs and new packs get
+/// distinct `pack_uuid` values cleanly).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackDescriptor {
     /// The six affine matrix coefficients `(a, b, c, d, e, f)` for the
@@ -275,7 +279,7 @@ pub fn derive_pack_uuid(d: &PackDescriptor) -> Uuid {
 
 fn write_uint(n: u64, buf: &mut String) {
     // `u64::to_string` produces canonical decimal (no leading zeros,
-    // no `+`, no `.0`) — matches PLAN.md's integer rules.
+    // no `+`, no `.0`) — matches the rawtiles spec's integer rules.
     buf.push_str(&n.to_string());
 }
 
@@ -379,7 +383,7 @@ fn write_sources(sources: &[Source], buf: &mut String) {
     // Sort by (zoom_min, zoom_max, derived Source Ord). Derived Ord on
     // Source compares variant index first (alphabetical kind order by
     // construction) then per-variant fields, the first of which is the
-    // "identity" per PLAN.md.
+    // "identity" per the rawtiles spec Appendix A.
     let mut sorted: Vec<&Source> = sources.iter().collect();
     sorted.sort_by(|a, b| {
         let zoom_a = (a.zoom_min(), a.zoom_max());

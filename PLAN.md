@@ -1,8 +1,8 @@
 # slippypack — Build offline `.rawtiles` map packs
 
-> Status: **plan**. No code yet. This document is the design and roadmap; concrete deliverables ship in slices, starting with [§ First Slice](#first-slice-phase-0--phase-1).
+> Status: **in flight**. Phase 0 (`slippypack-core`: format writer + reader, quantiser, identity, projection) and the first slice of Phase 1 (`slippypack-cli` with `--source synthetic` and URL templates) are landed; subsequent slices ship per [§ Phasing](#phasing).
 
-> **Format spec is authoritative in [spec/rawtiles-v1.0-rc1.md](spec/rawtiles-v1.0-rc1.md).** This file describes the project plan, phasing, and rationale; where it discusses `.rawtiles` byte layout, the spec doc is the source of truth.
+> **The `.rawtiles` byte format is defined by the standalone [rawtiles spec](https://github.com/tobymurray/rawtiles), not by this plan.** This document covers slippypack's design, phasing, and rationale; anything about on-disk bytes (header layout, tile-index entries, extension framing, canonical `pack_uuid` derivation, CRC scope, reader/writer conformance rules) is the spec's authority. Where this plan needs to talk about format details it defers to the spec by section reference; restating spec content here would only create two slightly-different "sources of truth."
 
 ## What this is
 
@@ -11,7 +11,7 @@ A Rust toolkit for building offline tile packs in the `.rawtiles` format. One co
 - **`slippypack` CLI** — a native binary for desktop / CI / power-user workflows. The v1 CLI reads URL templates, `gdal2tiles`-style tile directories, MBTiles, PMTiles, GeoTIFF, OSM PBF (with vector rendering via MapLibre Native, with a `tilemaker`-shellout fallback — see [§ Phase 2](#phase-2--cli-vector-rendering-osm-pbf)), MapLibre style JSON, and a built-in synthetic fixture for first-run validation. Runs entirely offline when sources are local. The canonical tool.
 - **`slippypack-web` PWA** — a static browser app for users who can't or won't install a CLI. A strict subset of the CLI: **raster sources only, no in-browser vector rendering, BYO tile source**.
 
-Both write `.rawtiles`. The format spec is authoritative in [`spec/rawtiles-v1.0-rc1.md`](spec/rawtiles-v1.0-rc1.md) in this repo — it is the public byte contract that any conforming reader implements. slippypack is the canonical writer; the una-sdk watch firmware is one reference reader (others can follow). **The format is the contract** — producers and consumers coordinate only through `.rawtiles` bytes.
+Both write `.rawtiles`. The format itself is defined by the standalone `rawtiles` spec — the public byte contract any conforming reader implements. slippypack is one writer; the una-sdk watch firmware is one reader (others can follow on either side). **The format is the contract** — producers and consumers coordinate only through `.rawtiles` bytes.
 
 The project name picks up "slippy map" — the standard term for `{z}/{x}/{y}` tile schemes (OSM, MapLibre, Mapbox vocabulary). It signals the niche without claiming any particular consumer, device, or rendering style. The `rawtiles` format itself is independent of slippypack: anyone can build a conforming writer or reader from the spec alone.
 
@@ -97,6 +97,9 @@ The CLI imports `slippypack-core` and adds filesystem I/O, async HTTP, GDAL bind
 
 ```mermaid
 graph LR
+    subgraph spec["rawtiles spec (separate repo)"]
+        Spec[".rawtiles byte format<br/>(canonical)"]
+    end
     subgraph slippypack["slippypack (this repo)"]
         Core["slippypack-core<br/>(decode, quantise, format, reader, projection, identity)"]
         CLI["slippypack-cli<br/>(native binary)"]
@@ -105,20 +108,19 @@ graph LR
         Core --> Web
     end
     subgraph unaSDK["una-sdk (separate repo)"]
-        Spec[".rawtiles format spec<br/>(canonical)"]
         Reader["TilePack reader<br/>(C++ on watch)"]
-        Spec --> Reader
     end
     Spec -.-> Core
+    Spec -.-> Reader
     Pack[".rawtiles bytes"]
     CLI --> Pack
     Web --> Pack
     Pack --> Reader
 ```
 
-slippypack writes `.rawtiles`; una-sdk (and any other reader implementer) reads it. The spec is owned by this repo at [`spec/rawtiles-v1.0-rc1.md`](spec/rawtiles-v1.0-rc1.md). Conformance is tested two ways: round-tripping bytes through slippypack's own reader (self-consistency), and round-tripping through independent readers (cross-implementation conformance — currently the C++ second-opinion validator at `spec-validator-cpp/`, and eventually the una-sdk simulator).
+slippypack writes `.rawtiles`; una-sdk (and any other reader implementer) reads it. The spec lives at [github.com/tobymurray/rawtiles](https://github.com/tobymurray/rawtiles) — slippypack tracks it as a downstream consumer, not as the spec's home. Conformance is tested two ways: round-tripping bytes through slippypack's own reader (self-consistency), and round-tripping through independent readers (cross-implementation conformance — currently the C++ second-opinion validator at `spec-validator-cpp/`, and eventually the una-sdk simulator).
 
-**Spec changes are proposed against [`spec/rawtiles-v1.0-rc1.md`](spec/rawtiles-v1.0-rc1.md).** New extension tags, pixel formats, or projection enums get a PR here; downstream consumers (slippypack writer, una-sdk reader, third-party implementations) adopt at their own pace. Minor version bumps (additive, backward-compatible) are accepted by older readers per the forward-compat contract; major bumps are coordinated through the spec's CHANGELOG.
+**Spec changes are proposed against the spec repo, not this one.** New extension tags, pixel formats, or projection enums land there first; slippypack adopts at its own pace. Minor version bumps (additive, backward-compatible) are accepted by older readers per the spec's forward-compat contract; major bumps are coordinated through the spec's CHANGELOG.
 
 ## TileWriter trait — the format-pluggability seam
 
@@ -212,47 +214,9 @@ Naming the seam now costs hours; retrofitting it after Phase 0 freezes the publi
 
 ## Canonical source descriptor
 
-`pack_uuid = UUIDv5(slippypack_namespace, canonical_descriptor_bytes)`. The descriptor's canonical byte-level form is what guarantees that the CLI and PWA produce identical UUIDs for the same logical inputs. Pinning it:
+The descriptor's byte-level shape — JSON schema, key ordering, per-kind `sources` entries, integer-microdegree encoding, the `RAWTILES_NAMESPACE` UUID, and the `UUIDv5(namespace, canonical_bytes)` derivation rule — is defined by the rawtiles spec, Appendix A. `slippypack-core::identity` implements that spec. The items below are slippypack-specific behaviours layered on top of it; everything else is the spec's responsibility.
 
-- **Encoding:** UTF-8 JSON object, **no whitespace**, **keys sorted lexicographically by codepoint**, no trailing newline. (Not CBOR: humans can hand-verify JSON; the descriptor is human-debuggable when reproducibility breaks.)
-- **Integers:** decimal, no leading zeros, no `+`/`.0`.
-- **Floats:** all numeric coordinates are stored as integer microdegrees (lat/lon × 10⁶, rounded half-to-even), avoiding floating-point reproducibility traps entirely.
-- **Hashes of file content:** lowercase hex of SHA-256 over the file's bytes (style JSON, uploaded MBTiles, uploaded PMTiles).
-- **`slippypack_namespace`:** a fixed UUID burned into `slippypack-core`'s source (`identity.rs`), never changes across slippypack versions.
-
-The descriptor keys, in alphabetical order (the sorted-key encoding produces this order):
-
-| Key | Type | Source |
-|---|---|---|
-| `bbox` | `[min_lon_µ°, min_lat_µ°, max_lon_µ°, max_lat_µ°]` | from `--bbox` |
-| `format_version` | `[major, minor]` | from `.rawtiles` spec; bumped only on spec changes |
-| `pixel_format` | int | from spec enum; `1` (ABGR2222) in v1 |
-| `projection` | int | from spec enum; `1` Mercator or `3` Local Linear |
-| `quantiser_version` | int | a slippypack-core constant; bumped on any quantiser-byte-output change |
-| `sources` | `[{kind, ...source-specific}]` | one object per active source — see ordering rule below |
-| `style_hash` | hex SHA-256 or `null` | content hash of `--style` JSON if vector source else `null` |
-| `tile_addressing_scheme` | int | from spec enum; `1` quadtree or `2` single-image |
-| `tile_axis_convention` | int | from spec enum; `1` XYZ or `2` TMS |
-| `tile_dim_px` | int | `128` for quadtree; ≤ 240 for single-image |
-| `zoom_range` | `[min, max]` | from `--zoom` |
-
-**`sources` ordering rule.** The array is sorted by `(zoom_min, zoom_max, kind, identity)` ascending — *not* by CLI-flag order. This means `--source A --source B` and `--source B --source A` produce identical `pack_uuid` when A and B describe the same logical layered build. `identity` is source-kind-specific: the URL template string for URL sources, the SHA-256 hex for file-backed sources (MBTiles, PMTiles, PBF, GeoTIFF, image). Within a layer, lexicographic comparison of (kind, identity) ties-breaks deterministically.
-
-**Per-kind `sources` entry shape:**
-
-- **`url`** (URL template): `{kind: "url", template: "<literal URL pattern>", auth_kinds: [...], zoom_min: int, zoom_max: int}`. `auth_kinds` is a sorted array of the auth mechanisms in use; legal elements are `"header"` and `"query"`. Empty array means no auth. Both elements can appear (some services use a query param for the API key plus a header for client identification). Auth *values* themselves are NOT in the descriptor — an API key rotation shouldn't invalidate the pack identity when the underlying tiles are unchanged.
-- **`dir`** (gdal2tiles directory tree): `{kind: "dir", content_hash: "<sha256-hex>", zoom_min: int, zoom_max: int}`. `content_hash` is the SHA-256 of the deterministic listing of `(relative_path, SHA-256(file_bytes))` pairs across the tree, sorted lexicographically by `relative_path`, encoded as canonical JSON (per the encoding rules above). Computed once at build time.
-- **`mbtiles`**: `{kind: "mbtiles", content_hash: "<sha256-hex>", zoom_min: int, zoom_max: int}`.
-- **`pmtiles`**: `{kind: "pmtiles", content_hash: "<sha256-hex>", zoom_min: int, zoom_max: int}`.
-- **`pbf`**: `{kind: "pbf", content_hash: "<sha256-hex>", zoom_min: int, zoom_max: int}`. The `style_hash` top-level key carries the `--style` flag's content hash.
-- **`geotiff`**: `{kind: "geotiff", content_hash: "<sha256-hex>", zoom_min: int, zoom_max: int}`.
-- **`style`** (MapLibre Style Spec JSON as the source): `{kind: "style", zoom_min: int, zoom_max: int}`. The style's own content hash lives in the top-level `style_hash` key (set to the source style's SHA-256); there is no separate per-source `content_hash` because that would be redundant with `style_hash`.
-- **`synthetic`** (built-in fixture): `{kind: "synthetic", fixture_version: int}`. `fixture_version` is a constant in `slippypack-core` (initially `1`), bumped on any change to the embedded fixture bytes. The `quantiser_version` top-level field captures quantiser-byte-output changes orthogonally.
-- **`image`** (Local-Linear hand-drawn, Phase 10; not a user-facing CLI source kind — produced by the hand-drawn-pack UI flow): `{kind: "image", content_hash: "<sha256-hex>"}`. The six-coefficient affine matrix lives under a top-level `affn` key (integer microunits); `bbox` is derived from applying the affine to the image's corners; `tile_addressing_scheme = 2`; `projection = 3`.
-
-Two slippypack builds against the same descriptor MUST produce identical `pack_uuid`. This rule is testable: serialize the descriptor, hash it via SHA-1 (UUIDv5's hash function), compare against the on-disk `pack_uuid` bytes.
-
-**Numeric input precision.** The CLI and TOML accept decimal-degree floats for `--bbox` (e.g. `-1.2345678,51.3,0.5,51.9`). slippypack converts these to integer microdegrees (lat/lon × 10⁶) using banker's rounding (half-to-even) before constructing the canonical descriptor. **Inputs differing by less than 10⁻⁶ degrees (≈ 0.11 m at the equator) produce identical descriptors and therefore identical `pack_uuid`.** This is intentional: floating-point representations of the same decimal vary across language runtimes (`-1.23` in JavaScript vs `-1.23` in Rust may have different IEEE-754 bits depending on parsing path), and the format-as-API claim requires CLI and PWA to agree to the byte regardless. Users needing sub-microdegree precision (no real use case at watch zoom levels — z=17 has ~76 cm tile width at the equator) would need a future spec bump.
+**Numeric input precision.** The CLI and TOML accept decimal-degree floats for `--bbox` (e.g. `-1.2345678,51.3,0.5,51.9`); slippypack converts these to integer microdegrees using banker's rounding (half-to-even) before constructing the canonical descriptor. **Inputs differing by less than 10⁻⁶ degrees (≈ 0.11 m at the equator) collapse to identical descriptors and therefore identical `pack_uuid`.** This is intentional: floating-point representations of the same decimal vary across language runtimes (`-1.23` in JavaScript vs `-1.23` in Rust may have different IEEE-754 bits depending on parsing path), and the format-as-API claim requires CLI and PWA to agree to the byte regardless. Users needing sub-microdegree precision (no real use case at watch zoom levels — z=17 has ~76 cm tile width at the equator) would need a future spec bump.
 
 **Duplicate source rejection.** If two `--source` arguments (or two `[[source]]` TOML tables) reduce to the same canonical entry — same `kind`, same `identity`, same zoom range — the CLI rejects the build with `error: duplicate source <kind>:<identity-summary>; remove the duplicate or differentiate the zoom range`. Silent deduplication would mask user intent (someone who actually wanted two sources can't tell why their pack is missing data); silent acceptance would do redundant fetch work and emit a confusing layered build with one source effectively shadowed.
 
@@ -312,7 +276,7 @@ slippypack/
                     writer_trait.rs   # TileWriter trait — the format-pluggability seam
                     header.rs
                     tile_index.rs
-                    extensions.rs     # ATTR, NAME, SRCD, AFFN, PLET tags
+                    extensions.rs     # ATTR, NAME, SRCD, AFFN tags
                     crc.rs
                     reader.rs
                 decode.rs             # PNG / JPEG → RGB888 via image crate
@@ -449,13 +413,13 @@ zoom_max = 13
 TMS-indexed sources — the `dir` kind (gdal2tiles directory trees) and any `mbtiles` source whose `metadata` table carries `scheme = tms` — are first-class. The `.rawtiles` header carries one `tile_axis_convention` byte for the whole pack, so the rule for mixed-input builds is concrete:
 
 - **Single-source XYZ input** → pack declares `tile_axis_convention = 1` (XYZ). No per-tile transform.
-- **Single-source TMS input** → pack declares `tile_axis_convention = 2` (TMS). No per-tile transform. The watch normalises Y at query time per the una-sdk spec.
+- **Single-source TMS input** → pack declares `tile_axis_convention = 2` (TMS). No per-tile transform. Readers normalise Y at query time per the rawtiles spec's `tile_axis_convention` rules.
 - **Multi-source, all inputs same convention** → pack declares that convention.
 - **Multi-source, mixed XYZ and TMS** → pack declares the convention of the **most-tiles layer** (the source contributing the largest tile count), minimising the number of per-tile Y-flips. Tiles from minority-convention layers are Y-flipped on write (`y_native = (2^z - 1) - y_other`). The CLI emits a one-line note listing which sources were flipped. Ties (equal tile counts) break to XYZ. Cost: one integer subtract per minority-layer tile, negligible.
 
 **`--style` applies only to `pbf` and `style` sources** (the two kinds that pass through the renderer). Passing `--style <path>` with any other kind (`url`, `dir`, `mbtiles`, `pmtiles`, `geotiff`, `synthetic`) is a hard error — the CLI exits non-zero with `error: --style applies only to vector sources (pbf, style); kind <X> is already-rendered. Drop --style or switch to a vector source.` Warn-and-proceed would let users ship un-styled packs while thinking they were styled.
 
-**Attribution** is baked automatically into the pack's `ATTR` extension section as **newline-separated UTF-8 strings, one per active source**, in source-layer order (per the una-sdk spec's `ATTR` payload definition). Built-in source-kind defaults: OSM PBF → "© OpenStreetMap contributors"; MapTiler URL templates → "© OpenStreetMap contributors © MapTiler"; Stadia (alidade-smooth / outdoors / OSM-derived styles) → "© OpenStreetMap contributors © Stadia Maps"; Stadia Stamen-family styles (terrain, watercolor, toner) → "Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL."; OSM-derived MBTiles → "© OpenStreetMap contributors"; etc. For multi-source layered builds the strings are concatenated with `\n` separators (no trailing newline).
+**Attribution** is baked automatically into the pack's `ATTR` extension section as **newline-separated UTF-8 strings, one per active source**, in source-layer order (per the rawtiles spec's § 7.3 `ATTR` rules). Built-in source-kind defaults: OSM PBF → "© OpenStreetMap contributors"; MapTiler URL templates → "© OpenStreetMap contributors © MapTiler"; Stadia (alidade-smooth / outdoors / OSM-derived styles) → "© OpenStreetMap contributors © Stadia Maps"; Stadia Stamen-family styles (terrain, watercolor, toner) → "Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL."; OSM-derived MBTiles → "© OpenStreetMap contributors"; etc. For multi-source layered builds the strings are concatenated with `\n` separators (no trailing newline).
 
 - **Single-source override:** `--attribution "..."` replaces the built-in default for that source.
 - **Multi-source override:** put `attribution = "..."` in the per-source TOML table in `--config slippypack.toml`. The CLI has no per-source `--attribution` flag pairing — flag positionality is unreliable; config files are not.
@@ -727,7 +691,7 @@ The first-run setup flow described in [§ BYO tile sources](#byo-tile-sources--w
 - Source-kind picker UI (MapTiler / Stadia / URL template / MBTiles upload / PMTiles upload).
 - A **"Try without a tile source" link** on the welcome screen, secondary to the picker, that runs a `synthetic`-source build using the embedded fixture. Bypasses the picker entirely — clicking lands the user on a built and downloadable pack within seconds. Documented as a debug / first-run-validation path.
 - API key storage in IndexedDB; file storage in OPFS.
-- Per-source attribution baked automatically into the output pack's `ATTR` section (newline-separated UTF-8, one string per active source, per the una-sdk `ATTR` payload definition).
+- Per-source attribution baked automatically into the output pack's `ATTR` section (newline-separated UTF-8, one string per active source, per the rawtiles spec's `ATTR` rules).
 - Settings panel for switching sources (the same panel grows a tile-cache toggle in Phase 7).
 
 **Reader crates and WASM-module structure:**
@@ -764,7 +728,7 @@ slippypack draw \
 
 The four `--corners` points define the affine transform (image-pixel coordinates of the corners → lat/lon). The CLI computes the six affine coefficients, packages the image as a single-image pack, writes `AFFN`. Output: a `.rawtiles` with `projection = 3` (Local Linear) and `tile_addressing_scheme = 2` (single image), `AFFN` extension section carrying the affine matrix. Depends on una-sdk's MapTrack Phase 2b runtime support.
 
-**`pack_uuid` derivation for hand-drawn packs** (see [§ Canonical source descriptor](#canonical-source-descriptor)): `sources` is one entry of `{kind: "image", content_hash: "<sha256-hex-of-image-bytes>"}`; a top-level `affn` key carries the six affine coefficients as integer microunits; `bbox` is derived from applying the affine to the image's corners; `tile_addressing_scheme = 2`; `projection = 3`. Two builds from the same image + same corner pins produce the same `pack_uuid`. Cropping the image, repositioning a corner, or changing the projection enum produces a new UUID.
+**`pack_uuid` derivation for hand-drawn packs** (see the rawtiles spec, Appendix A, for the canonical descriptor schema and per-kind shapes): `sources` is one `image` entry pinned by its `content_hash`; the top-level `affn` carries the six affine coefficients per the spec's representation; `bbox` is derived from applying the affine to the image's corners; `tile_addressing_scheme = SingleImage`; `projection = LocalLinear`. Two builds from the same image + same corner pins produce the same `pack_uuid`. Cropping the image, repositioning a corner, or changing the projection enum produces a new UUID.
 
 ### Phase 11 — CI, deployment, polish
 
@@ -793,6 +757,6 @@ Playwright tests on Chrome and Firefox (Safari best-effort if WebKit-on-Linux wo
 ## What this plan is *not* trying to do
 
 - Re-implement MapLibre GL JS in Rust. It's a great library; embed it for the region picker and move on.
-- Be a generic tile-pack builder for arbitrary devices. The output format is `.rawtiles`, defined by una-sdk. Other devices fork the spec (and slippypack-core, if they want).
+- Be a generic tile-pack builder for arbitrary devices. The output format is `.rawtiles`, defined by its own spec. Other devices fork the spec (and slippypack-core, if they want).
 - Compete with full GIS tools (QGIS, ArcGIS). This toolkit does one thing — build `.rawtiles` files from common tile sources — and aims to do it well.
 - Host tiles, render tiles in the browser, or process payments. The infrastructure cost is the user's, in the form of a MapTiler/Stadia account or their own tile server.

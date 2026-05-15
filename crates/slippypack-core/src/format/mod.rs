@@ -1,8 +1,9 @@
 //! `.rawtiles` byte-layout primitives.
 //!
-//! The authoritative `.rawtiles` v1.0 byte-level specification lives at
-//! `spec/upack-v1.0.md` (repo root). PLAN.md provides project-level design
-//! context. This module implements the spec:
+//! The authoritative `.rawtiles` byte-level specification lives in its
+//! own repository at <https://github.com/tobymurray/rawtiles>. PLAN.md
+//! provides slippypack-level design context. This module implements the
+//! spec:
 //!
 //! - [`types`]: `PixelFormat`, `Projection`, `AddressingScheme`,
 //!   `AxisConvention`, `PackMetadata`, format-version + magic constants.

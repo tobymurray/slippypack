@@ -4,14 +4,15 @@
 //! with the next section's tag starting at a 4-byte-aligned offset
 //! (i.e., 0–3 zero bytes of padding follow the payload).
 //!
-//! Tag constants for the reserved upper-case ASCII tags (PLAN.md / una-sdk
-//! spec); lower-case ASCII tags are application-private.
+//! Tag constants for the reserved upper-case ASCII tags (defined by the
+//! rawtiles spec at <https://github.com/tobymurray/rawtiles>); lower-case
+//! ASCII tags are application-private.
 
 /// Header size of one extension section (tag + length): 8 bytes.
 pub const SECTION_HEADER_SIZE: usize = 8;
 
 /// Reserved upper-case ASCII tag for **pack display name**. Payload
-/// layout matches the una-sdk MapTrack spec:
+/// layout per the rawtiles spec:
 ///
 /// ```text
 /// uint8 tag_length | bcp47_tag (tag_length bytes, UTF-8) | name (rest, UTF-8)
@@ -32,7 +33,7 @@ pub const TAG_NAME: [u8; 4] = *b"NAME";
 pub const TAG_SRCD: [u8; 4] = *b"SRCD";
 
 /// Reserved upper-case ASCII tag for **attribution text** required by
-/// source licenses. Per the una-sdk spec's `ATTR` definition: UTF-8,
+/// source licenses. Per the rawtiles spec's `ATTR` definition: UTF-8,
 /// newline-separated attribution strings, one per active source.
 pub const TAG_ATTR: [u8; 4] = *b"ATTR";
 

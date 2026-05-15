@@ -16,13 +16,13 @@ pub const MAGIC: [u8; 4] = *b"RAWT";
 /// rawtiles format version baked into the writer. v1 packs declare
 /// `(1, 0)` in the header. Bumping the **major** is a breaking-format
 /// change; bumping the **minor** is an additive change that earlier-minor
-/// readers MUST accept with unknown extension tags skipped (per
-/// `spec/rawtiles-v1.0-rc1.md`).
+/// readers MUST accept with unknown extension tags skipped (per the
+/// rawtiles spec at <https://github.com/tobymurray/rawtiles>).
 pub const FORMAT_VERSION: FormatVersion = FormatVersion { major: 1, minor: 0 };
 
-/// Pixel-format enum byte. Per PLAN.md § Pixel format enum and the
-/// una-sdk spec, v1 supports only `Abgr2222 = 1`. Other values are
-/// reserved for future format minor-bumps.
+/// Pixel-format enum byte. Per the rawtiles spec, v1 supports only
+/// `Abgr2222 = 1`. Other values are reserved for future format
+/// minor-bumps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 #[repr(u8)]

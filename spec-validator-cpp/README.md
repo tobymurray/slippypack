@@ -6,11 +6,12 @@ writer/reader pair in `slippypack-core`.
 
 ## Why this exists
 
-The authoritative `.rawtiles` v1.0 byte-level specification lives at
-`spec/rawtiles-v1.0-rc1.md` (repo root). This validator is **a second opinion
-on our own design**: it re-derives parsing from the spec doc without
-calling any slippypack code, which catches bugs the Rust writer +
-reader share by construction.
+The authoritative `.rawtiles` byte-level specification lives in its
+own repository at [github.com/tobymurray/rawtiles](https://github.com/tobymurray/rawtiles).
+This validator is **a second opinion on our own design**: it
+re-derives parsing from the spec doc without calling any slippypack
+code, which catches bugs the Rust writer + reader share by
+construction.
 
 Two purposes:
 

@@ -631,6 +631,16 @@ Mechanical changes:
 **Manifests**: `format/header.rs`, `format/tile_index.rs`, `format/rawtiles_writer.rs`, `format/reader.rs`; `spec-validator-cpp/src/validator.cpp`; `spec/rawtiles-v1.0-rc1.md` §§ 3, 4, 5, 11, 12; all 6 `golden-*.rawtiles` fixtures.
 **Commit**: to land with the u32-offset slice.
 
+### F-048 — Repoint repo-internal spec references to standalone rawtiles repo
+Follow-up to commit `1c9c062` (spec extracted to its own repo). The spec doc moved to <https://github.com/tobymurray/rawtiles>, but ten in-tree files still pointed at `spec/rawtiles-v1.0-rc1.md` (dead path) or framed the spec as una-sdk-owned. Updated user-facing docs (`README.md`, `PLAN.md`, `spec-validator-cpp/README.md`) to link the GitHub URL directly, and rewrote Rust doc-comment spec citations (`crates/slippypack-core/src/format/{mod,types,tile_index,crc,extensions}.rs`, `crates/slippypack-core/src/identity.rs`, `crates/slippypack-cli/src/sources/synthetic.rs`) to cite "the rawtiles spec" with the URL or the relevant Appendix-A reference. Historical DECISIONS.md entries deliberately left untouched — they record the path that existed at the time of each decision.
+
+Two scoping calls worth pinning:
+
+- **una-sdk references about *reader* implementations were preserved** (watch firmware `TilePack`, MapTrack simulator round-trip, test 7 in PLAN.md). The spec move makes una-sdk a downstream reader, not the spec home; references that frame it as a reader implementation are still accurate.
+- **The `identity.rs` module doc was rewritten** to cite the rawtiles spec Appendix A as the source of canonicalization rules. The corresponding "Canonical source descriptor" section in PLAN.md was already cut down to slippypack-specific notes (numeric input precision, duplicate-source rejection) in the staged edits that landed alongside this change; the spec-side rules now live exclusively in the rawtiles repo.
+
+**Manifests**: `README.md`, `PLAN.md`, `spec-validator-cpp/README.md`, `crates/slippypack-core/src/format/{mod,types,tile_index,crc,extensions}.rs`, `crates/slippypack-core/src/identity.rs`, `crates/slippypack-cli/src/sources/synthetic.rs`.
+
 ### F-047 — Cross-writer determinism: 13 derivation/format gaps
 Pre-1.0-freeze closure of 13 places where the spec let two "conforming" writers produce byte-different packs from the same logical inputs — the same load-bearing concern as F-040 (preprocessing pipeline) and F-042 (`build_timestamp`). Each gap broke the offline-delivery dedup contract that recipients depend on.
 
