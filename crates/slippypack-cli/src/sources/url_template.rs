@@ -27,7 +27,7 @@ pub enum UrlTemplateError {
     MissingPlaceholders { missing: Vec<&'static str> },
     /// HTTP request failed (connect timeout, DNS failure, etc).
     Transport(ureq::Error),
-    /// HTTP response status was not 2xx.
+    /// HTTP response status was not 2xx (after the 429 retry, if any).
     Status { code: u16, url: String },
     /// `--auth-header "Name: value"` value couldn't be parsed (no `:`
     /// separating the name from the value, or empty name).
@@ -35,6 +35,9 @@ pub enum UrlTemplateError {
     /// `--auth-query "key=value"` value couldn't be parsed (no `=`
     /// separating the key from the value, or empty key).
     InvalidAuthQuery(String),
+    /// `--rate-per-sec <N>` value was non-positive, non-finite, or
+    /// outside the accepted range.
+    InvalidRate(String),
 }
 
 impl core::fmt::Display for UrlTemplateError {
@@ -58,6 +61,10 @@ impl core::fmt::Display for UrlTemplateError {
             Self::InvalidAuthQuery(s) => write!(
                 f,
                 "invalid --auth-query value: expected 'key=value' form, got {s:?}",
+            ),
+            Self::InvalidRate(s) => write!(
+                f,
+                "invalid --rate-per-sec value: expected a positive number, got {s:?}",
             ),
         }
     }
@@ -203,6 +210,12 @@ fn append_auth_query(url: &str, auth_query: &[AuthQuery]) -> String {
 /// successful responses. The tracked value becomes the `build_timestamp`
 /// header field on the produced pack — per PLAN.md § Pack identity, the
 /// header records source-data freshness, not build wall-clock.
+///
+/// Each `fetch()` call passes through a per-host rate limiter (see
+/// [`crate::sources::rate_limit`]) so slippypack doesn't trip provider
+/// limits or violate the OSM tile usage policy. On HTTP 429 the
+/// fetcher honors `Retry-After` and retries once before surfacing
+/// `Status`.
 pub struct UrlFetcher {
     agent: ureq::Agent,
     /// Maximum `Last-Modified` (seconds since Unix epoch) seen across
@@ -214,6 +227,8 @@ pub struct UrlFetcher {
     /// Query parameters appended to every fetched URL (set via
     /// `--auth-query`).
     auth_query: Vec<AuthQuery>,
+    /// Per-host request-rate enforcement.
+    rate_limit: crate::sources::rate_limit::HostRateLimiter,
 }
 
 impl UrlFetcher {
@@ -221,6 +236,10 @@ impl UrlFetcher {
     pub fn new() -> Self {
         let agent = ureq::Agent::config_builder()
             .user_agent(concat!("slippypack/", env!("CARGO_PKG_VERSION")))
+            // Inspect status codes ourselves so the 429-with-Retry-After
+            // path lives in one place. Default-true would turn every
+            // non-2xx into an Err before we got to peek at headers.
+            .http_status_as_error(false)
             .build()
             .new_agent();
         Self {
@@ -228,6 +247,7 @@ impl UrlFetcher {
             max_last_modified: 0,
             auth_headers: Vec::new(),
             auth_query: Vec::new(),
+            rate_limit: crate::sources::rate_limit::HostRateLimiter::new(),
         }
     }
 
@@ -243,21 +263,56 @@ impl UrlFetcher {
         self.auth_query = query;
     }
 
+    /// Override the per-host default rate. Applies to every host the
+    /// fetcher sees for the remainder of its lifetime.
+    pub fn set_rate_override(&mut self, rate: crate::sources::rate_limit::RatePerSec) {
+        self.rate_limit.set_override(rate);
+    }
+
     /// GET `url` and return the response body bytes. Applies any
     /// configured `--auth-header` headers and `--auth-query` params.
+    /// Blocks before issuing the request if the per-host rate limit
+    /// would otherwise be violated.
     ///
     /// # Errors
     ///
     /// - [`UrlTemplateError::Transport`] for network / TLS / DNS or
     ///   body-read failures (`ureq::Error` covers both).
-    /// - [`UrlTemplateError::Status`] for non-2xx responses.
+    /// - [`UrlTemplateError::Status`] for non-2xx responses (after the
+    ///   429-with-`Retry-After` retry, if any).
     pub fn fetch(&mut self, url: &str) -> Result<Vec<u8>, UrlTemplateError> {
         let final_url = append_auth_query(url, &self.auth_query);
-        let mut request = self.agent.get(&final_url);
+        if let Some(host) = crate::sources::rate_limit::extract_host(&final_url) {
+            self.rate_limit.acquire(&host);
+        }
+        let response = self.issue_request(&final_url)?;
+        let status = response.status();
+        if status.as_u16() == 429 {
+            // Honor Retry-After, then retry once. A second 429
+            // surfaces as `Status` — the caller's run is wrong-shaped
+            // for the source (rate too high for the configured quota)
+            // and silently retrying further would just look like a hang.
+            let retry_delay = retry_after_from_response(&response);
+            std::thread::sleep(retry_delay);
+            let retried = self.issue_request(&final_url)?;
+            return self.consume_response(retried, final_url);
+        }
+        self.consume_response(response, final_url)
+    }
+
+    fn issue_request(&self, url: &str) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+        let mut request = self.agent.get(url);
         for header in &self.auth_headers {
             request = request.header(header.name.as_str(), header.value.as_str());
         }
-        let response = request.call()?;
+        request.call()
+    }
+
+    fn consume_response(
+        &mut self,
+        response: ureq::http::Response<ureq::Body>,
+        final_url: String,
+    ) -> Result<Vec<u8>, UrlTemplateError> {
         let status = response.status();
         if !status.is_success() {
             return Err(UrlTemplateError::Status {
@@ -265,7 +320,6 @@ impl UrlFetcher {
                 url: final_url,
             });
         }
-        // Capture Last-Modified before consuming the response.
         if let Some(value) = response.headers().get("last-modified")
             && let Ok(s) = value.to_str()
             && let Some(parsed) = parse_http_date(s)
@@ -284,6 +338,24 @@ impl UrlFetcher {
     }
 }
 
+/// Extract a `Retry-After`-derived sleep duration from a 429 response.
+/// Falls back to a polite 5-second default if the header is missing or
+/// unparseable — well under any real provider's expected backoff but
+/// long enough that we're not hammering on a transient throttle.
+fn retry_after_from_response(response: &ureq::http::Response<ureq::Body>) -> std::time::Duration {
+    const FALLBACK: std::time::Duration = std::time::Duration::from_secs(5);
+    let Some(value) = response.headers().get("retry-after") else {
+        return FALLBACK;
+    };
+    let Ok(s) = value.to_str() else {
+        return FALLBACK;
+    };
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    crate::sources::rate_limit::parse_retry_after(s, now_unix).unwrap_or(FALLBACK)
+}
+
 impl Default for UrlFetcher {
     fn default() -> Self {
         Self::new()
@@ -296,7 +368,7 @@ impl Default for UrlFetcher {
 /// Supports the canonical RFC 7231 IMF-fixdate form:
 /// `"Sun, 06 Nov 1994 08:49:37 GMT"`. The two obsolete forms (RFC 850 and
 /// asctime) are not handled — modern tile servers use IMF-fixdate.
-fn parse_http_date(s: &str) -> Option<u64> {
+pub(crate) fn parse_http_date(s: &str) -> Option<u64> {
     // Expected layout: "Day, DD Mon YYYY HH:MM:SS GMT"
     // We don't validate the day-of-week (it's redundant with the date).
     let s = s.trim();

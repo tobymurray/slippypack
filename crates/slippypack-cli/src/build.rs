@@ -20,6 +20,7 @@ use slippypack_core::identity::{
 use slippypack_core::projection::{Mercator, Projection as ProjectionTrait};
 use slippypack_core::quantise::{QUANTISER_VERSION, quantise_rgb888};
 
+use crate::sources::rate_limit::RatePerSec;
 use crate::sources::synthetic;
 use crate::sources::url_template::{
     AuthHeader, AuthQuery, UrlFetcher, UrlTemplate, UrlTemplateError,
@@ -168,6 +169,10 @@ pub struct BuildOptions {
     /// request's URL; ignored for non-URL sources. Like `auth_headers`,
     /// only the *kind* enters the descriptor.
     pub auth_query: Vec<AuthQuery>,
+    /// `--rate-per-sec <N>` override. `None` → use the per-host
+    /// built-in defaults (OSM: 2 req/sec, unknown host: 4 req/sec).
+    /// Ignored for non-URL sources.
+    pub rate_override: Option<RatePerSec>,
     /// CI override: pin `build_timestamp` to a fixed value (seconds
     /// since Unix epoch). `None` → derive from inputs.
     pub timestamp_override: Option<u64>,
@@ -382,6 +387,9 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
     let mut fetcher = UrlFetcher::new();
     fetcher.set_auth_headers(opts.auth_headers.clone());
     fetcher.set_auth_query(opts.auth_query.clone());
+    if let Some(rate) = opts.rate_override {
+        fetcher.set_rate_override(rate);
+    }
 
     // Pre-fetch all tiles before opening the writer. This lets us:
     //   1. Use `fetcher.max_last_modified()` as `build_timestamp`
@@ -651,6 +659,7 @@ mod tests {
             zoom_range: None,
             auth_headers: Vec::new(),
             auth_query: Vec::new(),
+            rate_override: None,
             timestamp_override: Some(0),
             pack_uuid_override: None,
             cancel: Some(Arc::clone(&cancel)),

@@ -56,6 +56,7 @@ pub fn run_debug_uuid<W: std::io::Write>(
         zoom_range: args.zoom_range,
         auth_headers: args.auth_headers.clone(),
         auth_query: args.auth_query.clone(),
+        rate_override: None,
         timestamp_override: None,
         pack_uuid_override: None,
         cancel: None,

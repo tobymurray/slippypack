@@ -8,5 +8,6 @@
 //! `url_template` source (HTTPS URL templates) and the `mbtiles`,
 //! `pmtiles`, `dir` sources land in Phase 1.x.
 
+pub mod rate_limit;
 pub mod synthetic;
 pub mod url_template;

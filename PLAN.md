@@ -424,6 +424,15 @@ TMS-indexed sources — the `dir` kind (gdal2tiles directory trees) and any `mbt
 - **Single-source override:** `--attribution "..."` replaces the built-in default for that source.
 - **Multi-source override:** put `attribution = "..."` in the per-source TOML table in `--config slippypack.toml`. The CLI has no per-source `--attribution` flag pairing — flag positionality is unreliable; config files are not.
 
+**Source rate limiting** is enforced per host so slippypack doesn't violate provider usage policies. The built-in defaults table:
+
+| Host pattern                          | Default rate |
+|---------------------------------------|--------------|
+| `tile.openstreetmap.org` (and `*.tile.openstreetmap.org`) | 2 req/sec    |
+| anything else                         | 4 req/sec    |
+
+OSM's published tile usage policy caps heavy users at "no more than 2 download threads"; 2 req/sec keeps a single-threaded fetcher comfortably inside that envelope. The unknown-host default is deliberately polite — users with a paid tile-source quota (MapTiler, Stadia) will typically want to raise it via `--rate-per-sec <N>`, which overrides every host for that run. On HTTP 429 the fetcher honors `Retry-After` (delta-seconds or HTTP-date) and retries once before surfacing an error. New hosts get hardcoded entries as the table grows.
+
 ## The PWA — a strict subset
 
 Same shape, fewer source kinds, no vector rendering:

@@ -136,6 +136,14 @@ struct MakeArgs {
     /// over the canonical source descriptor.
     #[arg(long = "pack-uuid")]
     pack_uuid: Option<String>,
+
+    /// Override the per-host request-rate limit (requests per second).
+    /// Applies to every host fetched in this run. Default behavior:
+    /// `tile.openstreetmap.org` and its subdomains are capped at 2
+    /// req/sec (per the OSM tile usage policy); other hosts get 4
+    /// req/sec. Raise this for hosts where you have a paid quota.
+    #[arg(long = "rate-per-sec")]
+    rate_per_sec: Option<f64>,
 }
 
 fn main() -> ExitCode {
@@ -231,6 +239,16 @@ fn run_make(args: MakeArgs, cancel: Arc<AtomicBool>) -> Result<(), BuildError> {
         .map(|s| sources::url_template::AuthQuery::parse(s))
         .collect::<Result<Vec<_>, _>>()
         .map_err(BuildError::UrlTemplate)?;
+    let rate_override = match args.rate_per_sec {
+        Some(r) => Some(
+            sources::rate_limit::RatePerSec::from_req_per_sec(r).ok_or_else(|| {
+                BuildError::UrlTemplate(
+                    sources::url_template::UrlTemplateError::InvalidRate(r.to_string()),
+                )
+            })?,
+        ),
+        None => None,
+    };
     let opts = BuildOptions {
         source: args.source,
         out: args.out,
@@ -238,6 +256,7 @@ fn run_make(args: MakeArgs, cancel: Arc<AtomicBool>) -> Result<(), BuildError> {
         zoom_range: args.zoom,
         auth_headers,
         auth_query,
+        rate_override,
         timestamp_override: args.timestamp,
         pack_uuid_override,
         cancel: Some(cancel),
