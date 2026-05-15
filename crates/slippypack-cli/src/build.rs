@@ -401,6 +401,38 @@ fn world_bbox_micro() -> BoundingBox {
 
 // --- URL-template source -------------------------------------------
 
+/// Decide whether to surface a "no Last-Modified" warning at the end
+/// of a URL-template build. Returns the warning text when *all three*
+/// hold:
+///   - The fetcher actually retrieved at least one tile (so we have a
+///     basis to claim any source-freshness signal was missing).
+///   - `max_last_modified` came back zero (no fetched response carried
+///     a parseable `Last-Modified` header).
+///   - The user did not pin `--timestamp`, so the build will silently
+///     write `build_timestamp = 0` to the pack.
+///
+/// CDN-fronted public tile servers (OSM, `OpenTopoMap`, anything behind
+/// Cloudflare/Fastly with default cache-rewrite rules) strip
+/// `Last-Modified` and substitute `Date` + `ETag` + `Expires` — so
+/// this warning fires on the most common Phase 1 use case. Telling
+/// the user the timestamp is zero is a spec-honest middle ground:
+/// the pack's freshness signal really is unknown, and faking it from
+/// `Date` would be a lie about source provenance.
+fn missing_last_modified_warning(
+    fetched_tiles: usize,
+    max_last_modified: u64,
+    has_timestamp_override: bool,
+) -> Option<&'static str> {
+    if has_timestamp_override || fetched_tiles == 0 || max_last_modified > 0 {
+        return None;
+    }
+    Some(
+        "no Last-Modified header on any fetched tile; build_timestamp will be 0. \
+         Pass --timestamp <unix-seconds> to embed source-freshness info \
+         (common for CDN-fronted providers like OSM and OpenTopoMap).",
+    )
+}
+
 fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
     let bbox = opts.bbox.ok_or(BuildError::MissingBbox)?;
     let zoom = opts.zoom_range.ok_or(BuildError::MissingZoom)?;
@@ -436,7 +468,15 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
         }
     }
 
-    let metadata = build_metadata(opts, &descriptor, fetcher.max_last_modified());
+    let max_last_modified = fetcher.max_last_modified();
+    if let Some(msg) = missing_last_modified_warning(
+        tile_bytes.len(),
+        max_last_modified,
+        opts.timestamp_override.is_some(),
+    ) {
+        eprintln!("warning: {msg}");
+    }
+    let metadata = build_metadata(opts, &descriptor, max_last_modified);
     let cancel = opts.cancel.clone();
     let attribution = opts.attribution.clone();
 
@@ -781,6 +821,35 @@ mod tests {
             .expect("ATTR section should be present when --attribution is set");
         assert_eq!(attr.payload, b"test");
         let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn missing_last_modified_warning_fires_for_unknown_freshness() {
+        // Common Phase 1 case: fetched tiles, no Last-Modified, no
+        // --timestamp override → user gets warned.
+        let msg = super::missing_last_modified_warning(12, 0, false);
+        assert!(msg.is_some());
+    }
+
+    #[test]
+    fn missing_last_modified_warning_suppressed_by_timestamp_override() {
+        // User opted in to a known timestamp; no warning needed.
+        let msg = super::missing_last_modified_warning(12, 0, true);
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn missing_last_modified_warning_suppressed_when_freshness_known() {
+        // At least one tile carried a Last-Modified header.
+        let msg = super::missing_last_modified_warning(12, 1_700_000_000, false);
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn missing_last_modified_warning_suppressed_when_no_tiles_fetched() {
+        // Empty bbox / zoom range — nothing to claim about freshness.
+        let msg = super::missing_last_modified_warning(0, 0, false);
+        assert!(msg.is_none());
     }
 
     #[test]
