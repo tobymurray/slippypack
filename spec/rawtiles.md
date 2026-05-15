@@ -1,8 +1,8 @@
-# rawtiles format specification — version 1.0-rc1
+# rawtiles format specification — version 0.1
 
-**Status:** Release candidate. The byte layout is frozen pending real-world validation against an independent reader. Wire-format-affecting changes between rc1 and the eventual 1.0 release would invalidate any `pack_uuid` derived under rc1; pre-rc1 implementers should treat fixtures as provisional until 1.0 ships.
+**Status:** Provisional. The spec is in its v0.x phase: breaking changes between v0.x bumps MAY invalidate existing `pack_uuid`s and existing packs. v1.0 stabilizes the wire format once a second independent consumer has validated against this spec; until then, fixtures and on-disk packs are not guaranteed forward-compatible.
 **Date:** 2026-05-14.
-**Wire format version**: the `format_version` bytes in conforming packs remain `(1, 0)`. The `-rc1` marker is on this *specification document*, not on the on-disk format — see § 13 for the version semantics.
+**Wire format version**: the `format_version` bytes in conforming packs are `(1, 0)`. The spec-document version (`0.1`) is distinct from the on-disk wire-format-version bytes — see § 13 for the version semantics.
 
 This document defines the `.rawtiles` binary file format: a byte-level contract between writers (tile-pack builders) and readers (firmware, validators, debug tools, future device-side consumers). Conforming implementations on either side need only this document. The format is intended for offline tile delivery to constrained devices — watches, embedded displays, kiosks, e-readers — where bandwidth and decode budgets are tight.
 
@@ -572,8 +572,12 @@ For § 14.1's writer-round-trip property to hold, the order in which extension s
 
 ### 13.1 Semantics
 
-- **Major bump** (e.g. `1.0 → 2.0`): incompatible change. Header layout, tile-index layout, CRC scope, or pixel-format encoding may change. v1 readers MUST reject v2 packs.
-- **Minor bump** (e.g. `1.0 → 1.1`): additive change. The header layout is frozen per major version; minor bumps allocate new extension tags, new enum values, or relax existing constraints. A v1.0 reader MUST accept v1.x packs, but the per-§ 7.2 / § 8 rules cause it to reject any v1.x pack that uses newly-allocated SDK-reserved values it doesn't know.
+The spec-document version (`0.1`, `0.2`, `1.0`, `1.1`, …) is distinct from the on-disk `format_version` bytes (currently `(1, 0)`).
+
+- **v0.x phase** (current): the spec document is provisional. Breaking changes between v0.x bumps MAY redefine wire-format semantics under the same `format_version = (1, 0)` on-disk bytes; any such change invalidates previously-derived `pack_uuid`s and previously-emitted packs. There is no forward-compat guarantee across v0.x bumps.
+- **v1.0** (future): the spec document stabilizes. Wire-format-affecting changes after v1.0 follow the major/minor rules below; pre-v1.0 packs are not guaranteed to remain valid under v1.0.
+- **Wire-format major bump** (e.g. `(1, 0) → (2, 0)`): incompatible change. Header layout, tile-index layout, CRC scope, or pixel-format encoding may change. v1 readers MUST reject v2 packs.
+- **Wire-format minor bump** (e.g. `(1, 0) → (1, 1)`): additive change. The header layout is frozen per major version; minor bumps allocate new extension tags, new enum values, or relax existing constraints. A v1.0 reader MUST accept v1.x packs, but the per-§ 7.2 / § 8 rules cause it to reject any v1.x pack that uses newly-allocated SDK-reserved values it doesn't know.
 
 **Scope of the v1.x forward-compat hole.** Any v1.x assignment to `reserved_v1_0` (§ 4 header table) MUST be additive — it MAY carry new information for v1.x-aware readers but MUST NOT alter the interpretation of any other v1.0 header or tile-index field. The same constraint applies to any future reserved bytes added by minor bumps. Any v1.x assignment to `reserved_v1_0` MUST simultaneously extend the canonical descriptor schema (§ A.3) with a key reflecting the new information.
 
@@ -814,6 +818,6 @@ The intermediate SHA-1 is included so independent implementations can bisect a m
 
 | Spec version | Date | Notes |
 |---|---|---|
-| 1.0-rc1 | 2026-05-14 | First release candidate. Byte layout pinned; awaiting independent-reader validation before promotion to 1.0. Any wire-format-affecting change between rc1 and 1.0 invalidates `pack_uuid`s derived under rc1. |
+| 0.1 | 2026-05-14 | Initial v0.x release. Wire format `(1, 0)` admits breaking changes between v0.x bumps until v1.0 stabilization. Supersedes the unreleased `1.0-rc1` draft. |
 
-Note: the *spec document* version (`1.0-rc1`, `1.0-rc2`, `1.0`, `1.1`, …) is distinct from the *wire format* `format_version` bytes in the header. Multiple spec-document revisions can describe the same wire format `(1, 0)` if the changes are editorial or normative-clarification only.
+Note: the *spec document* version (`0.1`, `0.2`, `1.0`, `1.1`, …) is distinct from the *wire format* `format_version` bytes in the header. Multiple spec-document revisions can describe the same wire format `(1, 0)` if the changes are editorial or normative-clarification only.
