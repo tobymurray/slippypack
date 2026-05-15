@@ -59,6 +59,7 @@ pub fn run_debug_uuid<W: std::io::Write>(
         rate_override: None,
         timestamp_override: None,
         pack_uuid_override: None,
+        attribution: None,
         cancel: None,
     };
     let descriptor = descriptor_for(&opts)?;

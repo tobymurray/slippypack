@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use slippypack_core::decode::{DecodeError, decode_rgb888};
 use slippypack_core::format::{
     AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, RawtilesWriter,
-    TileContent, TileWriter, TileWriterError,
+    TAG_ATTR, TileContent, TileWriter, TileWriterError,
 };
 use slippypack_core::identity::{
     AuthKind, BoundingBox, FormatVersion, PackDescriptor, Source, ZoomRange, derive_pack_uuid,
@@ -179,6 +179,14 @@ pub struct BuildOptions {
     /// CI override: pin `pack_uuid` to a fixed value. `None` → derive
     /// via UUIDv5 from the canonical source descriptor.
     pub pack_uuid_override: Option<[u8; 16]>,
+    /// Attribution string to embed as an `ATTR` extension section per
+    /// the rawtiles spec § 7.3. `None` → no `ATTR` section is written
+    /// (the spec requires omission for zero-source packs; in Phase 1's
+    /// single-source builds we treat absence the same way and let the
+    /// user opt in explicitly). Must already have been validated by
+    /// [`crate::attribution::validate_attribution_string`] before
+    /// reaching this point.
+    pub attribution: Option<String>,
     /// Cancellation token. `main.rs` wires this to the SIGINT/Ctrl-C
     /// handler so a Ctrl-C interrupts the build between tile operations.
     /// `None` → cancellation is impossible (used by unit tests that
@@ -256,6 +264,7 @@ fn build_synthetic(opts: &BuildOptions) -> Result<(), BuildError> {
     let metadata = build_metadata(opts, &descriptor, 0);
     let cancel = opts.cancel.clone();
     let sleep_ms = debug_sleep_per_tile_ms();
+    let attribution = opts.attribution.clone();
     run_build(opts, metadata, |writer| {
         for (x, y) in synthetic::all_tile_coords() {
             check_cancel(cancel.as_deref())?;
@@ -273,8 +282,23 @@ fn build_synthetic(opts: &BuildOptions) -> Result<(), BuildError> {
                 synthetic::TILE_DIM_PX,
             )?;
         }
+        emit_attribution(writer, attribution.as_deref())?;
         Ok(())
     })
+}
+
+/// Emit an `ATTR` extension section if `attribution` was provided.
+/// Validation must already have happened at CLI parse time; the value
+/// arriving here is trusted to be a conformant single-source payload
+/// per spec § 7.3.
+fn emit_attribution(
+    writer: &mut RawtilesWriter<Infallible, std::io::Error>,
+    attribution: Option<&str>,
+) -> Result<(), BuildError> {
+    if let Some(s) = attribution {
+        writer.add_extension(TAG_ATTR, s.as_bytes())?;
+    }
+    Ok(())
 }
 
 /// Read the `SLIPPYPACK_DEBUG_SLEEP_MS` env var. When set to a parseable
@@ -414,6 +438,7 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
 
     let metadata = build_metadata(opts, &descriptor, fetcher.max_last_modified());
     let cancel = opts.cancel.clone();
+    let attribution = opts.attribution.clone();
 
     run_build(opts, metadata, move |writer| {
         for (z, x, y, bytes) in tile_bytes {
@@ -424,6 +449,7 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
             let expected_dim = 256;
             add_decoded_tile(writer, z, x, y, &bytes, expected_dim)?;
         }
+        emit_attribution(writer, attribution.as_deref())?;
         Ok(())
     })
 }
@@ -662,6 +688,7 @@ mod tests {
             rate_override: None,
             timestamp_override: Some(0),
             pack_uuid_override: None,
+            attribution: None,
             cancel: Some(Arc::clone(&cancel)),
         };
 
@@ -704,5 +731,71 @@ mod tests {
         let cancel = AtomicBool::new(true);
         let res = super::check_cancel(Some(&cancel));
         assert!(matches!(res, Err(BuildError::Cancelled)));
+    }
+
+    /// Construct a `BuildOptions` for a synthetic-source build that
+    /// writes to `out` with attribution `attribution`. Used by the
+    /// ATTR-emission tests below.
+    fn synthetic_opts(out: PathBuf, attribution: Option<String>) -> BuildOptions {
+        BuildOptions {
+            source: "synthetic".to_string(),
+            out,
+            bbox: None,
+            zoom_range: None,
+            auth_headers: Vec::new(),
+            auth_query: Vec::new(),
+            rate_override: None,
+            timestamp_override: Some(0),
+            pack_uuid_override: None,
+            attribution,
+            cancel: None,
+        }
+    }
+
+    /// Generate a unique temp path for this test process so concurrent
+    /// runs of the test binary don't clobber each other.
+    fn temp_out(label: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "slippypack-attr-{}-{}.rawtiles",
+            std::process::id(),
+            label,
+        ));
+        let _ = std::fs::remove_file(&p);
+        let _ = std::fs::remove_file(super::partial_path_for(&p));
+        p
+    }
+
+    #[test]
+    fn synthetic_build_with_attribution_emits_attr_section() {
+        use slippypack_core::format::{RawtilesReader, TAG_ATTR};
+        let out = temp_out("with_attr");
+        let opts = synthetic_opts(out.clone(), Some("test".to_string()));
+        build(&opts).expect("synthetic build should succeed");
+
+        let bytes = std::fs::read(&out).expect("read built pack");
+        let reader = RawtilesReader::open(&bytes).expect("pack should parse");
+        let exts = reader.extensions();
+        let attr = exts
+            .iter()
+            .find(|e| e.tag == TAG_ATTR)
+            .expect("ATTR section should be present when --attribution is set");
+        assert_eq!(attr.payload, b"test");
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn synthetic_build_without_attribution_emits_no_attr_section() {
+        use slippypack_core::format::{RawtilesReader, TAG_ATTR};
+        let out = temp_out("no_attr");
+        let opts = synthetic_opts(out.clone(), None);
+        build(&opts).expect("synthetic build should succeed");
+
+        let bytes = std::fs::read(&out).expect("read built pack");
+        let reader = RawtilesReader::open(&bytes).expect("pack should parse");
+        assert!(
+            reader.extensions().iter().all(|e| e.tag != TAG_ATTR),
+            "no ATTR section should appear when --attribution is omitted",
+        );
+        let _ = std::fs::remove_file(&out);
     }
 }

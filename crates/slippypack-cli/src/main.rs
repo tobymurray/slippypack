@@ -13,10 +13,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::{Parser, Subcommand};
 
+mod attribution;
 mod build;
 mod debug;
 mod sources;
 
+use attribution::validate_attribution_string;
 use build::{BboxDeg, BuildError, BuildOptions, build};
 use debug::{DebugUuidArgs, DebugUuidFormat, run_debug_uuid};
 
@@ -144,6 +146,18 @@ struct MakeArgs {
     /// req/sec. Raise this for hosts where you have a paid quota.
     #[arg(long = "rate-per-sec")]
     rate_per_sec: Option<f64>,
+
+    /// Attribution string for the source's data, embedded as an ATTR
+    /// extension section per the rawtiles spec § 7.3. UTF-8, no LF (LFs
+    /// are reserved for separating per-source strings in multi-source
+    /// packs, which Phase 1 doesn't support; use ';' or another separator
+    /// for compound attribution within one source). May not be empty.
+    ///
+    /// For OSM-derived sources the OSM license requires "© OpenStreetMap
+    /// contributors". Source-specific renderers (`OpenTopoMap`, `CyclOSM`,
+    /// etc.) typically require additional credits — concatenate them.
+    #[arg(long, value_parser = parse_attribution)]
+    attribution: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -259,9 +273,15 @@ fn run_make(args: MakeArgs, cancel: Arc<AtomicBool>) -> Result<(), BuildError> {
         rate_override,
         timestamp_override: args.timestamp,
         pack_uuid_override,
+        attribution: args.attribution,
         cancel: Some(cancel),
     };
     build(&opts)
+}
+
+fn parse_attribution(s: &str) -> Result<String, String> {
+    validate_attribution_string(s).map_err(|e| e.to_string())?;
+    Ok(s.to_string())
 }
 
 fn parse_bbox(s: &str) -> Result<BboxDeg, String> {

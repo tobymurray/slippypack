@@ -255,6 +255,72 @@ fn cli_with_zero_pack_uuid_exits_non_zero() {
 }
 
 #[test]
+fn cli_attribution_flag_emits_attr_section() {
+    use slippypack_core::format::TAG_ATTR;
+    let out = temp_pack_path("attribution_flag");
+    let status = Command::new(binary_path())
+        .arg("make")
+        .arg("--source")
+        .arg("synthetic")
+        .arg("--out")
+        .arg(&out)
+        .arg("--attribution")
+        .arg("\u{00a9} OpenStreetMap contributors")
+        .status()
+        .expect("spawn slippypack binary");
+    assert!(status.success(), "exit status: {status}");
+
+    let bytes = std::fs::read(&out).expect("read built pack");
+    let reader = RawtilesReader::open(&bytes).expect("pack should parse");
+    let attr = reader
+        .extensions()
+        .iter()
+        .find(|e| e.tag == TAG_ATTR)
+        .expect("ATTR section should be present");
+    assert_eq!(attr.payload, "\u{00a9} OpenStreetMap contributors".as_bytes());
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn cli_attribution_with_lf_exits_non_zero() {
+    // Spec § 7.3 forbids LF inside a single-source attribution string;
+    // clap rejects it at parse time via the value_parser, so no output
+    // is written.
+    let out = temp_pack_path("attribution_lf");
+    let status = Command::new(binary_path())
+        .arg("make")
+        .arg("--source")
+        .arg("synthetic")
+        .arg("--out")
+        .arg(&out)
+        .arg("--attribution")
+        .arg("\u{00a9} OSM\n\u{00a9} SRTM")
+        .status()
+        .expect("spawn slippypack binary");
+    assert!(!status.success(), "LF in --attribution should be rejected");
+    assert!(!out.exists());
+}
+
+#[test]
+fn cli_attribution_empty_exits_non_zero() {
+    // Empty string is invalid per § 7.3 (zero-length payload); user
+    // should omit --attribution instead.
+    let out = temp_pack_path("attribution_empty");
+    let status = Command::new(binary_path())
+        .arg("make")
+        .arg("--source")
+        .arg("synthetic")
+        .arg("--out")
+        .arg(&out)
+        .arg("--attribution")
+        .arg("")
+        .status()
+        .expect("spawn slippypack binary");
+    assert!(!status.success());
+    assert!(!out.exists());
+}
+
+#[test]
 fn cli_two_invocations_produce_byte_identical_packs() {
     // Determinism property: same args + same fixture → identical bytes.
     let out_a = temp_pack_path("determinism_a");
