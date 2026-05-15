@@ -738,7 +738,7 @@ The `sources` array is sorted ascending by `(zoom_min, zoom_max, derived_source_
 
 **Uniqueness.** Within a pack, no two source entries MAY share `(kind, identity)`. This pins the sort key to a total ordering and avoids descriptor-canonicalization ambiguity when otherwise-equal entries would tie on the documented sort key (e.g. two `url` sources with the same `template` but differing `auth_kinds`).
 
-**Shadowed sources.** A source that contributes zero tile-index entries after conflict resolution (§ 12 #6) MUST be omitted from `sources`.
+**Source-intrinsic identity.** All per-source descriptor fields (`content_hash`, `zoom_min`, `zoom_max`, `auth_kinds`, `fixture_version`, `template`) are intrinsic to the source's configuration and rendered output, independent of conflict resolution (§ 12 #6). Every configured source appears in `sources` regardless of whether its bytes materially survive conflict resolution.
 
 Per-kind entry shapes (keys in lex order within each object):
 
@@ -750,7 +750,7 @@ Per-kind entry shapes (keys in lex order within each object):
 
   The `content_hash` domain depends on the kind. **Critically, for every kind it represents the *deterministic surface* of the writer's preprocessing pipeline — never the raw source-file bytes for raster kinds.** This distinction closes the offline-delivery dedup contract: a recipient that has cached `pack_uuid X` and sees a new pack announcement for the same UUID is entitled to assume *byte-identical* tile blobs, not just "same logical inputs". Hashing source-file bytes does not give that guarantee (two writers can decode the same PNG through different sRGB / linear / alpha-handling pipelines and yield different RGB888, producing the same source-file SHA-256 but different tile blobs).
 
-  - **Raster sources** (`dir`, `geotiff`, `mbtiles`, `pmtiles`): `content_hash` is the SHA-256 of the writer's **pre-quantisation RGB888 byte stream** for this source — the bytes that feed § 9.1.1, after the writer's decode/resample/alpha-handling pipeline has run. The canonical byte stream is the concatenation of every tile's pixel matrix in ascending `(z, x, y)` order (matching the on-disk tile-index order, § 5.2). Within each tile, pixels are in row-major order: top-to-bottom rows, left-to-right within each row (§ 6.2). Each pixel is exactly 3 bytes: R, G, B (no alpha, no intra-tile padding, no inter-tile separator bytes). The writer's preprocessing pipeline (gamma, alpha-compositing, resampling) is implementation-defined; `content_hash` pins the pipeline's byte output.
+  - **Raster sources** (`dir`, `geotiff`, `mbtiles`, `pmtiles`): `content_hash` is the SHA-256 of the writer's pre-quantisation RGB888 byte stream for this source — the bytes that feed § 9.1.1, after the writer's decode/resample/alpha-handling pipeline has run. The byte stream covers the source's complete rendered tile set (every `(z, x, y)` the source would contribute in the absence of any other source); conflict resolution (§ 12 #6) does not affect `content_hash`. The canonical byte stream is the concatenation of every tile's pixel matrix in ascending `(z, x, y)` order over that complete set. Within each tile, pixels are in row-major order (§ 6.2). Each pixel is exactly 3 bytes: R, G, B (no alpha, no intra-tile padding, no inter-tile separator bytes). The writer's preprocessing pipeline (gamma, alpha-compositing, resampling) is implementation-defined; `content_hash` pins the pipeline's byte output. `zoom_min` and `zoom_max` for raster sources reflect the source's complete rendered range, not the post-conflict realized range.
   - **Vector sources** (`pbf`): `content_hash` is the SHA-256 of the concatenated raw Mapbox Vector Tile bytes in ascending `(z, x, y)` order. v1 does not specify PBF-to-pixel rendering (reserved for a future minor); the hash exists so future PBF-rendering writers can pin their tile output by the source PBF stream.
   - **Style** (`style`): `content_hash` is the SHA-256 of the MapLibre style JSON as supplied to the writer, UTF-8 bytes verbatim: no BOM stripping, no newline normalization, no whitespace normalization, no JSON canonicalization, no encoding conversion. Style-driven raster output, when used as input to a raster source, is captured by that raster source's `content_hash` per the rule above.
 
@@ -772,7 +772,7 @@ Per-kind entry shapes (keys in lex order within each object):
 
   `template` is the URL string as supplied to the writer, byte-verbatim: no scheme/host case folding, no percent-encoding canonicalization, no path normalization, no query-parameter sorting, no trailing-slash addition or removal.
 
-  `zoom_min` and `zoom_max` reflect the realized range of tile-index entries this source contributed to the pack — the min and max `z` of `(z, x, y)` tiles ingested from this source, after conflict resolution (§ 12 #6).
+  `zoom_min` and `zoom_max` reflect the source's configured fetch range, not the post-conflict realized range.
 
 - **`image`** (LocalLinear hand-drawn):
 
