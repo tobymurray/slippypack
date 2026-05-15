@@ -297,10 +297,11 @@ Conditional requirements:
 - Writers MUST emit positive zero (`0x0000000000000000`) for any AFFN coefficient that evaluates to mathematical zero. The negative-zero bit pattern (`0x8000000000000000`) MUST NOT appear on disk.
 - AFFN coefficient computation MUST use IEEE-754 binary64 strict rounding: no fused multiply-add, no contracted operations, no extended intermediate precision.
 - Writers MUST abort the build if AFFN computation produces a NaN or ±∞ at any intermediate or final step.
+- Writers MUST abort the build if the AFFN-derived `bbox` (§ 4.9) falls outside the integer-microdegree ranges of § 4.9.
 
 **ATTR payload rules.**
 
-- Lines are separated by a single LF byte (`0x0A`, U+000A). CRLF and bare CR are NOT permitted. The payload MUST contain no ASCII C0 control character (U+0001–U+001F) other than U+000A (LF), no DEL (U+007F), and no Unicode line-break codepoint U+0085 (NEL), U+2028 (LS), or U+2029 (PS). Writers MUST reject sources carrying any of these in attribution strings; readers MAY reject or strip.
+- Lines are separated by a single LF byte (`0x0A`, U+000A). CRLF and bare CR are NOT permitted. The payload MUST contain no ASCII C0 control character (U+0001–U+001F) other than U+000A (LF), no DEL (U+007F), and no Unicode line-break codepoint U+0085 (NEL), U+2028 (LS), or U+2029 (PS). Writers MUST reject sources carrying any of these in attribution strings; readers MUST reject packs containing them (§ 11 #38).
 - No trailing LF after the last string.
 - Payload length MUST NOT be zero. A pack with zero sources MUST omit the `ATTR` section.
 - For byte-identical reproducibility across writers, the strings MUST be ordered to match the canonical `sources` array order defined in Appendix A.4 (sorted by `(zoom_min, zoom_max, kind, identity)`).
@@ -498,7 +499,7 @@ A conforming v1 reader MUST:
 20. Reject any pack containing an unknown extension tag whose first byte is upper-case ASCII (`A–Z`).
 21. Accept and MAY ignore any unknown extension tag whose first byte is lower-case ASCII.
 22. Reject `projection = LocalLinear` packs that do not contain an `AFFN` extension.
-23. When `tile_addressing_scheme = SingleImage`, reject the pack unless ALL of the following hold (§ 8.6): `tile_count == 1`; the lone tile-index entry has `z == 0`, `x == 0`, and `y == 0`; `zoom_min == 0`; `zoom_max == 0`; `zoom_offsets[0].count == 1` and `zoom_offsets[0].offset == index_offset`; every `zoom_offsets[z]` for `z ∈ [1, 23]` is `(0, 0)`. A lookup for `(0, 0, 0)` MUST return the SingleImage tile bytes; lookups for any other `(z, x, y)` MUST return the absent outcome.
+23. When `tile_addressing_scheme = SingleImage`, reject the pack unless ALL of the following hold (§ 8.6): `tile_count == 1`; the lone tile-index entry has `z == 0`, `x == 0`, and `y == 0`; `zoom_min == 0`; `zoom_max == 0`; `tile_axis_convention == 1`; `zoom_offsets[0].count == 1` and `zoom_offsets[0].offset == index_offset`; every `zoom_offsets[z]` for `z ∈ [1, 23]` is `(0, 0)`. A lookup for `(0, 0, 0)` MUST return the SingleImage tile bytes; lookups for any other `(z, x, y)` MUST return the absent outcome.
 24. Verify the CRC-32 footer per § 10 (eager, streaming, or caller-asserted-trust) and reject the pack on mismatch. Whichever window the reader chooses, no bytes derived from the pack — including parsed header field values — MUST be returned to the caller while a mismatch is possible.
 25. Reject any pack where `index_offset != 292` (§ 4.11).
 26. Reject any `NAME` section whose section payload length is less than `1` (no byte available for the mandatory `tag_length`), or where `1 + tag_length > section payload length` (§ 7.4).
@@ -513,7 +514,7 @@ A conforming v1 reader MUST:
 35. Reject any `AFFN` section whose six decoded IEEE-754 binary64 coefficients are not all finite (§ 7.3).
 36. Reject any pack with `projection ≠ LocalLinear` that contains an `AFFN` section (§ 7.3).
 37. Reject any `NAME` section whose `name` field is not valid UTF-8, or whose `bcp47_tag` field (when `tag_length > 0`) does not match the v1 restricted BCP-47 subset of § 7.4.
-38. Reject any `SRCD` or `ATTR` section whose payload is not valid UTF-8 (§ 7.3).
+38. Reject any `SRCD` or `ATTR` section whose payload is not valid UTF-8. Additionally reject any `ATTR` section whose payload contains any byte sequence decoding to U+0001–U+001F other than U+000A, to U+007F, to U+0085, to U+2028, or to U+2029 (§ 7.3).
 39. `memcpy` 64-bit values within extension-section payloads into 8-aligned locals before decoding, then convert the little-endian on-disk bytes to host byte order. Payload-internal 64-bit fields (notably `AFFN`'s six `f64`s, § 7.3) may land 4-aligned-not-8-aligned under § 7.1's section-start-only alignment guarantee.
 
 ## 12. Writer requirements
@@ -740,9 +741,11 @@ The `sources` array is sorted ascending by `(zoom_min, zoom_max, derived_source_
 
 **Source-intrinsic identity.** All per-source descriptor fields (`content_hash`, `zoom_min`, `zoom_max`, `auth_kinds`, `fixture_version`, `template`) are intrinsic to the source's configuration and rendered output, independent of conflict resolution (§ 12 #6). Every configured source appears in `sources` regardless of whether its bytes materially survive conflict resolution.
 
+**Style sources.** Style sources MUST NOT appear in `sources`. A style's effect on a pack is captured via the consuming raster source's `content_hash` and the top-level `style_hash` descriptor key (§ A.3). The `style` kind remains in the canonical kind ordering for forward compatibility.
+
 Per-kind entry shapes (keys in lex order within each object):
 
-- **File-backed kinds** (`dir`, `geotiff`, `mbtiles`, `pbf`, `pmtiles`, `style`):
+- **File-backed kinds** (`dir`, `geotiff`, `mbtiles`, `pbf`, `pmtiles`):
 
   ```
   {"content_hash":"<sha256-hex>","kind":"<kind>","zoom_max":<int>,"zoom_min":<int>}
@@ -752,7 +755,6 @@ Per-kind entry shapes (keys in lex order within each object):
 
   - **Raster sources** (`dir`, `geotiff`, `mbtiles`, `pmtiles`): `content_hash` is the SHA-256 of the writer's pre-quantisation RGB888 byte stream for this source — the bytes that feed § 9.1.1, after the writer's decode/resample/alpha-handling pipeline has run. The byte stream covers the source's complete rendered tile set (every `(z, x, y)` the source would contribute in the absence of any other source); conflict resolution (§ 12 #6) does not affect `content_hash`. The canonical byte stream is the concatenation of every tile's pixel matrix in ascending `(z, x, y)` order over that complete set. Within each tile, pixels are in row-major order (§ 6.2). Each pixel is exactly 3 bytes: R, G, B (no alpha, no intra-tile padding, no inter-tile separator bytes). The writer's preprocessing pipeline (gamma, alpha-compositing, resampling) is implementation-defined; `content_hash` pins the pipeline's byte output. `zoom_min` and `zoom_max` for raster sources reflect the source's complete rendered range, not the post-conflict realized range.
   - **Vector sources** (`pbf`): `content_hash` is the SHA-256 of the concatenated raw Mapbox Vector Tile bytes in ascending `(z, x, y)` order. v1 does not specify PBF-to-pixel rendering (reserved for a future minor); the hash exists so future PBF-rendering writers can pin their tile output by the source PBF stream.
-  - **Style** (`style`): `content_hash` is the SHA-256 of the MapLibre style JSON as supplied to the writer, UTF-8 bytes verbatim: no BOM stripping, no newline normalization, no whitespace normalization, no JSON canonicalization, no encoding conversion. Style-driven raster output, when used as input to a raster source, is captured by that raster source's `content_hash` per the rule above.
 
   This shifts the `pack_uuid → tile-blob` determinism guarantee from "writers must agree on every preprocessing step" to "writers must agree on their pipeline's *output*". The spec does NOT prescribe a specific decode/resample/alpha pipeline; writers MUST document their convention. The round-trip property of § 14.1 enforces this: if two runs of the same writer produce the same `pack_uuid` they MUST produce byte-identical packs, which (because tile blobs flow from `content_hash`-pinned RGB888 through the locked § 9.1.1 quantiser) reduces to "same RGB888 in, same tile blob out".
 
@@ -765,12 +767,14 @@ Per-kind entry shapes (keys in lex order within each object):
 - **`url`** (URL template):
 
   ```
-  {"auth_kinds":[…],"kind":"url","template":"<url>","zoom_max":<int>,"zoom_min":<int>}
+  {"auth_kinds":[…],"content_hash":"<sha256-hex>","kind":"url","template":"<url>","zoom_max":<int>,"zoom_min":<int>}
   ```
 
   `auth_kinds` is a sorted, deduplicated array drawn from `"header"` and `"query"`. Authentication *values* (API keys, tokens) MUST NOT appear in the descriptor — only the *kinds* of authentication in use. This keeps `pack_uuid` stable across credential rotations.
 
   `template` is the URL string as supplied to the writer, byte-verbatim: no scheme/host case folding, no percent-encoding canonicalization, no path normalization, no query-parameter sorting, no trailing-slash addition or removal.
+
+  `content_hash` follows the raster-source rule above: SHA-256 of the writer's pre-quantisation RGB888 byte stream covering the source's complete configured tile set (every `(z, x, y)` for `z ∈ [zoom_min, zoom_max]` the source is configured to provide), ascending `(z, x, y)`, row-major per § 6.2, three bytes per pixel R, G, B, with no padding or inter-tile separator bytes. Conflict resolution (§ 12 #6) does not affect `content_hash`.
 
   `zoom_min` and `zoom_max` reflect the source's configured fetch range, not the post-conflict realized range.
 
@@ -784,22 +788,22 @@ Per-kind entry shapes (keys in lex order within each object):
 
 ### A.5 Worked example
 
-Baseline descriptor for a single-source pack of OSM tiles, z=6–12, world-scale bbox. Note `"affn":null` as the lex-first key (per § A.3, the `affn` key is always emitted; non-LocalLinear packs carry `null`):
+Baseline descriptor for a single-source pack of OSM tiles, z=6–12, world-scale bbox. The `content_hash` value below is a placeholder (all-zero); real packs carry the SHA-256 of the writer's pre-quantisation RGB888 byte stream per § A.4. Note `"affn":null` as the lex-first key (per § A.3, the `affn` key is always emitted; non-LocalLinear packs carry `null`):
 
 ```json
-{"affn":null,"bbox":[-180000000,-85000000,180000000,85000000],"format_version":[1,0],"pixel_format":1,"projection":1,"quantiser_version":1,"sources":[{"auth_kinds":[],"kind":"url","template":"https://tile.openstreetmap.org/{z}/{x}/{y}.png","zoom_max":12,"zoom_min":6}],"style_hash":null,"tile_addressing_scheme":1,"tile_axis_convention":1,"tile_dim_px":128,"zoom_range":[6,12]}
+{"affn":null,"bbox":[-180000000,-85000000,180000000,85000000],"format_version":[1,0],"pixel_format":1,"projection":1,"quantiser_version":1,"sources":[{"auth_kinds":[],"content_hash":"0000000000000000000000000000000000000000000000000000000000000000","kind":"url","template":"https://tile.openstreetmap.org/{z}/{x}/{y}.png","zoom_max":12,"zoom_min":6}],"style_hash":null,"tile_addressing_scheme":1,"tile_axis_convention":1,"tile_dim_px":128,"zoom_range":[6,12]}
 ```
 
 Intermediate SHA-1 of (namespace bytes ‖ canonical bytes), 20 hex bytes:
 
 ```
-5146db8e0859661c858045c6154e890d752c55ca
+e91e34e73c2f329c85a0513a72dbefd4bdae8aa2
 ```
 
 Derived `pack_uuid` (= first 16 bytes of the SHA-1 with the version-5 bit-stamp at byte 6 and the RFC 4122 variant fixup at byte 8 — see § A.2):
 
 ```
-5146db8e-0859-561c-8580-45c6154e890d
+e91e34e7-3c2f-529c-85a0-513a72dbefd4
 ```
 
 The intermediate SHA-1 is included so independent implementations can bisect a mismatch: if your SHA-1 differs from the value above, your canonical-bytes formation is the bug; if your SHA-1 matches but your UUID doesn't, your UUIDv5 version/variant fixup is the bug.
