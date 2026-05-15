@@ -47,7 +47,7 @@ A `.rawtiles` file consists of five sections in fixed order:
 +---------------------------------+ file_size
 ```
 
-A pack is at most **4 GiB** in total size. All on-disk offsets (`index_offset`, `extensions_offset`, `zoom_offsets[].offset`, tile-index `offset`) are u32 LE. A writer that would produce a larger pack MUST fail with a "pack too large" error rather than overflow.
+A pack is at most `2^32 − 1` bytes in total size. All on-disk offsets (`index_offset`, `extensions_offset`, `zoom_offsets[].offset`, tile-index `offset`) are u32 LE. A writer that would produce a larger pack MUST fail with a "pack too large" error rather than overflow.
 
 **Alignment.** The 292-byte header is sized so that every multi-byte header field is naturally aligned at its file offset (u16 fields on 2-byte boundaries, u32 on 4-byte, u64 on 8-byte). `index_offset = 292` is itself 4-aligned, so the u32 fields *within* tile-index entries (at +4, +8, +12, +16 within each 20-byte entry) are also naturally aligned.
 
@@ -140,8 +140,9 @@ Four `i32` little-endian values, in this byte order: `min_lon`, `min_lat`, `max_
   - `lat_north_µ°(z, y)` = `+85_051_129` if `y == 0`; otherwise `round_half_even(atan(sinh(π · (1 − 2 · y / 2^z))) · (180_000_000 / π))` evaluated in IEEE-754 binary64 with strict rounding (no fused multiply-add, no contracted operations, no extended intermediate precision). `π` and `180_000_000 / π` are the binary64 nearest-rounded values of those mathematical constants.
   - `lat_south_µ°(z, y)` = `−85_051_129` if `y == 2^z − 1`; otherwise `lat_north_µ°(z, y + 1)`.
   - `bbox.min_lon`, `bbox.max_lon`, `bbox.min_lat`, `bbox.max_lat` are the componentwise min/max over `{lon_west_µ°, lon_east_µ°, lat_south_µ°, lat_north_µ°}` across all tile-index entries.
+  - Cross-implementation `lat_north_µ°` and `lat_south_µ°` may differ by ≤ 1 µ° due to ≤ 1 ULP divergence between conforming `atan` and `sinh` implementations at non-special arguments; `bbox` divergence from this source is bounded by ≤ 1 µ° per component.
 - **Quadtree, `tile_count == 0`** (metadata-only packs, § 8.6): `bbox` is `(0, 0, 0, 0)`. With no tiles there is no tile-coverage region to bound; the canonical sentinel is the origin point. A writer that needs to advertise a different bbox on a zero-tile pack falls outside cross-writer-reproducible packs and MUST document its own convention.
-- **SingleImage with `projection = LocalLinear`**: `bbox` is the tight i32-microdegree bounding box of the four image-corner points `(0, 0)`, `(W, 0)`, `(0, H)`, `(W, H)` transformed by the AFFN matrix (§ 7.3), where `W = H = tile_dim_px`. Each corner maps to `(lon, lat) = (a·u + b·v + c, d·u + e·v + f)`; the four results' componentwise min/max give `bbox`, rounded to the nearest microdegree.
+- **SingleImage with `projection = LocalLinear`**: `bbox` is the tight i32-microdegree bounding box of the four image-corner points `(0, 0)`, `(W, 0)`, `(0, H)`, `(W, H)` transformed by the AFFN matrix (§ 7.3), where `W = H = tile_dim_px`. Each corner maps to `(lon, lat) = (a·u + b·v + c, d·u + e·v + f)`, evaluated in IEEE-754 binary64 with strict rounding (no fused multiply-add, no contracted operations, no extended intermediate precision). Conversion to integer microdegrees uses `round_half_even(lon · 1_000_000)` and `round_half_even(lat · 1_000_000)` (§ A.3). The four corners' componentwise min/max give `bbox`.
 
 ### 4.10 `build_timestamp`
 
@@ -573,7 +574,7 @@ For § 14.1's writer-round-trip property to hold, the order in which extension s
 - **Major bump** (e.g. `1.0 → 2.0`): incompatible change. Header layout, tile-index layout, CRC scope, or pixel-format encoding may change. v1 readers MUST reject v2 packs.
 - **Minor bump** (e.g. `1.0 → 1.1`): additive change. The header layout is frozen per major version; minor bumps allocate new extension tags, new enum values, or relax existing constraints. A v1.0 reader MUST accept v1.x packs, but the per-§ 7.2 / § 8 rules cause it to reject any v1.x pack that uses newly-allocated SDK-reserved values it doesn't know.
 
-**Scope of the v1.x forward-compat hole.** Any v1.x assignment to `reserved_v1_0` (§ 4 header table) MUST be additive — it MAY carry new information for v1.x-aware readers but MUST NOT alter the interpretation of any other v1.0 header or tile-index field. The same constraint applies to any future reserved bytes added by minor bumps.
+**Scope of the v1.x forward-compat hole.** Any v1.x assignment to `reserved_v1_0` (§ 4 header table) MUST be additive — it MAY carry new information for v1.x-aware readers but MUST NOT alter the interpretation of any other v1.0 header or tile-index field. The same constraint applies to any future reserved bytes added by minor bumps. Any v1.x assignment to `reserved_v1_0` MUST simultaneously extend the canonical descriptor schema (§ A.3) with a key reflecting the new information.
 
 ### 13.2 Adding new SDK-reserved extension tags
 
@@ -736,6 +737,8 @@ The `sources` array is sorted ascending by `(zoom_min, zoom_max, derived_source_
 **Sources without zoom fields.** Some kinds (`synthetic`, `image`) don't carry zoom_min / zoom_max in their per-source shape. For sort-key purposes such sources MUST be treated as `zoom_min = 0, zoom_max = 0`. This puts them ahead of any kind that does carry zoom fields with non-zero values, which is what writers and readers both need to agree on for byte-identical descriptor output.
 
 **Uniqueness.** Within a pack, no two source entries MAY share `(kind, identity)`. This pins the sort key to a total ordering and avoids descriptor-canonicalization ambiguity when otherwise-equal entries would tie on the documented sort key (e.g. two `url` sources with the same `template` but differing `auth_kinds`).
+
+**Shadowed sources.** A source that contributes zero tile-index entries after conflict resolution (§ 12 #6) MUST be omitted from `sources`.
 
 Per-kind entry shapes (keys in lex order within each object):
 
