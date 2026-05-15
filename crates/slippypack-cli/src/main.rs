@@ -16,11 +16,13 @@ use clap::{Parser, Subcommand};
 mod attribution;
 mod build;
 mod debug;
+mod inspect;
 mod sources;
 
 use attribution::validate_attribution_string;
 use build::{BboxDeg, BuildError, BuildOptions, build};
 use debug::{DebugUuidArgs, DebugUuidFormat, run_debug_uuid};
+use inspect::{InspectArgs, InspectError, run_inspect};
 
 #[derive(Parser)]
 #[command(
@@ -37,9 +39,18 @@ struct Cli {
 enum Command {
     /// Build a `.rawtiles` from a tile source.
     Make(MakeArgs),
+    /// Print a human-readable summary of a `.rawtiles` pack: header
+    /// metadata, per-zoom tile counts, and extension sections.
+    Inspect(InspectCliArgs),
     /// Diagnostic subcommands.
     #[command(subcommand)]
     Debug(DebugCommand),
+}
+
+#[derive(clap::Args)]
+struct InspectCliArgs {
+    /// Path to the `.rawtiles` pack to inspect.
+    pack: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -177,6 +188,13 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::Inspect(args) => match run_inspect_cli(&args) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Debug(DebugCommand::Uuid(args)) => match run_debug_uuid_cli(&args) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -185,6 +203,15 @@ fn main() -> ExitCode {
             }
         },
     }
+}
+
+fn run_inspect_cli(args: &InspectCliArgs) -> Result<(), InspectError> {
+    let inspect_args = InspectArgs {
+        path: args.pack.clone(),
+    };
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    run_inspect(&inspect_args, &mut handle)
 }
 
 fn run_debug_uuid_cli(args: &DebugUuidCliArgs) -> Result<(), BuildError> {
