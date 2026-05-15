@@ -2,7 +2,7 @@
 
 Build offline `.rawtiles` map packs.
 
-> **Status:** plan + workspace skeleton. The Cargo workspace compiles (`cargo check --workspace`) but no functional code has shipped yet. Phase 0 (the core library) is the next deliverable.
+> **Status:** in flight. `slippypack-core` (format writer + reader, decode, quantise, Web Mercator projection, UUIDv5 identity) and the first slice of `slippypack-cli` (`--source synthetic` + URL templates, `make` and `debug uuid` subcommands, SIGINT/atomic write) have landed. The `slippypack-web*` crates are skeleton stubs awaiting Phase 4. ~280 tests passing.
 
 See [PLAN.md](PLAN.md) for the design and phasing.
 
@@ -28,10 +28,17 @@ The `.rawtiles` byte-level specification lives in its own repository at [github.
 
 ```sh
 cargo check --workspace
+cargo test --workspace
 ```
 
-The skeleton compiles; no functional code has landed yet. Each crate's `src/` contains a placeholder pointing at the PLAN.md section that defines its eventual contents.
+The CLI is buildable today:
+
+```sh
+cargo run -p slippypack-cli -- make --source synthetic --out test.rawtiles
+```
+
+The `slippypack-web*` crates are skeleton stubs — their `src/lib.rs` files contain only a module-level docstring pointing at the PLAN.md section that defines their eventual contents.
 
 ## Status
 
-See [PLAN.md § Phasing](PLAN.md#phasing). The first user-facing milestone is Phase 1's first slice (`--source synthetic` and `--source https://.../{z}/{x}/{y}.png`), landing ~2.5–3 weeks after Phase 0 work starts.
+See [PLAN.md § Phasing](PLAN.md#phasing). Phase 0 + the first slice of Phase 1 + the `debug uuid` helper from Phase 1.x have landed. Next on the CLI track: Phase 1.x's remaining source kinds (`dir`, `mbtiles`, `pmtiles`) and multi-source layering. The PWA track (Phase 4 onward) starts when Phase 0 is needed in the browser.

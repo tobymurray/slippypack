@@ -1,6 +1,6 @@
 # slippypack — Build offline `.rawtiles` map packs
 
-> Status: **in flight**. Phase 0 (`slippypack-core`: format writer + reader, quantiser, identity, projection) and the first slice of Phase 1 (`slippypack-cli` with `--source synthetic` and URL templates) are landed; subsequent slices ship per [§ Phasing](#phasing).
+> Status: **in flight**. Phase 0 (`slippypack-core`: format writer + reader, quantiser, identity, Web Mercator projection) and the first slice of Phase 1 (`slippypack-cli` with `--source synthetic` and URL templates, SIGINT/atomic write) are landed, plus the `slippypack debug uuid` helper from Phase 1.x; subsequent slices ship per [§ Phasing](#phasing). Local Linear projection math is deferred to Phase 10 where it's actually used.
 
 > **The `.rawtiles` byte format is defined by the standalone [rawtiles spec](https://github.com/tobymurray/rawtiles), not by this plan.** This document covers slippypack's design, phasing, and rationale; anything about on-disk bytes (header layout, tile-index entries, extension framing, canonical `pack_uuid` derivation, CRC scope, reader/writer conformance rules) is the spec's authority. Where this plan needs to talk about format details it defers to the spec by section reference; restating spec content here would only create two slightly-different "sources of truth."
 
@@ -282,11 +282,11 @@ slippypack/
                 decode.rs             # PNG / JPEG → RGB888 via image crate
                 quantise.rs           # RGB → ABGR2222 (integer-only)
                 identity.rs           # UUIDv5 derivation + source-mtime / Last-Modified accumulator
-                projection/           # Mercator, LocalLinear
+                projection/           # Mercator (LocalLinear math lands in Phase 10)
             tests/
-                roundtrip.rs          # write, read back, byte-compare
-                determinism.rs        # two builds, identical inputs → identical bytes
-                spec_layout.rs        # asserts byte offsets against a committed hex fixture
+                roundtrip.rs          # full pipeline round-trip + determinism
+                reader_conformance.rs # per-tile SHA-256 corpus against each golden pack
+                spec_layout.rs        # writer-side byte-layout diff against committed binary goldens
         slippypack-cli/               # native CLI binary
             Cargo.toml                # default features = raster only; --features vector adds renderer
             src/
@@ -563,22 +563,23 @@ The una-sdk watch firmware (when MapTrack Phase 2 ships) reads the same bytes an
 **`slippypack-core`:**
 - `crates/slippypack-core/Cargo.toml`
 - `crates/slippypack-core/src/lib.rs` — public API
-- `crates/slippypack-core/src/format/mod.rs` — `.rawtiles` writer
+- `crates/slippypack-core/src/format/mod.rs` — `format` module wiring
+- `crates/slippypack-core/src/format/types.rs` — shared format types (`PixelFormat`, `Projection`, `AddressingScheme`, `AxisConvention`, `BoundingBox`)
+- `crates/slippypack-core/src/format/rawtiles_writer.rs` — `RawtilesWriter`, the concrete v1 `TileWriter` impl
+- `crates/slippypack-core/src/format/writer_trait.rs` — `TileWriter` trait (the format-pluggability seam)
 - `crates/slippypack-core/src/format/header.rs` — header layout
 - `crates/slippypack-core/src/format/tile_index.rs` — index entries
 - `crates/slippypack-core/src/format/extensions.rs` — `ATTR`, `NAME`, `SRCD`, `AFFN`, etc.
 - `crates/slippypack-core/src/format/crc.rs` — CRC32
 - `crates/slippypack-core/src/format/reader.rs` — `.rawtiles` reader (for round-trip)
-- `crates/slippypack-core/src/format/writer_trait.rs` — `TileWriter` trait (the format-pluggability seam; the `.rawtiles` writer in `format/mod.rs` implements it)
 - `crates/slippypack-core/src/decode.rs` — PNG / JPEG → RGB888 via `image` (default-features off; `png` + `jpeg` only)
 - `crates/slippypack-core/src/quantise.rs` — RGB → ABGR2222 (integer-only arithmetic for cross-platform determinism)
 - `crates/slippypack-core/src/identity.rs` — UUIDv5 derivation from canonical source descriptor; source-mtime / `Last-Modified` accumulator for `build_timestamp`
 - `crates/slippypack-core/src/projection/mod.rs` — projection trait
 - `crates/slippypack-core/src/projection/mercator.rs` — Web Mercator
-- `crates/slippypack-core/src/projection/local_linear.rs` — Local Linear (corner affine)
-- `crates/slippypack-core/tests/roundtrip.rs` — write a pack, read it back, compare bytes
-- `crates/slippypack-core/tests/determinism.rs` — two invocations with identical inputs produce byte-identical output
-- `crates/slippypack-core/tests/spec_layout.rs` — pack bytes match the committed `golden-pack-*.rawtiles.hex` fixtures, asserting byte-offset conformance against the spec
+- `crates/slippypack-core/tests/roundtrip.rs` — full pipeline (decode → quantise → write → read) round-trip + determinism (two invocations produce byte-identical output) against a committed PNG fixture and golden pack
+- `crates/slippypack-core/tests/spec_layout.rs` — pack bytes match the committed `golden-{grid,pyramid,attr}.rawtiles` binary fixtures, asserting byte-offset conformance against the spec
+- `crates/slippypack-core/tests/reader_conformance.rs` — per-tile SHA-256 hash corpus pinned against each golden pack (`.hashes` files paired with each `golden-*.rawtiles`); guards reader correctness independently of the writer
 - `crates/slippypack-core/tests/fixtures/` — committed deterministic input + output fixtures (see [§ Test plan](#test-plan-first-slice) for the list)
 
 **`slippypack-cli`:**
@@ -587,30 +588,33 @@ The una-sdk watch firmware (when MapTrack Phase 2 ships) reads the same bytes an
 - `crates/slippypack-cli/src/sources/url_template.rs` — `fetch` from `{z}/{x}/{y}.png`-style URLs; tracks max `Last-Modified` for `build_timestamp`
 - `crates/slippypack-cli/src/sources/synthetic.rs` — emits the gradient-pattern fixture tiles for `--source synthetic`; reads bytes from the embedded `fixtures/synthetic-pattern/` via `include_bytes!`
 - `crates/slippypack-cli/fixtures/synthetic-pattern/` — committed gradient-pattern PNG tiles (no network, no key); `include_bytes!`-embedded into the binary at compile time
-- `crates/slippypack-cli/tests/fixtures/golden-synthetic.rawtiles.hex` — committed hex dump of the expected `.rawtiles` produced by `slippypack make --source synthetic --timestamp 0 --pack-uuid <fixed>`; the synthetic-smoke test (test 5b) byte-compares against this
-- `crates/slippypack-cli/src/tile_source.rs` — `TileByteSource` impl backed by a temp file (the writer's external-tile-content read path) and a separate `Write` impl on the `<out>.rawtiles.partial` file (the writer's output sink)
+- `crates/slippypack-cli/tests/fixtures/golden-synthetic.rawtiles` — committed binary `.rawtiles` produced by `slippypack make --source synthetic --timestamp 0 --pack-uuid <fixed>`; the synthetic-smoke test (test 5b) byte-compares against this
+- `crates/slippypack-cli/src/build.rs` — build pipeline including `TileByteSource` impl backed by a temp file (the writer's external-tile-content read path) and a separate `Write` impl on the `<out>.rawtiles.partial` file (the writer's output sink)
 
 ### Test plan (first slice)
 
 **Fixtures** committed under `crates/slippypack-core/tests/fixtures/`. All fixtures are read via a test helper that pre-`touch`es each file to a fixed mtime (`1700000000`, an arbitrary committed constant) at the start of every test — git checkouts set mtimes to checkout-time, which is non-deterministic across machines; the helper makes the mtime-accumulator deterministic without forcing every test to pass `--timestamp 0`.
 
-- `synthetic-grid-z4/` — 25 PNG tiles forming a 5×5 z=4 region with known RGB values (corner colors encode `(z, x, y)`). Small fixture for the round-trip and basic-determinism tests.
-- `synthetic-pyramid/` — a multi-zoom fixture covering z=2..z=8, 1+4+16+64+256+1024+4096 = 5461 tiles. Exercises the per-zoom `zoom_offsets[18]` directory, the binary-search range bounds, and tile counts that approach 16-bit boundaries (intentionally not crossing them — see below).
-- `synthetic-with-attr/` — 9 tiles at z=3 plus an `ATTR` extension section. Exercises the extension-section iterator's offset arithmetic.
-- `golden-pack-grid.rawtiles.hex`, `golden-pack-pyramid.rawtiles.hex`, `golden-pack-attr.rawtiles.hex` — committed hex dumps of the expected `.rawtiles` bytes produced from the corresponding fixtures with the fixed-mtime helper and `--pack-uuid <fixed-from-canonical-descriptor>`. Fixtures regenerate only on explicit spec changes (CHANGELOG entry required); routine PRs that diff against them fail loudly.
+- `format/golden-grid.rawtiles` — single-zoom grid: 25 tiles at z=4, x ∈ [0..5), y ∈ [0..5). Tile content is a 16-byte deterministic pattern keyed on `(z, x, y)`, not real ABGR2222 — spec-layout tests the format module's byte output, not the decode module's (see DECISIONS.md F-020).
+- `format/golden-pyramid.rawtiles` — multi-zoom pyramid: 1 + 4 + 16 = 21 tiles across z=2..=4. Exercises the per-zoom `zoom_offsets[18]` directory for non-trivial zoom distributions. (Trimmed from the original PLAN sketch of z=2..=8 / 5461 tiles per DECISIONS.md F-019 — the smaller form is functionally equivalent for byte-layout coverage and avoids committing a ~150 KB golden file.)
+- `format/golden-attr.rawtiles` — 9 tiles at z=3 plus an `ATTR` extension section. Exercises the extension-section iterator's offset arithmetic.
+- `format/golden-{grid,pyramid,attr}.hashes` — paired SHA-256 corpora (one hash per `(z, x, y)` tile) that `reader_conformance.rs` checks against the corresponding `.rawtiles` to gate reader correctness independently of the writer.
+- `e2e/input-2x2-rgb.png` + `e2e/golden-png-to-pack-{1tile,5tiles}.rawtiles` (+ paired `.hashes`) — PNG fixture and golden packs for `roundtrip.rs`, which exercises the full `decode → quantise → write → read` pipeline against a real PNG.
+
+Goldens regenerate only on explicit spec or writer changes (CHANGELOG entry required); routine PRs that diff against them fail loudly via the per-test `BLESS_*=1` env-var bootstrap.
 
 The CLI's `--source synthetic` runtime fixture (`crates/slippypack-cli/fixtures/synthetic-pattern/`, 4×4 single-zoom gradient tiles) is a different, separately-versioned asset — it's embedded into the CLI binary via `include_bytes!` and is exercised by test 5b below, not the core's `tests/spec_layout.rs`.
 
 Tests:
 
-1. **Round-trip unit test** (`cargo test`): the writer produces a pack from `synthetic-grid-z4/`, the reader parses it back, byte-compared against the source tiles.
+1. **Round-trip + determinism** (`tests/roundtrip.rs`): the full pipeline (PNG → decode → quantise → write → read) runs against `e2e/input-2x2-rgb.png` and byte-compares the produced pack against the committed `golden-png-to-pack-*.rawtiles`. Two invocations with identical inputs produce byte-identical output, including `pack_uuid` (UUIDv5 over canonical descriptor) and `build_timestamp` header fields. One file covers both round-trip and full-file determinism; the fixed-mtime fixture helper makes determinism exercise the real mtime-accumulator code path, not bypass it via `--timestamp 0`.
 2. **Quantisation determinism test**: the integer quantiser produces byte-identical output for the same RGB input across `cargo test` on x86_64 and aarch64 (run in CI on both).
-3. **Full-file determinism test**: two CLI invocations against `synthetic-grid-z4/` with identical args produce byte-identical `.rawtiles` files, including `pack_uuid` and `build_timestamp` header fields. The fixed-mtime fixture helper makes this test exercise the real mtime-accumulator code path (not bypass it via `--timestamp 0`). Uses the local-file source kind, not URL templates, so the test does not depend on a live server.
-4. **Byte-layout-against-spec test**: three sub-tests, one per fixture, each byte-comparing the writer's output against the corresponding `golden-pack-*.rawtiles.hex`. **This is the test that catches off-by-one header errors, wrong endianness, mis-sized zoom_offsets entries, broken extension-section iteration, etc.** — round-trip alone (test 1) doesn't, because a writer with a subtly-wrong layout and its own reader making the same mistake passes round-trip cleanly. The three fixtures cover: single-zoom (grid), multi-zoom with non-trivial `zoom_offsets[18]` (pyramid), and extension-section layout (attr). Until the una-sdk simulator round-trip (test 7) exists, this is the only test that proves spec conformance.
-5. **CLI smoke test (URL-template)**: build a small pack from a hosted test tile server (e.g. a temporary local `tileserver-gl`), verify the output file parses; non-deterministic (live source) so excluded from the determinism gate but useful for end-to-end coverage.
-5b. **CLI smoke test (synthetic)**: invoke `slippypack make --source synthetic --out test.rawtiles` against the binary's embedded `synthetic-pattern/` fixture, verify the file parses via the core's reader and matches a committed `golden-synthetic.rawtiles.hex`. Fully deterministic (no network); guards the path the README points new users at.
-6. **Mid-build cancellation test**: send SIGINT to a running build; verify the partial-file path (`<out>.rawtiles.partial`) is removed and the final `<out>.rawtiles` is absent.
-7. **Simulator round-trip** (when una-sdk MapTrack Phase 2 ships): mount the una-sdk simulator's `Mock::FileSystem` (host-backed via `<filesystem>`, `Libs/Source/Simulator/Kernel/Mock/FileSystem.cpp`) against a host directory; copy slippypack's output `.rawtiles` there; load it through una-sdk's `TilePack` reader; verify it parses, every tile lookup returns the expected bytes, and the projection round-trips. **This is the actual cross-implementation conformance gate** — test 4 proves we match our own committed hex; this proves we match the firmware reader's interpretation of the spec.
+3. **Reader-conformance corpus** (`tests/reader_conformance.rs`): for each committed golden pack, the reader walks every `(z, x, y)` tile and SHA-256-hashes the returned bytes; the result is byte-compared against the paired `.hashes` file. Catches reader bugs that the writer-side `spec_layout` and `roundtrip` tests can't — a writer + reader sharing the same mistake passes both gates.
+4. **Byte-layout-against-spec test** (`tests/spec_layout.rs`): three sub-tests, one per fixture, each byte-comparing the writer's output against the corresponding `format/golden-{grid,pyramid,attr}.rawtiles`. **This catches off-by-one header errors, wrong endianness, mis-sized zoom_offsets entries, broken extension-section iteration, etc.** — round-trip alone (test 1) doesn't, because a writer with a subtly-wrong layout and its own reader making the same mistake passes round-trip cleanly. The three fixtures cover: single-zoom (grid), multi-zoom with non-trivial `zoom_offsets[18]` (pyramid), and extension-section layout (attr). The current cross-implementation conformance gate is the C++ second-opinion validator at `spec-validator-cpp/`, which re-derives parsing from the spec without calling any slippypack code; the una-sdk simulator round-trip (test 7) will add a second independent reader on top.
+5. **CLI smoke test (URL-template)** (future): build a small pack from a hosted test tile server (e.g. a temporary local `tileserver-gl`), verify the output file parses; non-deterministic (live source) so excluded from the determinism gate but useful for end-to-end coverage. Not yet implemented — Phase 1.x candidate.
+5b. **CLI smoke test (synthetic)** (`tests/cli_synthetic.rs`): invoke `slippypack make --source synthetic --out test.rawtiles` against the binary's embedded `synthetic-pattern/` fixture, verify the file parses via the core's reader and matches the committed `golden-synthetic.rawtiles`. Fully deterministic (no network); guards the path the README points new users at.
+6. **Mid-build cancellation test** (`tests/cli_cancel.rs`): send SIGINT to a running build; verify the partial-file path (`<out>.rawtiles.partial`) is removed and the final `<out>.rawtiles` is absent.
+7. **Simulator round-trip** (when una-sdk MapTrack Phase 2 ships): mount the una-sdk simulator's `Mock::FileSystem` (host-backed via `<filesystem>`, `Libs/Source/Simulator/Kernel/Mock/FileSystem.cpp`) against a host directory; copy slippypack's output `.rawtiles` there; load it through una-sdk's `TilePack` reader; verify it parses, every tile lookup returns the expected bytes, and the projection round-trips. Second independent reader on top of the existing C++ validator.
 8. **Watch hardware round-trip** (when a watch is available): copy `test.rawtiles` to a watch, confirm tiles render.
 
 ### CLI cancellation and atomic write
@@ -620,10 +624,10 @@ The CLI writes to `<out>.rawtiles.partial` during the build and renames atomical
 ### Acceptance criteria
 
 - ✅ `cargo test --workspace` passes.
-- ✅ `slippypack make --source synthetic --out test.rawtiles` produces a valid file (matches the committed `golden-synthetic.rawtiles.hex`).
+- ✅ `slippypack make --source synthetic --out test.rawtiles` produces a valid file (matches the committed `golden-synthetic.rawtiles`).
 - ✅ `slippypack make --bbox <small> --zoom <small> --source 'https://.../{z}/{x}/{y}.png' --out test.rawtiles` produces a valid file.
 - ✅ The round-trip reader parses the written file and the byte-compared content matches the writer's input.
-- ✅ **Byte-layout-against-spec test (test 4)** passes for all three fixtures (`synthetic-grid-z4/`, `synthetic-pyramid/`, `synthetic-with-attr/`). This is the load-bearing spec-conformance gate until the una-sdk simulator round-trip lands.
+- ✅ **Byte-layout-against-spec test (test 4)** passes for all three fixtures (`golden-grid.rawtiles`, `golden-pyramid.rawtiles`, `golden-attr.rawtiles`). This plus the C++ second-opinion validator at `spec-validator-cpp/` are the load-bearing spec-conformance gates until the una-sdk simulator round-trip lands.
 - ✅ Output is byte-identical when produced on Linux / macOS / Windows for the same inputs (CI matrix), including the `pack_uuid` (UUIDv5 over canonical descriptor) and `build_timestamp` (most-recent source mtime / `Last-Modified`) header fields.
 - ✅ Quantiser uses integer-only arithmetic; no float operations in the RGB→ABGR2222 path.
 - ✅ SIGINT during a build removes the `.partial` file and leaves no `.rawtiles` artifact behind.
@@ -728,11 +732,13 @@ slippypack draw \
 
 The four `--corners` points define the affine transform (image-pixel coordinates of the corners → lat/lon). The CLI computes the six affine coefficients, packages the image as a single-image pack, writes `AFFN`. Output: a `.rawtiles` with `projection = 3` (Local Linear) and `tile_addressing_scheme = 2` (single image), `AFFN` extension section carrying the affine matrix. Depends on una-sdk's MapTrack Phase 2b runtime support.
 
+This phase adds `crates/slippypack-core/src/projection/local_linear.rs` — the corner-affine math (four-corner solve → six coefficients) that produces `AFFN` payload bytes. The `LocalLinear` enum variant and its canonical-descriptor handling already live in `slippypack-core` (`format/types.rs`, `identity.rs`) from Phase 0 because pack-uuid derivation needs them; the actual projection math was deferred to here because no earlier phase exercises it.
+
 **`pack_uuid` derivation for hand-drawn packs** (see the rawtiles spec, Appendix A, for the canonical descriptor schema and per-kind shapes): `sources` is one `image` entry pinned by its `content_hash`; the top-level `affn` carries the six affine coefficients per the spec's representation; `bbox` is derived from applying the affine to the image's corners; `tile_addressing_scheme = SingleImage`; `projection = LocalLinear`. Two builds from the same image + same corner pins produce the same `pack_uuid`. Cropping the image, repositioning a corner, or changing the projection enum produces a new UUID.
 
 ### Phase 11 — CI, deployment, polish
 
-Playwright tests on Chrome and Firefox (Safari best-effort if WebKit-on-Linux works in CI). **Four committed golden packs** (`golden-pack-grid.rawtiles.hex`, `golden-pack-pyramid.rawtiles.hex`, `golden-pack-attr.rawtiles.hex` under `slippypack-core/tests/fixtures/`, plus `golden-synthetic.rawtiles.hex` under `slippypack-cli/tests/fixtures/`); CI rebuilds and diffs each on every PR — any byte change is a load-bearing spec-or-writer event and must be paired with a CHANGELOG entry. Cloudflare Pages auto-deploy on `main`. Lighthouse audit gate: Performance ≥ 90, Best Practices ≥ 90, PWA ✓.
+Playwright tests on Chrome and Firefox (Safari best-effort if WebKit-on-Linux works in CI). **Four committed golden packs** (`golden-grid.rawtiles`, `golden-pyramid.rawtiles`, `golden-attr.rawtiles` under `slippypack-core/tests/fixtures/format/`, plus `golden-synthetic.rawtiles` under `slippypack-cli/tests/fixtures/`), each paired with a `.hashes` SHA-256 corpus; CI rebuilds and diffs each on every PR — any byte change is a load-bearing spec-or-writer event and must be paired with a CHANGELOG entry. Cloudflare Pages auto-deploy on `main`. Lighthouse audit gate: Performance ≥ 90, Best Practices ≥ 90, PWA ✓.
 
 ## Open decisions
 

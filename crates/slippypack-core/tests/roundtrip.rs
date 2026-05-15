@@ -25,7 +25,7 @@
 //! ## Bootstrap / re-bless
 //!
 //! ```sh
-//! BLESS_E2E=1 cargo test --test end_to_end
+//! BLESS_E2E=1 cargo test --test roundtrip
 //! ```
 //!
 //! Overwrites the golden file with the current pipeline's output.
