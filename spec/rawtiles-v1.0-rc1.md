@@ -132,7 +132,7 @@ Four `i32` little-endian values, in this byte order: `min_lon`, `min_lat`, `max_
 - Range: `lon ∈ [−180_000_000, 180_000_000]`; `lat ∈ [−90_000_000, 90_000_000]`. For `projection = WebMercator` the latitude range is further restricted by the Mercator pole limit (~±85.051129°, i.e. ±85_051_129 microdegrees); readers MUST NOT reject packs solely on the basis of latitudes slightly outside that range.
 - `min_lon ≤ max_lon`, `min_lat ≤ max_lat`.
 
-**Canonical derivation.** `bbox` is derived from the pack's tile content, not a writer parameter. Two writers given the same logical inputs MUST emit byte-identical `bbox`:
+**Canonical derivation.** `bbox` is derived from the pack's tile content, not a writer parameter. Two writers given the same logical inputs MUST emit byte-identical `bbox`, subject to the ≤ 1 µ° per-component cross-implementation tolerance documented for the Quadtree formulas below (the SingleImage path is transcendental-free and admits no such slack):
 
 - **Quadtree, `tile_count > 0`**: `bbox` is the tight i32-microdegree bounding box of the lon/lat patches covered by all tile-index entries. Per-tile coverage is computed under WebMercator (§ 8.2) with `tile_axis_convention = XYZ` using the formulas below; for `TMS`, substitute `y' = 2^z − 1 − y` before applying.
   - `lon_west_µ°(z, x) = round_half_even((x · 360_000_000 − 180_000_000 · 2^z) / 2^z)` in exact i64 arithmetic, with banker's rounding on the integer division remainder.
@@ -592,7 +592,7 @@ Lower-case tags can be allocated at any time by any writer without a version bum
 
 ### 14.1 Writer-round-trip property
 
-A conforming writer applied twice to the same logical inputs MUST produce byte-identical output. This is the load-bearing reproducibility claim — it lets two parties (or two builds on different platforms) verify that they produced the same pack without sharing the pack bytes.
+A conforming writer applied twice to the same logical inputs MUST produce byte-identical output. This is the load-bearing reproducibility claim — it lets two parties (or two builds on different platforms with bit-equivalent IEEE-754 binary64 `atan` and `sinh` implementations) verify that they produced the same pack without sharing the pack bytes. A writer's libm `atan`/`sinh` implementation is part of its deterministic surface (§ 4.9); cross-platform builds dynamically linked against differing libm implementations are not the "same writer" for this purpose.
 
 This property is the writer's responsibility, not the reader's.
 
