@@ -56,9 +56,9 @@ enum CompressionArg {
     /// No compression. Tile bytes on disk are the raw pixel matrix.
     None,
     /// Byte-level run-length encoding. Spec § 9.11. Decoder is O(1)
-    /// memory and row-streamable; suits the small-RAM Tier-2 reader
-    /// case. Typically reduces flat-color map content by 30–60% and
-    /// expands purely random content by ≈ 0.8% worst-case.
+    /// memory and row-streamable; suits the small-RAM lazy-validating
+    /// reader profile. Typically reduces flat-color map content by
+    /// 30–60% and expands purely random content by ≈ 0.8% worst-case.
     Rle8,
 }
 

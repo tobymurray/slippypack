@@ -189,9 +189,9 @@ pub fn decode(encoded: &[u8], expected_len: usize) -> Result<Vec<u8>, DecodeErro
 }
 
 /// Streaming decoder variant: writes decoded bytes into `output` via the
-/// supplied closure, one slice at a time. Intended for Tier-2 readers
-/// (spec § 11.1) that want to feed pixels directly to a row buffer or
-/// SPI bus without buffering the whole decoded tile in RAM.
+/// supplied closure, one slice at a time. Intended for the lazy-validating
+/// reader profile (spec § 11.1) that wants to feed pixels directly to a
+/// row buffer or SPI bus without buffering the whole decoded tile in RAM.
 ///
 /// The closure is invoked with non-empty byte slices in decode order.
 /// The total number of bytes passed to the closure across all calls
