@@ -20,17 +20,21 @@ pub const MAGIC: [u8; 4] = *b"RAWT";
 /// rawtiles spec at <https://github.com/tobymurray/rawtiles>).
 pub const FORMAT_VERSION: FormatVersion = FormatVersion { major: 1, minor: 0 };
 
-/// Pixel-format enum byte. Per the rawtiles spec, v1 supports only
-/// `Abgr2222 = 1`. Other values are reserved for future format
-/// minor-bumps.
+/// Pixel-format enum byte. Per the rawtiles spec v0.4 (§ 8.1, § 9), v1
+/// supports `Abgr2222 = 1` and `Rgb565 = 2`. Other values are reserved
+/// for future format minor-bumps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 #[repr(u8)]
 pub enum PixelFormat {
-    /// 8-bit ABGR2222 (2 bits per channel). The v1 default and only
-    /// legal value. Bit layout `AABBGGRR` from MSB to LSB.
+    /// 8-bit ABGR2222 (2 bits per channel). Bit layout `AABBGGRR` from
+    /// MSB to LSB. 1 byte per pixel. Spec § 9.1.
     Abgr2222 = 1,
-    // Reserved: L4 indexed (2), L2 indexed (3), BW (4).
+    /// 16-bit RGB565 (5 R, 6 G, 5 B), little-endian on disk. 2 bytes
+    /// per pixel. Spec § 9.2. ST77xx-family LCDs expect big-endian on
+    /// the wire; consumers byteswap during the SPI write.
+    Rgb565 = 2,
+    // Reserved: RGB888 (3), L8 (4), L4 (5), L1 (6).
 }
 
 impl PixelFormat {
@@ -47,7 +51,20 @@ impl PixelFormat {
     pub const fn from_byte(b: u8) -> Option<Self> {
         match b {
             1 => Some(Self::Abgr2222),
+            2 => Some(Self::Rgb565),
             _ => None,
+        }
+    }
+
+    /// On-disk uncompressed bytes per pixel for this format (spec § 6.2's
+    /// `bytes_per_pixel(pixel_format)`). Required to compute the expected
+    /// uncompressed tile size, which the spec's § 11 #16 rule pins to
+    /// `tile_dim_px² × bytes_per_pixel` for `compression = None`.
+    #[must_use]
+    pub const fn bytes_per_pixel(self) -> usize {
+        match self {
+            Self::Abgr2222 => 1,
+            Self::Rgb565 => 2,
         }
     }
 }
@@ -204,10 +221,22 @@ mod tests {
     }
 
     #[test]
+    fn pixel_format_rgb565_is_byte_2() {
+        assert_eq!(PixelFormat::Rgb565.as_byte(), 2);
+        assert_eq!(PixelFormat::from_byte(2), Some(PixelFormat::Rgb565));
+    }
+
+    #[test]
     fn pixel_format_rejects_reserved_values() {
-        for reserved in [0_u8, 2, 3, 4, 5, 255] {
+        for reserved in [0_u8, 3, 4, 5, 6, 7, 255] {
             assert_eq!(PixelFormat::from_byte(reserved), None);
         }
+    }
+
+    #[test]
+    fn bytes_per_pixel_matches_spec_6_2() {
+        assert_eq!(PixelFormat::Abgr2222.bytes_per_pixel(), 1);
+        assert_eq!(PixelFormat::Rgb565.bytes_per_pixel(), 2);
     }
 
     #[test]
@@ -250,8 +279,9 @@ mod tests {
     fn all_enums_round_trip_through_bytes() {
         // For each declared variant, byte → variant → byte returns the
         // same byte.
-        let pf = PixelFormat::Abgr2222;
-        assert_eq!(PixelFormat::from_byte(pf.as_byte()), Some(pf));
+        for pf in [PixelFormat::Abgr2222, PixelFormat::Rgb565] {
+            assert_eq!(PixelFormat::from_byte(pf.as_byte()), Some(pf));
+        }
         for p in [Projection::WebMercator, Projection::LocalLinear] {
             assert_eq!(Projection::from_byte(p.as_byte()), Some(p));
         }

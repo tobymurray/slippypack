@@ -33,8 +33,8 @@ use core::convert::Infallible;
 use std::path::{Path, PathBuf};
 
 use slippypack_core::format::{
-    AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, RawtilesReader,
-    RawtilesWriter, TAG_ATTR, TileContent, TileWriter,
+    AddressingScheme, AxisConvention, Compression, PackMetadata, PixelFormat, Projection,
+    RawtilesReader, RawtilesWriter, TAG_ATTR, TileContent, TileWriter,
 };
 use slippypack_core::identity::BoundingBox;
 
@@ -99,7 +99,7 @@ fn build_grid_pack() -> Vec<u8> {
     w.begin_pack(baseline_metadata(4, 4)).unwrap();
     for y in 0..5_u32 {
         for x in 0..5_u32 {
-            w.add_tile_ref(4, x, y, TileContent::Inline(synth_tile_content(4, x, y)))
+            w.add_tile_ref(4, x, y, Compression::None, TileContent::Inline(synth_tile_content(4, x, y)))
                 .unwrap();
         }
     }
@@ -126,7 +126,7 @@ fn build_pyramid_pack() -> Vec<u8> {
         let n_side = 1_u32 << (z - 2);
         for y in 0..n_side {
             for x in 0..n_side {
-                w.add_tile_ref(z, x, y, TileContent::Inline(synth_tile_content(z, x, y)))
+                w.add_tile_ref(z, x, y, Compression::None, TileContent::Inline(synth_tile_content(z, x, y)))
                     .unwrap();
             }
         }
@@ -144,7 +144,7 @@ fn build_attr_pack() -> Vec<u8> {
     w.begin_pack(baseline_metadata(3, 3)).unwrap();
     for y in 0..3_u32 {
         for x in 0..3_u32 {
-            w.add_tile_ref(3, x, y, TileContent::Inline(synth_tile_content(3, x, y)))
+            w.add_tile_ref(3, x, y, Compression::None, TileContent::Inline(synth_tile_content(3, x, y)))
                 .unwrap();
         }
     }

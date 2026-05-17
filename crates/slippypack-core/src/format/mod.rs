@@ -21,6 +21,7 @@ pub mod extensions;
 pub mod header;
 pub mod rawtiles_writer;
 pub mod reader;
+pub mod rle8;
 pub mod tile_index;
 pub mod types;
 pub mod writer_trait;

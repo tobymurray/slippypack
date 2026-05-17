@@ -22,15 +22,20 @@
 /// Size of one tile-index entry in bytes.
 pub const INDEX_ENTRY_SIZE: usize = 20;
 
-/// Compression byte values. v1 supports only [`Compression::None`];
-/// reserved values fail the parser per the spec's v1 reader rules.
+/// Compression byte values. Per the rawtiles spec v0.4 (§ 8.5, § 9.10,
+/// § 9.11), v1 supports `None = 0` and `Rle8 = 1`. Reserved values fail
+/// the parser per the spec's v1 reader rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 #[repr(u8)]
 pub enum Compression {
-    /// No compression. The only legal v1 value.
+    /// No compression. Tile bytes are the raw pixel matrix (§ 9.10).
     None = 0,
-    // Reserved: LZ4 (1), QOI (2).
+    /// Byte-level run-length encoding per § 9.11. Decoder is O(1)
+    /// memory and row-streamable; encoder follows the spec's canonical
+    /// rules for cross-writer reproducibility.
+    Rle8 = 1,
+    // Reserved: QOI (2), LZ4 (3).
 }
 
 impl Compression {
@@ -43,6 +48,7 @@ impl Compression {
     pub const fn from_byte(b: u8) -> Option<Self> {
         match b {
             0 => Some(Self::None),
+            1 => Some(Self::Rle8),
             _ => None,
         }
     }
@@ -258,11 +264,21 @@ mod tests {
     #[test]
     fn read_rejects_unsupported_compression() {
         let mut buf = write_index_entry(&baseline_entry());
-        buf[1] = 1; // reserved LZ4
+        buf[1] = 2; // reserved QOI
         assert_eq!(
             read_index_entry(&buf),
-            Err(TileIndexError::UnsupportedCompression(1)),
+            Err(TileIndexError::UnsupportedCompression(2)),
         );
+    }
+
+    #[test]
+    fn rle8_compression_round_trips() {
+        let mut e = baseline_entry();
+        e.compression = Compression::Rle8;
+        let buf = write_index_entry(&e);
+        assert_eq!(buf[1], 1);
+        let parsed = read_index_entry(&buf).unwrap();
+        assert_eq!(parsed.compression, Compression::Rle8);
     }
 
     #[test]

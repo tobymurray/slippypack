@@ -250,6 +250,7 @@ mod tests {
     use core::convert::Infallible;
 
     use super::super::rawtiles_writer::RawtilesWriter;
+    use super::super::tile_index::Compression;
     use super::super::types::{
         AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection,
     };
@@ -333,7 +334,7 @@ mod tests {
         let tile_bytes: Vec<u8> = (0..16_384_u32).map(|i| (i % 251) as u8).collect();
         let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
-        w.add_tile_ref(4, 0, 0, TileContent::Inline(tile_bytes.clone()))
+        w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(tile_bytes.clone()))
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
@@ -351,11 +352,11 @@ mod tests {
         let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         // Add tiles in arbitrary order; the writer must sort them.
-        w.add_tile_ref(4, 5, 3, TileContent::Inline(vec![0x53; 64]))
+        w.add_tile_ref(4, 5, 3, Compression::None, TileContent::Inline(vec![0x53; 64]))
             .unwrap();
-        w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0x00; 64]))
+        w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0x00; 64]))
             .unwrap();
-        w.add_tile_ref(4, 2, 1, TileContent::Inline(vec![0x21; 64]))
+        w.add_tile_ref(4, 2, 1, Compression::None, TileContent::Inline(vec![0x21; 64]))
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
@@ -374,7 +375,7 @@ mod tests {
         w.begin_pack(baseline_metadata()).unwrap();
         // Spread tiles across zooms 4, 5, 6.
         for z in 4..=6 {
-            w.add_tile_ref(z, u32::from(z), 0, TileContent::Inline(vec![z; 32]))
+            w.add_tile_ref(z, u32::from(z), 0, Compression::None, TileContent::Inline(vec![z; 32]))
                 .unwrap();
         }
         let mut buf: Vec<u8> = Vec::new();
@@ -418,7 +419,7 @@ mod tests {
     fn round_trip_tiles_and_extensions_together() {
         let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
-        w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0xAB; 16_384]))
+        w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0xAB; 16_384]))
             .unwrap();
         w.add_extension(*b"NAME", b"hello").unwrap();
         let mut buf: Vec<u8> = Vec::new();
@@ -437,11 +438,11 @@ mod tests {
         // alignment padding doesn't corrupt the round-trip.
         let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
-        w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0x01; 1]))
+        w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0x01; 1]))
             .unwrap();
-        w.add_tile_ref(4, 1, 0, TileContent::Inline(vec![0x02; 7]))
+        w.add_tile_ref(4, 1, 0, Compression::None, TileContent::Inline(vec![0x02; 7]))
             .unwrap();
-        w.add_tile_ref(4, 2, 0, TileContent::Inline(vec![0x03; 13]))
+        w.add_tile_ref(4, 2, 0, Compression::None, TileContent::Inline(vec![0x03; 13]))
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
@@ -457,13 +458,13 @@ mod tests {
         let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
         // Insert out of order.
-        w.add_tile_ref(6, 5, 5, TileContent::Inline(vec![0; 32]))
+        w.add_tile_ref(6, 5, 5, Compression::None, TileContent::Inline(vec![0; 32]))
             .unwrap();
-        w.add_tile_ref(4, 1, 0, TileContent::Inline(vec![0; 32]))
+        w.add_tile_ref(4, 1, 0, Compression::None, TileContent::Inline(vec![0; 32]))
             .unwrap();
-        w.add_tile_ref(5, 2, 2, TileContent::Inline(vec![0; 32]))
+        w.add_tile_ref(5, 2, 2, Compression::None, TileContent::Inline(vec![0; 32]))
             .unwrap();
-        w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0; 32]))
+        w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0; 32]))
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();
@@ -481,9 +482,9 @@ mod tests {
         let build_pack = || {
             let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
             w.begin_pack(baseline_metadata()).unwrap();
-            w.add_tile_ref(5, 3, 7, TileContent::Inline(vec![0x42; 16]))
+            w.add_tile_ref(5, 3, 7, Compression::None, TileContent::Inline(vec![0x42; 16]))
                 .unwrap();
-            w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0x33; 8]))
+            w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0x33; 8]))
                 .unwrap();
             w.add_extension(*b"NAME", b"deterministic").unwrap();
             let mut buf: Vec<u8> = Vec::new();

@@ -66,6 +66,7 @@ struct RecordedTile {
     z: u8,
     x: u32,
     y: u32,
+    compression: Compression,
     content: TileContent,
 }
 
@@ -164,6 +165,7 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
         z: u8,
         x: u32,
         y: u32,
+        compression: Compression,
         content: TileContent,
     ) -> Result<(), TileWriterError<SrcErr, OutErr>> {
         let WriterState::Building(state) = &mut self.state else {
@@ -188,7 +190,13 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
         if !state.tile_keys_seen.insert(key) {
             return Err(TileWriterError::DuplicateTile { z, x, y });
         }
-        state.tiles.push(RecordedTile { z, x, y, content });
+        state.tiles.push(RecordedTile {
+            z,
+            x,
+            y,
+            compression,
+            content,
+        });
         Ok(())
     }
 
@@ -335,7 +343,7 @@ impl<SrcErr, OutErr> TileWriter for RawtilesWriter<SrcErr, OutErr> {
             let offset = u32::try_from(offset_u64).map_err(|_| TileWriterError::PackTooLarge)?;
             let entry = TileIndexEntry {
                 z: tile.z,
-                compression: Compression::None,
+                compression: tile.compression,
                 flags: 0,
                 x: tile.x,
                 y: tile.y,
@@ -439,6 +447,7 @@ const fn align_up_u64(value: u64, alignment: u64) -> u64 {
 mod tests {
     use core::convert::Infallible;
 
+    use super::super::tile_index::Compression;
     use super::super::types::{
         AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection,
     };
@@ -476,7 +485,7 @@ mod tests {
     fn fresh_writer_rejects_add_tile_before_begin() {
         let mut w: TestWriter = RawtilesWriter::new();
         let err = w
-            .add_tile_ref(4, 0, 0, TileContent::Inline(vec![0; 16]))
+            .add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0; 16]))
             .unwrap_err();
         assert!(matches!(err, TileWriterError::NotBegun));
     }
@@ -546,7 +555,7 @@ mod tests {
         w.begin_pack(baseline_metadata()).unwrap();
         // Range is 4..=6.
         let err = w
-            .add_tile_ref(3, 0, 0, TileContent::Inline(vec![0; 16]))
+            .add_tile_ref(3, 0, 0, Compression::None, TileContent::Inline(vec![0; 16]))
             .unwrap_err();
         assert!(matches!(
             err,
@@ -558,10 +567,10 @@ mod tests {
     fn add_tile_with_duplicate_zxy_is_rejected() {
         let mut w: TestWriter = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
-        w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0; 16]))
+        w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0; 16]))
             .unwrap();
         let err = w
-            .add_tile_ref(4, 0, 0, TileContent::Inline(vec![0; 16]))
+            .add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0; 16]))
             .unwrap_err();
         assert!(matches!(
             err,
@@ -589,7 +598,7 @@ mod tests {
     fn pack_with_one_inline_tile_finalizes() {
         let mut w: TestWriter = RawtilesWriter::new();
         w.begin_pack(baseline_metadata()).unwrap();
-        w.add_tile_ref(4, 0, 0, TileContent::Inline(vec![0xAB; 16_384]))
+        w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0xAB; 16_384]))
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         w.finalize(&mut buf).unwrap();

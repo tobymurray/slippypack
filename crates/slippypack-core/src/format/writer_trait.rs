@@ -206,8 +206,14 @@ pub trait TileWriter {
         payload: &[u8],
     ) -> Result<(), TileWriterError<Self::SourceError, Self::OutputError>>;
 
-    /// Record one tile at `(z, x, y)`. The writer sorts by `(z, x, y)`
-    /// during `finalize` to satisfy the spec's sorted-index requirement.
+    /// Record one tile at `(z, x, y)` with a per-tile compression. The
+    /// writer sorts by `(z, x, y)` during `finalize` to satisfy the
+    /// spec's sorted-index requirement and emits the supplied
+    /// `compression` byte in the tile-index entry. `content` carries
+    /// the tile bytes already in the encoding implied by `compression`:
+    /// for `Compression::None`, the raw pixel matrix; for
+    /// `Compression::Rle8`, the canonical RLE8 byte stream (use
+    /// [`crate::format::rle8::encode`] to produce it).
     ///
     /// # Errors
     ///
@@ -224,6 +230,7 @@ pub trait TileWriter {
         z: u8,
         x: u32,
         y: u32,
+        compression: super::Compression,
         content: TileContent,
     ) -> Result<(), TileWriterError<Self::SourceError, Self::OutputError>>;
 

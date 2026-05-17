@@ -1,10 +1,16 @@
 //! Quantisers from RGB888 to a tile pack's on-disk pixel format.
 //!
-//! v1 ships one quantiser: [`Abgr2222`], which maps each RGB channel
-//! to a 2-bit quantum (4 displayed levels per channel) and packs the
-//! result as one byte per pixel in `AABBGGRR` MSB→LSB order with
-//! alpha always opaque. Watch-tuned by default; one byte per pixel
-//! gives ~MB-scale packs for country-size bounding boxes.
+//! v1 ships two quantisers:
+//!
+//! - [`Abgr2222`] (spec § 9.1.1): each RGB channel mapped to a 2-bit
+//!   quantum (4 displayed levels per channel), packed `AABBGGRR` MSB→LSB
+//!   in one byte per pixel with alpha always opaque. Watch-tuned by
+//!   default; ~MB-scale packs for country-size bounding boxes.
+//! - [`Rgb565`] (spec § 9.2.1): RGB888 → RGB565 by bit-truncation
+//!   (drop the low 3 bits of R/B and the low 2 bits of G), stored as
+//!   16-bit little-endian on disk. The native framebuffer format for
+//!   the `ST77xx` and `ILI93xx` LCD-controller families that dominate
+//!   low-power-wearable hardware.
 //!
 //! The [`Quantiser`] trait names the seam for future pixel formats
 //! (RGB565 for ~480p+ displays, RGB888 for phone/desktop offline-nav,
@@ -168,6 +174,84 @@ impl Quantiser for Abgr2222 {
     }
     fn quantise(&self, rgb888: &[u8], output: &mut [u8]) {
         quantise_rgb888(rgb888, output);
+    }
+}
+
+/// Quantise a single RGB888 pixel to RGB565, returned as a u16 packed
+/// as `RRRRRGGGGGGBBBBB` (R in bits 15..11, G in bits 10..5, B in
+/// bits 4..0). Spec § 9.2.1 canonical conversion.
+///
+/// Bit-truncation: `r5 = r8 >> 3`, `g6 = g8 >> 2`, `b5 = b8 >> 3`.
+/// Integer-only by construction. Const-fn so callers can quantise at
+/// compile time when input is known statically.
+#[inline]
+#[must_use]
+pub const fn quantise_pixel_rgb565(r: u8, g: u8, b: u8) -> u16 {
+    let r5 = (r >> 3) as u16;
+    let g6 = (g >> 2) as u16;
+    let b5 = (b >> 3) as u16;
+    (r5 << 11) | (g6 << 5) | b5
+}
+
+/// Quantise a flat RGB888 buffer (3 bytes per pixel, R-G-B order) into a
+/// flat RGB565 little-endian byte buffer (2 bytes per pixel). On-disk
+/// byte order is LE within each 16-bit pixel (spec § 9.2), matching the
+/// rest of the spec's endianness rule.
+///
+/// # Panics
+///
+/// - if `input.len()` is not a multiple of 3.
+/// - if `output.len()` does not equal `input.len() / 3 * 2`.
+pub fn quantise_rgb888_to_rgb565(input: &[u8], output: &mut [u8]) {
+    assert!(
+        input.len().is_multiple_of(3),
+        "RGB888 input length ({}) must be a multiple of 3",
+        input.len(),
+    );
+    let pixels = input.len() / 3;
+    assert!(
+        output.len() == pixels * 2,
+        "output length ({}) must equal input pixels ({pixels}) × 2",
+        output.len(),
+    );
+    for (out_pair, rgb) in output.chunks_exact_mut(2).zip(input.chunks_exact(3)) {
+        let pixel = quantise_pixel_rgb565(rgb[0], rgb[1], rgb[2]);
+        let bytes = pixel.to_le_bytes();
+        out_pair[0] = bytes[0];
+        out_pair[1] = bytes[1];
+    }
+}
+
+/// The RGB565 quantiser. RGB888 → RGB565 by bit-truncation, 2 bytes
+/// per pixel little-endian on disk.
+///
+/// Zero-sized: construct via `Rgb565` or `Rgb565::default()`. The trait
+/// impl delegates to [`quantise_rgb888_to_rgb565`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Rgb565;
+
+impl Rgb565 {
+    /// Quantiser version. Bumped on any output-byte change.
+    pub const VERSION: u32 = 1;
+    /// Pixel-format enum byte for RGB565 (matches the format's
+    /// `PixelFormat::Rgb565 = 2`).
+    pub const PIXEL_FORMAT: u8 = 2;
+    /// Two output bytes per pixel.
+    pub const BYTES_PER_PIXEL: usize = 2;
+}
+
+impl Quantiser for Rgb565 {
+    fn version(&self) -> u32 {
+        Self::VERSION
+    }
+    fn pixel_format(&self) -> u8 {
+        Self::PIXEL_FORMAT
+    }
+    fn bytes_per_pixel(&self) -> usize {
+        Self::BYTES_PER_PIXEL
+    }
+    fn quantise(&self, rgb888: &[u8], output: &mut [u8]) {
+        quantise_rgb888_to_rgb565(rgb888, output);
     }
 }
 
@@ -448,5 +532,78 @@ mod tests {
         // (255,0,0) → A=3, B=0, G=0, R=3 → 0b1100_0011
         // (0,255,0) → A=3, B=0, G=3, R=0 → 0b1100_1100
         assert_eq!(output, [0b1100_0011, 0b1100_1100]);
+    }
+
+    // --- RGB565 quantiser tests --------------------------------------
+
+    #[test]
+    fn rgb565_trait_constants_are_consistent() {
+        let q = super::Rgb565;
+        assert_eq!(q.version(), super::Rgb565::VERSION);
+        assert_eq!(q.pixel_format(), super::Rgb565::PIXEL_FORMAT);
+        assert_eq!(q.bytes_per_pixel(), super::Rgb565::BYTES_PER_PIXEL);
+        assert_eq!(super::Rgb565::PIXEL_FORMAT, 2);
+        assert_eq!(super::Rgb565::BYTES_PER_PIXEL, 2);
+    }
+
+    #[test]
+    fn rgb565_pixel_is_bit_truncation() {
+        use super::quantise_pixel_rgb565;
+        // (255, 0, 0) → r5=31, g6=0, b5=0 → 0xF800
+        assert_eq!(quantise_pixel_rgb565(255, 0, 0), 0xF800);
+        // (0, 255, 0) → r5=0, g6=63, b5=0 → 0x07E0
+        assert_eq!(quantise_pixel_rgb565(0, 255, 0), 0x07E0);
+        // (0, 0, 255) → r5=0, g6=0, b5=31 → 0x001F
+        assert_eq!(quantise_pixel_rgb565(0, 0, 255), 0x001F);
+        // (255, 255, 255) → 0xFFFF
+        assert_eq!(quantise_pixel_rgb565(255, 255, 255), 0xFFFF);
+    }
+
+    /// Spec § 14.7 determinism gate: the canonical RGB888 → RGB565
+    /// truncation applied to the § 14.4 input MUST produce the
+    /// listed bytes. Any change here is an `Rgb565::VERSION` bump.
+    #[test]
+    fn rgb565_determinism_spec_14_7() {
+        let input: [u8; 48] = [
+            // Row 0: pure R, G, B, white
+            255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255,
+            // Row 1: half-intensity primaries + 50% grey
+            128, 0, 0, 0, 128, 0, 0, 0, 128, 128, 128, 128,
+            // Row 2: per-channel greys at quantiser boundaries
+            42, 42, 42, 43, 43, 43, 85, 85, 85, 127, 127, 127,
+            // Row 3: per-channel greys above the high boundary + a
+            // three-distinct-channel pixel
+            170, 170, 170, 212, 212, 212, 213, 213, 213, 255, 128, 0,
+        ];
+        let mut output = [0_u8; 32];
+        super::quantise_rgb888_to_rgb565(&input, &mut output);
+
+        // Spec § 14.7 expected output, LE on disk.
+        let expected: [u8; 32] = [
+            0x00, 0xF8, 0xE0, 0x07, 0x1F, 0x00, 0xFF, 0xFF,
+            0x00, 0x80, 0x00, 0x04, 0x10, 0x00, 0x10, 0x84,
+            0x45, 0x29, 0x45, 0x29, 0xAA, 0x52, 0xEF, 0x7B,
+            0x55, 0xAD, 0xBA, 0xD6, 0xBA, 0xD6, 0x00, 0xFC,
+        ];
+        assert_eq!(
+            output, expected,
+            "RGB565 output drifted from spec § 14.7; bump Rgb565::VERSION if intentional",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "must be a multiple of 3")]
+    fn rgb565_buffer_rejects_non_multiple_of_3_input() {
+        let input = [0_u8; 4];
+        let mut output = [0_u8; 2];
+        super::quantise_rgb888_to_rgb565(&input, &mut output);
+    }
+
+    #[test]
+    #[should_panic(expected = "must equal input pixels")]
+    fn rgb565_buffer_rejects_output_size_mismatch() {
+        let input = [0_u8; 6]; // 2 pixels, so output must be 4 bytes
+        let mut output = [0_u8; 2]; // wrong
+        super::quantise_rgb888_to_rgb565(&input, &mut output);
     }
 }

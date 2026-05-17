@@ -665,8 +665,8 @@ mod tests {
     #[test]
     fn read_rejects_invalid_pixel_format() {
         let mut buf = write_header(&baseline_metadata(), &baseline_derived());
-        buf[56] = 2; // reserved L4 indexed
-        assert_eq!(read_header(&buf), Err(HeaderError::InvalidPixelFormat(2)));
+        buf[56] = 3; // reserved RGB888 (v1 valid: 1 = ABGR2222, 2 = RGB565)
+        assert_eq!(read_header(&buf), Err(HeaderError::InvalidPixelFormat(3)));
     }
 
     #[test]

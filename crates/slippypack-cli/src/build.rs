@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use slippypack_core::decode::{DecodeError, decode_rgb888};
 use slippypack_core::format::{
-    AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, RawtilesWriter,
-    TAG_ATTR, TileContent, TileWriter, TileWriterError,
+    AddressingScheme, AxisConvention, Compression, PackMetadata, PixelFormat, Projection,
+    RawtilesWriter, TAG_ATTR, TileContent, TileWriter, TileWriterError,
 };
 use slippypack_core::identity::{
     AuthKind, BoundingBox, FormatVersion, PackDescriptor, Source, ZoomRange, derive_pack_uuid,
@@ -584,7 +584,7 @@ fn add_decoded_tile(
     }
     let mut quantised = vec![0_u8; usize::from(expected_dim) * usize::from(expected_dim)];
     quantise_rgb888(&decoded.rgb888, &mut quantised);
-    writer.add_tile_ref(z, x, y, TileContent::Inline(quantised))?;
+    writer.add_tile_ref(z, x, y, Compression::None, TileContent::Inline(quantised))?;
     Ok(())
 }
 

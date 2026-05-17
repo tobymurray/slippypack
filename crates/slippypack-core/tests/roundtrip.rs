@@ -38,8 +38,8 @@ use std::path::{Path, PathBuf};
 
 use slippypack_core::decode::decode_rgb888;
 use slippypack_core::format::{
-    AddressingScheme, AxisConvention, PackMetadata, PixelFormat, Projection, RawtilesReader,
-    RawtilesWriter, TileContent, TileWriter,
+    AddressingScheme, AxisConvention, Compression, PackMetadata, PixelFormat, Projection,
+    RawtilesReader, RawtilesWriter, TileContent, TileWriter,
 };
 use slippypack_core::identity::BoundingBox;
 use slippypack_core::quantise::quantise_rgb888;
@@ -171,7 +171,7 @@ fn single_tile_pack_pipeline_round_trips() {
     let quantised = decode_and_quantise();
     let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
     w.begin_pack(metadata_for_2x2(0, 0)).unwrap();
-    w.add_tile_ref(0, 0, 0, TileContent::Inline(quantised.clone()))
+    w.add_tile_ref(0, 0, 0, Compression::None, TileContent::Inline(quantised.clone()))
         .unwrap();
     let mut buf = Vec::new();
     w.finalize(&mut buf).unwrap();
@@ -194,11 +194,11 @@ fn multi_zoom_pack_pipeline_round_trips() {
     let quantised = decode_and_quantise();
     let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
     w.begin_pack(metadata_for_2x2(0, 1)).unwrap();
-    w.add_tile_ref(0, 0, 0, TileContent::Inline(quantised.clone()))
+    w.add_tile_ref(0, 0, 0, Compression::None, TileContent::Inline(quantised.clone()))
         .unwrap();
     for y in 0..2_u32 {
         for x in 0..2_u32 {
-            w.add_tile_ref(1, x, y, TileContent::Inline(quantised.clone()))
+            w.add_tile_ref(1, x, y, Compression::None, TileContent::Inline(quantised.clone()))
                 .unwrap();
         }
     }
@@ -236,7 +236,7 @@ fn pipeline_is_deterministic_across_invocations() {
         let q = decode_and_quantise();
         let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(metadata_for_2x2(0, 0)).unwrap();
-        w.add_tile_ref(0, 0, 0, TileContent::Inline(q)).unwrap();
+        w.add_tile_ref(0, 0, 0, Compression::None, TileContent::Inline(q)).unwrap();
         let mut buf = Vec::new();
         w.finalize(&mut buf).unwrap();
         buf
@@ -245,7 +245,7 @@ fn pipeline_is_deterministic_across_invocations() {
         let q = decode_and_quantise();
         let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
         w.begin_pack(metadata_for_2x2(0, 0)).unwrap();
-        w.add_tile_ref(0, 0, 0, TileContent::Inline(q)).unwrap();
+        w.add_tile_ref(0, 0, 0, Compression::None, TileContent::Inline(q)).unwrap();
         let mut buf = Vec::new();
         w.finalize(&mut buf).unwrap();
         buf
