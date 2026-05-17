@@ -17,8 +17,12 @@ use slippypack_core::format::{
 use slippypack_core::identity::{
     AuthKind, BoundingBox, FormatVersion, PackDescriptor, Source, ZoomRange, derive_pack_uuid,
 };
+use slippypack_core::format::rle8;
 use slippypack_core::projection::{Mercator, Projection as ProjectionTrait};
-use slippypack_core::quantise::{QUANTISER_VERSION, quantise_rgb888};
+use slippypack_core::quantise::{
+    Abgr2222 as Abgr2222Quantiser, Rgb565 as Rgb565Quantiser, quantise_rgb888,
+    quantise_rgb888_to_rgb565,
+};
 
 use crate::sources::rate_limit::RatePerSec;
 use crate::sources::synthetic;
@@ -187,6 +191,13 @@ pub struct BuildOptions {
     /// [`crate::attribution::validate_attribution_string`] before
     /// reaching this point.
     pub attribution: Option<String>,
+    /// On-disk pixel format. Changes `pack_uuid` (it's in the canonical
+    /// descriptor).
+    pub pixel_format: PixelFormat,
+    /// Per-tile compression. Does NOT change `pack_uuid` (compression
+    /// is per-tile in the tile-index, not part of the canonical
+    /// descriptor).
+    pub compression: Compression,
     /// Cancellation token. `main.rs` wires this to the SIGINT/Ctrl-C
     /// handler so a Ctrl-C interrupts the build between tile operations.
     /// `None` → cancellation is impossible (used by unit tests that
@@ -260,12 +271,14 @@ pub fn build(opts: &BuildOptions) -> Result<(), BuildError> {
 // --- Synthetic source ----------------------------------------------
 
 fn build_synthetic(opts: &BuildOptions) -> Result<(), BuildError> {
-    let descriptor = synthetic_descriptor();
+    let descriptor = synthetic_descriptor(opts.pixel_format);
     let metadata = build_metadata(opts, &descriptor, 0);
     let cancel = opts.cancel.clone();
     let sleep_ms = debug_sleep_per_tile_ms();
     let attribution = opts.attribution.clone();
-    run_build(opts, metadata, |writer| {
+    let pixel_format = opts.pixel_format;
+    let compression = opts.compression;
+    run_build(opts, metadata, move |writer| {
         for (x, y) in synthetic::all_tile_coords() {
             check_cancel(cancel.as_deref())?;
             if sleep_ms > 0 {
@@ -280,6 +293,8 @@ fn build_synthetic(opts: &BuildOptions) -> Result<(), BuildError> {
                 y,
                 png_bytes,
                 synthetic::TILE_DIM_PX,
+                pixel_format,
+                compression,
             )?;
         }
         emit_attribution(writer, attribution.as_deref())?;
@@ -333,7 +348,7 @@ fn check_cancel(cancel: Option<&AtomicBool>) -> Result<(), BuildError> {
 ///   URL-template source is missing the required `--bbox` / `--zoom`.
 pub fn descriptor_for(opts: &BuildOptions) -> Result<PackDescriptor, BuildError> {
     if opts.source == "synthetic" {
-        Ok(synthetic_descriptor())
+        Ok(synthetic_descriptor(opts.pixel_format))
     } else if opts.source.starts_with("http://") || opts.source.starts_with("https://") {
         // Validate the URL template before constructing the descriptor
         // — the descriptor would otherwise embed an invalid template.
@@ -345,6 +360,7 @@ pub fn descriptor_for(opts: &BuildOptions) -> Result<PackDescriptor, BuildError>
             bbox,
             zoom,
             auth_kinds_from_options(opts),
+            opts.pixel_format,
         ))
     } else {
         Err(BuildError::UnknownSourceKind(opts.source.clone()))
@@ -362,14 +378,27 @@ fn auth_kinds_from_options(opts: &BuildOptions) -> Vec<AuthKind> {
     kinds
 }
 
-fn synthetic_descriptor() -> PackDescriptor {
+/// Canonical `quantiser_version` to record in the descriptor for a
+/// given pixel format. The descriptor field is per-pixel-format
+/// (rawtiles spec § A.3); each format's version bumps independently.
+fn quantiser_version_for(pf: PixelFormat) -> u32 {
+    match pf {
+        PixelFormat::Abgr2222 => Abgr2222Quantiser::VERSION,
+        PixelFormat::Rgb565 => Rgb565Quantiser::VERSION,
+        // `PixelFormat` is `#[non_exhaustive]`; future variants need
+        // their own quantiser-version mapping.
+        other => unreachable!("unhandled PixelFormat variant: {other:?}"),
+    }
+}
+
+fn synthetic_descriptor(pixel_format: PixelFormat) -> PackDescriptor {
     PackDescriptor {
         affn: None,
         bbox: world_bbox_micro(),
         format_version: FormatVersion { major: 1, minor: 0 },
-        pixel_format: 1,
+        pixel_format: pixel_format.as_byte(),
         projection: 1,
-        quantiser_version: QUANTISER_VERSION,
+        quantiser_version: quantiser_version_for(pixel_format),
         sources: vec![Source::Synthetic {
             fixture_version: SYNTHETIC_FIXTURE_VERSION,
         }],
@@ -439,7 +468,13 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
     let template = UrlTemplate::parse(&opts.source)?;
 
     let descriptor =
-        url_template_descriptor(&opts.source, bbox, zoom, auth_kinds_from_options(opts));
+        url_template_descriptor(
+            &opts.source,
+            bbox,
+            zoom,
+            auth_kinds_from_options(opts),
+            opts.pixel_format,
+        );
     let mut fetcher = UrlFetcher::new();
     fetcher.set_auth_headers(opts.auth_headers.clone());
     fetcher.set_auth_query(opts.auth_query.clone());
@@ -479,6 +514,8 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
     let metadata = build_metadata(opts, &descriptor, max_last_modified);
     let cancel = opts.cancel.clone();
     let attribution = opts.attribution.clone();
+    let pixel_format = opts.pixel_format;
+    let compression = opts.compression;
 
     run_build(opts, metadata, move |writer| {
         for (z, x, y, bytes) in tile_bytes {
@@ -487,7 +524,16 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
             // dominant slippy-map tile size. Phase 1.x will sample the
             // first response's actual decoded dimensions and use those.
             let expected_dim = 256;
-            add_decoded_tile(writer, z, x, y, &bytes, expected_dim)?;
+            add_decoded_tile(
+                writer,
+                z,
+                x,
+                y,
+                &bytes,
+                expected_dim,
+                pixel_format,
+                compression,
+            )?;
         }
         emit_attribution(writer, attribution.as_deref())?;
         Ok(())
@@ -499,14 +545,15 @@ fn url_template_descriptor(
     bbox: BboxDeg,
     zoom: (u8, u8),
     auth_kinds: Vec<AuthKind>,
+    pixel_format: PixelFormat,
 ) -> PackDescriptor {
     PackDescriptor {
         affn: None,
         bbox: bbox.to_micro(),
         format_version: FormatVersion { major: 1, minor: 0 },
-        pixel_format: 1,
+        pixel_format: pixel_format.as_byte(),
         projection: 1,
-        quantiser_version: QUANTISER_VERSION,
+        quantiser_version: quantiser_version_for(pixel_format),
         sources: vec![Source::Url {
             template: url.to_string(),
             auth_kinds,
@@ -550,7 +597,7 @@ fn build_metadata(
         pack_uuid,
         supersedes_uuid: None,
         parent_uuid: None,
-        pixel_format: PixelFormat::Abgr2222,
+        pixel_format: opts.pixel_format,
         projection: Projection::WebMercator,
         tile_addressing_scheme: AddressingScheme::Quadtree,
         tile_axis_convention: AxisConvention::Xyz,
@@ -561,8 +608,11 @@ fn build_metadata(
     }
 }
 
-/// Per-tile decode → quantise → add. Verifies the decoded dimensions
-/// match the metadata's `tile_dim_px`.
+/// Per-tile decode → quantise → optionally compress → add. Verifies the
+/// decoded dimensions match the metadata's `tile_dim_px`. The chosen
+/// `pixel_format` selects the quantiser; `compression` selects the
+/// post-quantise encoding (None or RLE8).
+#[allow(clippy::too_many_arguments)]
 fn add_decoded_tile(
     writer: &mut RawtilesWriter<Infallible, std::io::Error>,
     z: u8,
@@ -570,6 +620,8 @@ fn add_decoded_tile(
     y: u32,
     png_or_jpeg: &[u8],
     expected_dim: u16,
+    pixel_format: PixelFormat,
+    compression: Compression,
 ) -> Result<(), BuildError> {
     let decoded = decode_rgb888(png_or_jpeg)?;
     if decoded.width != u32::from(expected_dim) || decoded.height != u32::from(expected_dim) {
@@ -582,9 +634,24 @@ fn add_decoded_tile(
             expected_dim,
         });
     }
-    let mut quantised = vec![0_u8; usize::from(expected_dim) * usize::from(expected_dim)];
-    quantise_rgb888(&decoded.rgb888, &mut quantised);
-    writer.add_tile_ref(z, x, y, Compression::None, TileContent::Inline(quantised))?;
+    let pixels = usize::from(expected_dim) * usize::from(expected_dim);
+    let pixel_bytes_len = pixels * pixel_format.bytes_per_pixel();
+    let mut pixel_bytes = vec![0_u8; pixel_bytes_len];
+    match pixel_format {
+        PixelFormat::Abgr2222 => quantise_rgb888(&decoded.rgb888, &mut pixel_bytes),
+        PixelFormat::Rgb565 => quantise_rgb888_to_rgb565(&decoded.rgb888, &mut pixel_bytes),
+        // `PixelFormat` is `#[non_exhaustive]`; new variants need their
+        // own quantiser dispatch.
+        other => unreachable!("unhandled PixelFormat variant: {other:?}"),
+    }
+    let tile_bytes = match compression {
+        Compression::None => pixel_bytes,
+        Compression::Rle8 => rle8::encode(&pixel_bytes),
+        // `Compression` is `#[non_exhaustive]`; new variants need their
+        // own encoder dispatch.
+        other => unreachable!("unhandled Compression variant: {other:?}"),
+    };
+    writer.add_tile_ref(z, x, y, compression, TileContent::Inline(tile_bytes))?;
     Ok(())
 }
 
@@ -624,8 +691,8 @@ fn partial_path_for(out: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        BboxDeg, BuildError, BuildOptions, build, deg_to_micro, partial_path_for,
-        tile_range_for_zoom,
+        BboxDeg, BuildError, BuildOptions, Compression, PixelFormat, build, deg_to_micro,
+        partial_path_for, tile_range_for_zoom,
     };
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -729,6 +796,8 @@ mod tests {
             timestamp_override: Some(0),
             pack_uuid_override: None,
             attribution: None,
+            pixel_format: PixelFormat::Abgr2222,
+            compression: Compression::None,
             cancel: Some(Arc::clone(&cancel)),
         };
 
@@ -788,6 +857,8 @@ mod tests {
             timestamp_override: Some(0),
             pack_uuid_override: None,
             attribution,
+            pixel_format: PixelFormat::Abgr2222,
+            compression: Compression::None,
             cancel: None,
         }
     }

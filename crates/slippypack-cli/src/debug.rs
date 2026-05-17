@@ -8,6 +8,7 @@
 //! exact descriptor that fed a given pack with someone else for
 //! independent UUIDv5 verification.
 
+use slippypack_core::format::{Compression, PixelFormat};
 use slippypack_core::identity::{canonical_descriptor_bytes, derive_pack_uuid};
 
 use crate::build::{BboxDeg, BuildError, BuildOptions, descriptor_for};
@@ -27,15 +28,31 @@ pub enum DebugUuidFormat {
 
 /// Arguments to `slippypack debug uuid` (the shape mirrors `MakeArgs`'s
 /// source/bbox/zoom subset, plus `--auth-header`/`--auth-query` since
-/// those shape the descriptor's `auth_kinds`).
-#[derive(Debug, Clone, Default)]
+/// those shape the descriptor's `auth_kinds`, plus `--pixel-format`
+/// since that's also in the descriptor).
+#[derive(Debug, Clone)]
 pub struct DebugUuidArgs {
     pub source: String,
     pub bbox: Option<BboxDeg>,
     pub zoom_range: Option<(u8, u8)>,
     pub auth_headers: Vec<crate::sources::url_template::AuthHeader>,
     pub auth_query: Vec<crate::sources::url_template::AuthQuery>,
+    pub pixel_format: PixelFormat,
     pub format: DebugUuidFormat,
+}
+
+impl Default for DebugUuidArgs {
+    fn default() -> Self {
+        Self {
+            source: String::new(),
+            bbox: None,
+            zoom_range: None,
+            auth_headers: Vec::new(),
+            auth_query: Vec::new(),
+            pixel_format: PixelFormat::Abgr2222,
+            format: DebugUuidFormat::default(),
+        }
+    }
 }
 
 /// Compute the descriptor for `args` and write either the derived UUID
@@ -60,6 +77,8 @@ pub fn run_debug_uuid<W: std::io::Write>(
         timestamp_override: None,
         pack_uuid_override: None,
         attribution: None,
+        pixel_format: args.pixel_format,
+        compression: Compression::None,
         cancel: None,
     };
     let descriptor = descriptor_for(&opts)?;
@@ -78,6 +97,8 @@ pub fn run_debug_uuid<W: std::io::Write>(
 
 #[cfg(test)]
 mod tests {
+    use slippypack_core::format::PixelFormat;
+
     use super::{DebugUuidArgs, DebugUuidFormat, run_debug_uuid};
     use crate::build::{BboxDeg, BuildError};
 
@@ -89,7 +110,7 @@ mod tests {
             zoom_range: None,
             auth_headers: Vec::new(),
             auth_query: Vec::new(),
-            format: DebugUuidFormat::Uuid,
+            format: DebugUuidFormat::Uuid,            pixel_format: PixelFormat::Abgr2222,
         };
         let mut buf = Vec::new();
         run_debug_uuid(&args, &mut buf).unwrap();
@@ -113,7 +134,7 @@ mod tests {
             zoom_range: None,
             auth_headers: Vec::new(),
             auth_query: Vec::new(),
-            format: DebugUuidFormat::Uuid,
+            format: DebugUuidFormat::Uuid,            pixel_format: PixelFormat::Abgr2222,
         };
         let mut buf = Vec::new();
         run_debug_uuid(&args, &mut buf).unwrap();
@@ -139,7 +160,7 @@ mod tests {
             zoom_range: None,
             auth_headers: Vec::new(),
             auth_query: Vec::new(),
-            format: DebugUuidFormat::Bytes,
+            format: DebugUuidFormat::Bytes,            pixel_format: PixelFormat::Abgr2222,
         };
         let mut buf = Vec::new();
         run_debug_uuid(&args, &mut buf).unwrap();
@@ -169,6 +190,7 @@ mod tests {
                 auth_headers: Vec::new(),
                 auth_query: Vec::new(),
                 format: DebugUuidFormat::Uuid,
+                pixel_format: PixelFormat::Abgr2222,
             };
             run_debug_uuid(&args, &mut buf).unwrap();
             String::from_utf8(buf).unwrap()
@@ -197,6 +219,7 @@ mod tests {
             auth_headers: Vec::new(),
             auth_query: Vec::new(),
             format: DebugUuidFormat::Uuid,
+            pixel_format: PixelFormat::Abgr2222,
         };
         let mut buf = Vec::new();
         let err = run_debug_uuid(&args, &mut buf).unwrap_err();
@@ -222,6 +245,7 @@ mod tests {
                 auth_headers: Vec::new(),
                 auth_query: Vec::new(),
                 format: DebugUuidFormat::Uuid,
+                pixel_format: PixelFormat::Abgr2222,
             };
             let mut buf = Vec::new();
             run_debug_uuid(&args, &mut buf).unwrap();
@@ -238,6 +262,7 @@ mod tests {
                 }],
                 auth_query: Vec::new(),
                 format: DebugUuidFormat::Uuid,
+                pixel_format: PixelFormat::Abgr2222,
             };
             let mut buf = Vec::new();
             run_debug_uuid(&args, &mut buf).unwrap();
@@ -268,6 +293,7 @@ mod tests {
                 }],
                 auth_query: Vec::new(),
                 format: DebugUuidFormat::Uuid,
+                pixel_format: PixelFormat::Abgr2222,
             };
             let mut buf = Vec::new();
             run_debug_uuid(&args, &mut buf).unwrap();
@@ -284,7 +310,7 @@ mod tests {
             zoom_range: None,
             auth_headers: Vec::new(),
             auth_query: Vec::new(),
-            format: DebugUuidFormat::Uuid,
+            format: DebugUuidFormat::Uuid,            pixel_format: PixelFormat::Abgr2222,
         };
         let mut buf = Vec::new();
         let err = run_debug_uuid(&args, &mut buf).unwrap_err();

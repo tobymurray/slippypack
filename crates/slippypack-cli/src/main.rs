@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::{Parser, Subcommand};
+use slippypack_core::format::{Compression, PixelFormat};
 
 mod attribution;
 mod build;
@@ -23,6 +24,52 @@ use attribution::validate_attribution_string;
 use build::{BboxDeg, BuildError, BuildOptions, build};
 use debug::{DebugUuidArgs, DebugUuidFormat, run_debug_uuid};
 use inspect::{InspectArgs, InspectError, run_inspect};
+
+/// CLI-facing pixel-format choice. Maps onto
+/// [`slippypack_core::format::PixelFormat`] via [`Self::to_core`].
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+#[clap(rename_all = "lowercase")]
+enum PixelFormatArg {
+    /// 8-bit ABGR2222 (2 bits per channel, alpha always opaque). The
+    /// Una watch's framebuffer format. Spec § 9.1.
+    Abgr2222,
+    /// 16-bit RGB565 (5R/6G/5B), little-endian on disk. The native
+    /// framebuffer format for the `ST77xx` and `ILI93xx` LCD-controller
+    /// families used by `PineTime` and most `Bangle.js` variants. Spec § 9.2.
+    Rgb565,
+}
+
+impl PixelFormatArg {
+    fn to_core(self) -> PixelFormat {
+        match self {
+            Self::Abgr2222 => PixelFormat::Abgr2222,
+            Self::Rgb565 => PixelFormat::Rgb565,
+        }
+    }
+}
+
+/// CLI-facing compression choice. Maps onto
+/// [`slippypack_core::format::Compression`] via [`Self::to_core`].
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+#[clap(rename_all = "lowercase")]
+enum CompressionArg {
+    /// No compression. Tile bytes on disk are the raw pixel matrix.
+    None,
+    /// Byte-level run-length encoding. Spec § 9.11. Decoder is O(1)
+    /// memory and row-streamable; suits the small-RAM Tier-2 reader
+    /// case. Typically reduces flat-color map content by 30–60% and
+    /// expands purely random content by ≈ 0.8% worst-case.
+    Rle8,
+}
+
+impl CompressionArg {
+    fn to_core(self) -> Compression {
+        match self {
+            Self::None => Compression::None,
+            Self::Rle8 => Compression::Rle8,
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -86,6 +133,13 @@ struct DebugUuidCliArgs {
     /// `--auth-header`. Repeatable.
     #[arg(long = "auth-query")]
     auth_query: Vec<String>,
+
+    /// On-disk pixel format. Default `abgr2222` matches `make`'s
+    /// default. Same shape as `make --pixel-format`; included here
+    /// because `pixel_format` is part of the canonical descriptor and
+    /// therefore changes the derived UUID.
+    #[arg(long = "pixel-format", value_enum, default_value_t = PixelFormatArg::Abgr2222)]
+    pixel_format: PixelFormatArg,
 
     /// Emit the canonical descriptor bytes (UTF-8 JSON, no trailing
     /// newline) instead of the derived UUIDv5. Useful for piping into
@@ -169,6 +223,31 @@ struct MakeArgs {
     /// etc.) typically require additional credits — concatenate them.
     #[arg(long, value_parser = parse_attribution)]
     attribution: Option<String>,
+
+    /// On-disk pixel format. Default `abgr2222` matches the Una watch
+    /// (1 byte/pixel). `rgb565` (2 bytes/pixel) is the native framebuffer
+    /// format for the `ST77xx` and `ILI93xx` LCD controllers used by
+    /// `PineTime` and most `Bangle.js` variants — pick it when targeting
+    /// those devices so the renderer can blit straight to the SPI bus
+    /// without a per-pixel conversion.
+    ///
+    /// Changing this changes `pack_uuid` (it's in the canonical
+    /// descriptor) — two builds of the same region for different target
+    /// devices get distinct UUIDs by construction.
+    #[arg(long = "pixel-format", value_enum, default_value_t = PixelFormatArg::Abgr2222)]
+    pixel_format: PixelFormatArg,
+
+    /// Per-tile compression. Default `none` emits raw pixel bytes.
+    /// `rle8` emits the spec § 9.11 byte-level run-length encoding —
+    /// row-streamable, O(1) decoder memory, typically 30–60% smaller
+    /// for flat-color map content. Compression is NOT in the canonical
+    /// descriptor (it's per-tile in the tile-index, not the header), so
+    /// switching this does not change `pack_uuid`; two compressed and
+    /// uncompressed builds of the same region produce the same
+    /// `pack_uuid` and the recipient compares pack bytes to detect the
+    /// drift.
+    #[arg(long, value_enum, default_value_t = CompressionArg::None)]
+    compression: CompressionArg,
 }
 
 fn main() -> ExitCode {
@@ -238,6 +317,7 @@ fn run_debug_uuid_cli(args: &DebugUuidCliArgs) -> Result<(), BuildError> {
         zoom_range: args.zoom,
         auth_headers,
         auth_query,
+        pixel_format: args.pixel_format.to_core(),
         format,
     };
     let stdout = std::io::stdout();
@@ -301,6 +381,8 @@ fn run_make(args: MakeArgs, cancel: Arc<AtomicBool>) -> Result<(), BuildError> {
         timestamp_override: args.timestamp,
         pack_uuid_override,
         attribution: args.attribution,
+        pixel_format: args.pixel_format.to_core(),
+        compression: args.compression.to_core(),
         cancel: Some(cancel),
     };
     build(&opts)
