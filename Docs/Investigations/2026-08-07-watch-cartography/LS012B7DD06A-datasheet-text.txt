@@ -1,0 +1,4653 @@
+                                                 No.   LCP-2619063C
+
+
+                                              DATE     15-Nov-19
+                                              REV.     01-Dec-20
+
+
+
+
+                  DEVICE SPECIFICATION
+                             FOR
+
+                   LCD Module
+
+
+           MODEL No.   LS012B7DD06A
+       These parts are complied with the RoHS directive.
+
+
+・This document is a reference specification.
+・SHARP and SHARP DISPLAY TECHNOLOGY
+ CORPORATION reserves the right to make changes
+ in the contents described herein at any time without
+ notice in order to improve design or reliability.
+・Regarding final design, please order delivery specification
+  from SHARP and SHARP DISPLAY TECHNOLOGY
+  CORPORATION.
+
+
+                                         DEVELOPMENT DIVISION
+                                              BUSINESS UNIT Ⅵ
+                                                BUSINESS UNIT
+                        SHARP DISPLAY TECHNOLOGY CORPORATION
+                               改訂履歴 RECORDS OF REVISION
+        Model No :        LS012B7DD06A
+
+           SPEC No.          Date       REV No                                SUMMARY                         NOTE
+                                                 PAGE
+                                                        初版
+        LCP-2619063       2019/11/15         －    － Specification's First edition
+                                                        Global:
+                                                  － Changed all references of LCP-3719009 to LCP-
+                                                        2619063.
+        LCP-2619063A 2019/12/2               A    23    Updated Table 6-3-3
+                                                          Separate fVCOM specifications by transmission and
+                                                        reflection.
+
+
+
+
+                        fo AR
+        LCP-2619063B 2020/8/7                B    45    Added Section 10-3
+
+
+
+
+                          rR P
+                                                 48,49 Modify Section 12-2 and update Figure 12-2-1
+
+
+        LCP-2619063C 2020/12/1               C    24    "fCOM" was corrected to "fVCOM"
+
+
+
+
+                            ef Co
+                                                  26    Updated Figure 6-3-3
+
+
+
+
+                              er
+                                                  36    "fCOM" was corrected to "fVCOM"
+
+
+
+
+                                     n
+                                 en fid
+                                                  37
+
+
+                                                  43
+                                                        Added Section 6-8 and Modified
+
+
+                                                        Updated Table 8-2-1
+
+
+
+
+                                   ce en                Added "Note 8-2-4"
+
+
+
+
+                                     on tia
+                                                  46    Added Section 10-3
+
+
+
+
+                                       ly l
+             SH
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                               SPEC No.                    MODEL No.                  PAGE
+                                                               LCP-2619063C                LS012B7DD06A                         1
+
+
+                             《本仕様書のお取り扱い及び本製品の御使用に当たっての注意》
+                                                               [NOTICE]
+
+      <<使用上の注意              Precautions>>
+        a)   本仕様書は弊社の著作権にかかわる内容も含まれていますので、取り扱いには十分にご注意頂くと共に、本仕様
+             書の内容を弊社に無断で複製しないよう、お願い申し上げます。また、第三者に対して本仕様書を無断で開示しな
+             いよう、お願い申し上げます。
+             This publication is the proprietary of SHARP and is copyrighted, with all rights reserved.
+             Under the copyright laws, no part of this publication may be reproduced or transmitted in any form or by any
+             means, electronic or mechanical for any purpose, in whole or in part, without the express written permission of
+             SHARP. Express written permission is also required before any use of this publication may be made by a third party .
+
+
+
+
+                              AR
+        b)   本仕様書に掲載されている応用例は、弊社製品を使った代表的な応用例を説明するためのものであり、本仕様書
+             によって工業所有権、その他権利の実施に対する保証または実施権の許諾を行うものではありません。
+
+
+
+
+                           rR P
+             また、弊社製品を使用したことにより、第三者と工業所有権等にかかわる問題が発生した場合、弊社製品の構造、
+             製法に直接かかわるもの以外につきましては一切その責任を負いません。
+             The application circuit examples in this publication are provided to explain the representative applications of
+
+
+
+
+                             ef Co
+             SHARP's devices and are not intended to guarantee any circuit design or permit any industrial property right or
+             other rights to be executed. SHARP takes no responsibility for any problems related to any industrial property
+             right or a third party resulting from the use of SHARP's devices, except for those resulting directly from
+
+
+
+                               er     n
+             device manufacturing processes.
+
+
+
+
+                                  en fid
+        c) 本仕様書に記載される本製品の使用条件や使用上の注意事項等を逸脱して使用されること等に起因する損害に
+           関して弊社は一切その責任を負いません。
+
+
+
+
+                                    ce en
+             SHARP assumes no responsibility for any damage resulting from the use of the device which does not comply
+             with the instructions and the precautions specified in this publication.
+
+
+
+
+                                      on tia
+        d)   弊社はデザインもしくは信頼性改善のため、仕様値、特性、材料、構成、その他の内容について通知なしで変更
+             する場合があります。本製品の使用前には最新の仕様書を弊社にご確認いただきますようお願い致します。
+
+
+
+
+                                        ly l
+             SHARP reserves the right to make changes in the specifications, characteristics, data, materials, structures and
+             other contents described herein at any time without notice in order to improve design or reliability. Contact SHARP
+
+               SH
+             in order to obtain the latest publication before using any SHARP's device. Manufacturing locations are also subject
+             to change without notice.
+
+
+        e) 弊社は不適切な使用によって生じた損害については一切の責任を負いません。
+                             fo
+           本製品は下記のような一般的な電子機器に使用されるために設計されています。
+             Observe the following points when in using any device in this publication. SHARP takes no responsibility for
+             damage caused by improper use of the devices.
+             The devices in this publication are designed for use in general electronic equipment designs, such as:
+
+
+             ・パーソナルコンピューター                     Personal computers
+             ・事務機器                             Office automation
+             ・通信機器                             Telecommunication equipment
+             ・計測機器                             Test and measurement equipment
+             ・産業機器                             Industrial control
+             ・AV機器                             Audio visual and multimedia equipment
+             ・家庭用電化製品                          Consumer electronics
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                SPEC No.                    MODEL No.                   PAGE
+                                                                LCP-2619063C                LS012B7DD06A                         2
+
+        f)   本製品を以下のような機器に使用する場合は、適切な設計および充分な検証を実施し、信頼性・安全性をお客様
+             にて確保するようにお願い致します。
+             The appropriate design measures should be taken to ensure reliability and safety when SHARP's devices are used
+             for equipment such as:
+
+
+             ・運送機器や安全装置（飛行機、電車、自動車など）
+                Transportation control and safety equipment(i.e. aircraft, trains, automobiles, etc.)
+              ・信号機                            Traffic signals
+              ・ガス漏れの検知遮断機                     Gas leakage sensor breakers
+              ・アラーム装置                         Alarm equipment
+              ・各種安全機器など                       Various safety devices etc.
+
+
+
+
+                              AR
+        g)   本製品は以下のような極めて高い信頼性・安全性が必要とされる用途への使用を意図しておりませんので、本製
+             品をこれらの用途には使用にならないで下さい｡
+             SHARP's devices shall not be used for equipment that requires extremely high level of reliability, such as:
+
+
+             ・軍事及び宇宙関連機器
+             ・原子力制御機器
+                           rR P                         Military and space applications
+                                                        Nuclear power control equipment
+
+
+
+
+                             ef Co
+             ・生命維持にかかわる医療機器                             Medical equipment for life support
+             ・航空宇宙機器                                    Aerospace equipment
+
+
+
+
+                               er
+             ・幹線通信機器                                    Trunk line communication equipment
+
+
+
+
+                                      n
+                                  en fid
+        h) 本製品につきご不明な点がありましたら、事前に弊社販売窓口までご連絡頂きますようお願い致します。
+             Contact and consult with a SHARP sales representative for any questions about this device.
+
+
+
+
+                                    ce en
+        i)   本製品を弊社が推奨する用途以外でご使用される場合は、事前に弊社販売窓口までご連絡頂きますようお願い
+             致します。
+
+
+
+
+                                      on tia
+             Contact a SHARP representative, in advance, when intending to use SHARP’s devices for any “specific”
+             applications other than those recommended by SHARP.
+
+
+
+
+                                        ly l
+        j)   本仕様書に疑義が生じた場合は､双方の打合せにより解決するものとします。
+             If any problem occurs in relation to the description of this publication, it shall be resolved through discussion with
+
+
+
+        k)
+               SH
+             spirit of cooperation each corporation between each corporation .
+
+
+             オゾン層破壊物質の使用はありません。
+             The ozone-depleting substances are not used.
+
+
+        l)
+                             fo
+             本製品はRoHS EU/2015/863に基づいております。RoHS規格の材料や塩素パラフィンの意図的な含有はありません。
+             The device in the production is based on RoHS instructions EU/2015/863.
+             And RoHS instructions materials and chlorinated paraffin are not included intentionally.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                             SPEC No.                     MODEL No.                  PAGE
+                                                             LCP-2619063C                 LS012B7DD06A                        3
+
+                                                        《取り扱い注意事項》
+                                                    [Precautions for handling]
+
+        (1) モジュールの取り扱いはできる限り塵埃の少ない環境にて行って下さい。
+            Treat LCD module in dustless surroundings.
+
+
+        (2) FPCを入力コネクタに挿抜する時は、必ずモジュールに入力する電源や信号をＯＦＦにしてから行って下さい。
+            Be sure to turn off the power supply when remove the plugged FPC.
+
+
+        (3) FPCの抜き挿し時にはモジュール側の回路部やFPCに強い外力が加わらないように注意して下さい。
+            破損や接触不良となる可能性があります。
+           Be careful not to give any physical stress onto the circuit of LCD module when you plug a FPC.
+
+
+
+
+                            AR
+           Physical stress will cause a break or worse connection.
+
+
+        (4) パネル表面の偏光板は傷つき易いので、硬いものや鋭利なもので擦ったりしないよう取り扱いには十分注意して
+
+
+
+                         rR P
+            下さい
+           Do not touch or scratch the polarizer with items harder than the surface rating or permanent damage can result.
+
+
+
+
+                           ef Co
+        (5) LCDパネルはガラスが含まれているため、落下や衝突で壊れてしまう場合があります。
+           常に取扱いには注意して下さい。
+
+
+
+                             er
+           Since the LCD panel is made of glass, it may break or crack if dropped or bumped on hard surface.
+
+
+
+
+                                    n
+           Always handle with care.
+
+
+
+
+                                en fid
+        (6) 怪我を防ぐため、LCDパネルのエッジ部分には注意してください。もし割れてしまっても、素手では触れないで下さい。
+           Be careful to handle this LCD panel in order to avoid injury yourself as this panel is made of glass and have
+
+
+
+                                  ce en
+           sharp edge. When the panel is broken, do not touch the glass. Although the panel is difficult to be scattered,
+           touching the broken part may hurt your hands.
+
+
+
+
+                                    on tia
+        (7) 水滴等が長時間付着すると変色やシミの原因になりますので、すぐに脱脂綿あるいは柔らかい布等で拭き取って
+           下さい。
+
+
+
+
+                                      ly l
+           Since a long contact with water may cause discoloration or spots, wipe it with absorbent cotton or other soft
+           cloth immediately.
+
+             SH
+        (8) 本製品はCGSを含んでおります。適切な静電気対策をお願い致します。
+           This module contains CGS. Please use appropriate anti-static protection methods for all contact with the LCD
+           panel and its electrical circuits.
+                            fo
+        (9) 太陽光や紫外線光の直射光を長期間当て続けないように御使用下さい。
+           Do not expose to strong ultraviolet rays such as direct sunlight for a long time.
+
+
+      (10) LCDが破損した場合、液晶が漏れる可能性があります。液晶が誤って口や目に接触した場合、出来るだけ速やかに
+           水で洗い流してください。
+           Liquid crystal contained in the panel may leak if the LCD is broken. If LC material should accidently come in contact
+           with the mouth or eyes rinse with water as soon as possible, following the instructions of the appropriate MSDS.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                             SPEC No.                     MODEL No.                    PAGE
+                                                             LCP-2619063C                 LS012B7DD06A                           4
+
+      (11) 偏光板上のゴミは、静電対策が施されたイオン化エアガン等のN2ブローで吹き飛ばして下さい。
+           パネル表面が汚れた場合は、脱脂綿あるいは柔らかい布等で拭き取って下さい。
+           汚れが残る場合はIPA（イソプロピルアルコール）を使って表面を軽く拭き取って下さい。
+           また、LCDパネル端子部は有機材を使用しています。この部分に有機溶剤がかかりますと故障の原因となります
+           ので、取り扱いには十分注意してください。また、直接指で触れないでください。
+           端子部の清掃を行う際は、脱脂綿あるいは柔らかい布でふき取って下さい。
+           Use N2-blower such as ionized nitrogen has anti-electrostatic when you blow dusts on Polarizer.
+           To clean LCD panel surface, wipe clean with absorbent cotton or soft cloth.
+           If further cleaning is needed, use IPA(isopropyl alcohol) and wipe clean lightly on surface only.
+           Do not use organic solvents as it may damage the LCD panel terminal area which uses organic material.
+           Also, do not directly touch with finger. When the terminals cleaning are needed, those should be wiped by a soft
+           cloth or a cotton swab without directly touching by hand.
+
+
+
+
+                            AR
+      (12) 偏光板へのシールや粘着剤の貼り付けはムラ、表示不具合の恐れがあります。
+            To avoid picture uniformity failure, do not put a seal or an adhesive material on the LCD panel surface.
+
+
+
+
+                         rR P                          《設計時の注意事項》
+
+
+
+                           ef Co
+                                                   [Precautions for Set-design]
+
+
+
+
+                             er
+        (1) 故障の原因となりますので、決してモジュールを分解しないで下さい。
+
+
+
+                                    n
+           Disassembly of the LCD panel in any way voids the warranty and may permanently damage the LCD panel.
+
+
+
+
+                                en fid
+        (2) パネル上に形成されたゲートドライバ等（パネル表示領域以外に配置されている回路部）を強い光にさらすと、正常
+            に動作しない可能性がありますので、LCDモジュールを搭載する際、ゲートドライバを遮光する設計が必要です。
+
+
+
+                                  ce en
+            またLCDパネル側面に太陽光等の強い光が照射されるとパネル特性の劣化につながり、表示品位が低下する事が
+            あります。LCDパネル側面を遮光するよう設計に御配慮ください。
+
+
+
+
+                                    on tia
+           Do not expose the side of LCD panel and gate driver, etc. on the panel (circuit area outside panel display area) to
+           light as it may not operate properly. Design that shields the side of LCD panel and gate driver, etc. from light is
+           required when mounting the LCD module.
+
+
+
+
+                                      ly l
+        (3) ガラス面に規定以上の応力が加わらない様LCDパネル支持は十分配慮して下さい。
+
+             SH
+            キャビネットの設計において、ねじれ等のストレスが加わらない様配慮して下さい。
+           Support for the LCD panel should be carefully designed to avoid the outside of stress specification on glass
+           surface. Be sure to design the cabinet so that the module can be assembled without any extra stress such as
+           warp or twist.
+                            fo
+        (4) FPCの外形端面にはメッキリードがある場合がありますので、導電部材と接触しないようご注意下さい。
+           There are metal patterns on the outer edge of FPC. Please design your housing not to contact the conductive part.
+
+
+        (5) モジュール裏面に常時一定の圧力がかかると表示ムラ、表示不良などの原因となりますのでモジュール裏面を
+           圧迫するような構造にはしないで下さい。
+           It causes an irregular display and the defective indication, etc., when always put constant pressure on the back of
+           the module. Please do not make the structure to press the back of the module.
+
+
+        (6) パネル表面に保護板等をつける場合は画質を劣化させる事の無いよう注意して下さい。
+           In case of attaching a cover glass or touch panel to the front surface, use appropriate measures to avoid degrading
+           optical performance.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                              SPEC No.                      MODEL No.                   PAGE
+                                                              LCP-2619063C                  LS012B7DD06A                         5
+
+        (7) 本仕様書に規定されている絶対最大定格は、必ず守ってください。これを超えて使用した場合、部品の焼損・破壊
+           や特性の劣化の恐れがあります。周囲温度や入力信号変動、電気部品のバラツキ等も考慮の上、絶対最大定格を
+           超えないように設計して下さい。
+           Be sure to follow the absolute maximum rating in the specification.
+           The design should consider the surrounding temperature, the fluctuating input signal, and tolerance of the electronic
+           parts. Exceeding values is possible to cause worse characteristic such as burn and/or broken of the parts on LCD
+           module.
+
+
+        (8) 推奨動作条件範囲内にて使用して下さい。
+           この範囲を超えた場合、絶対最大定格内であっても動作は保証されません。
+           Be sure to use LCD module within the recommended Electrical Characteristics and Timing Characteristics of
+           Input signals conditions. Operating module out of the recommended range is not guaranteed even if it is in the
+
+
+
+
+                            AR
+           absolute maximum rating.
+
+
+        (9) モジュールへ電源投入後の入力信号の印加、切断については、本仕様書の電源・信号電圧のシーケンスに
+
+
+
+                         rR P
+           従って下さい。
+           Follow the power, signal, and supply voltage sequence which the specification indicates, regarding on-off input
+           signal after power on of LCD module.
+
+
+
+
+                           ef Co
+      (10) セットの使用条件に合わせて、モジュール故障時の電源回路保護装置をご検討下さい。
+
+
+
+                             er
+          According to the using application, power circuit protection is recommended at module failure.
+
+
+
+
+                                    n
+                                en fid
+      (11) モジュールの取り扱い及び組み込みに際して酸化性または還元性ガス中での長期保管並びに、これらのガスを
+           発生する試薬、溶剤、接着剤、樹脂等の材料の使用は腐食や変色の原因になる事がありますので、このような
+           環境下では使用しないで下さい。
+
+
+
+                                  ce en
+           When handling LCD modules and assembling them into the cabinet, please avoid long-term storage in the
+           environment of oxidization or deoxidization gas. The use of materials such as reagent, solvent, adhesive,
+
+
+
+
+                                    on tia
+           resin, etc. which generate these gasses, may cause corrosion and discoloration of the modules.
+          Do not use the LCD module under such environment.
+
+
+
+
+                                      ly l
+      (12) モジュール表面に傷防止として保護ラミネートを貼っておりますので、保護ラミネートを剥がしてご使用ください。
+           また一度剥がした保護ラミネートは再貼り付けしないでください。
+
+             SH
+           保護ラミネートを再び貼り付けて長時間保存すると、偏光板表面が変質し、表示不良を生じる可能性があります。
+           Protection film is attached to the module surface to prevent it from being scratched. Peel the film off slowly,
+           just before the use, with strict attention to electrostatic charges. Blow off 'dust' on the polarizer by using an ionized
+           nitrogen. After peeling the protection film off, please do not reattach to the front polarizer. If you reattach and store
+                            fo
+           it long time, surface of the front polarizer changes in quality and it may cause display non-uniformity issue.
+
+
+      (13) LCDパネルは、機械的ストレスにより表示に影響が出る事があります。ねじれ、曲がり押し圧などのストレスが
+           加わらない様に平面上に設置して下さい。
+           Panel is susceptible to mechanical stress and such stress may affect the display.
+           Place the LCD panel on flat surface to avoid stress caused by twist, bend, etc.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                             SPEC No.                     MODEL No.                    PAGE
+                                                             LCP-2619063C                 LS012B7DD06A                          6
+
+      (14) 光学品位低下及び表示不良を防止、且つ包装材料に使用されるエポキシ樹脂・シリコン接着剤のLCDパネルへ
+           の汚染防止のため、液晶パネルの生産・出荷プロセスで用いられる材料の互換性を確認してください。
+          To prevent reduction in optical quality and abnormal display, avoid exposure and contamination of the LCD panel
+          from epoxy resin (mine system curing agent) that comes out from the material and the packaging material used
+          for the set side, the silicon adhesive (dealcoholization system and oxime system), and the tray blowing agents
+          (azo-compound), etc. Please confirm LCD panel compatibility with materials employed in your manufacturing and
+          shipping processes.
+
+
+      (15) モジュールに局所的な温度変化が生じないように、放熱性を考慮した部品配置・設計をお願いします。
+           Please design part arrangement to consider the heat dissipation not to change the local temperature for module.
+
+
+      (16) 本製品は、防水・防塵仕様ではありません。
+
+
+
+
+                            AR
+           This product is not water-proof and dust-proof structure.
+
+
+      (17) 本製品には電気回路を使用していますので、パネルの取扱い時における静電気(200V以上)には注意の上、下記
+
+
+
+                         rR P
+           の内容を御配慮下さい。
+           As this LCD module is composed electronic circuits, it is sensitive to electrostatic discharge of 200V or more.
+           Handle with care using cautions for the followings.
+
+
+             ⚫
+
+                           ef Co
+                 作業者/Operators
+
+
+
+                             er
+                 作業者が身につける衣服、履物、手袋等が絶縁物（ナイロン、ポリエチレン、ゴム等の絶縁物）の場合、人体
+
+
+
+                                    n
+                 に静電気が帯電する恐れがありますので、静電気対策品（静電気防止加工品）を着用して下さい。
+
+
+
+
+                                en fid
+                 Operators must wear anti-static wears to prevent electrostatic charge up to and discharge from human body.
+
+
+             ⚫   器材・設備/Equipment and containers
+
+
+
+                                  ce en
+                 摩擦や剥離の機構、機能を持つ器材、機具等（例えば自動機、コンベア、検査機、半田ごて、マット、作業台、
+                 容器等）は静電気が発生する恐れがありますので、静電気対策（静電気的接地：100MΩ）を行って下さい。
+
+
+
+
+                                    on tia
+                 Process equipment such as conveyer, soldering iron, working bench and containers may possibly generate
+                 electrostatic charge up and discharge. Equipment must be grounded through 100Mohms resistance.
+                 Use ion blower.
+
+
+
+
+                                      ly l
+             ⚫   床/Floor
+
+             SH  床は人体や器材・設備から発生した静電気を漏洩する上で大きな役割を持ちます。床材が絶縁物（高分子材、
+                 ゴム等）の場合、上にのる人体や機械の静電気が漏洩せずに帯電する恐れがありますので静電気対策
+                 （静電気的接地：100MΩ）を行って下さい。
+                 Floor plays an important role in leaking static electricity generated in human body or equipment.
+                           fo
+                 If the floor is made of insulated material (such as polymer or rubber material), such static electricity may
+                 charge. Proper measure should be taken to avoid static electricity charge (electrostatic earth: 100Mohms).
+                 There is a possibility that the static electricity is charged to them without leakage in case of insulating floor,
+                 so the electrostatic earth: 100Mohms should be made.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                             SPEC No.                      MODEL No.                   PAGE
+                                                             LCP-2619063C                  LS012B7DD06A                         7
+
+             ⚫    湿度/Humidity
+                  各作業場の湿度は、静電気発生物体の表面抵抗に関係しており帯電防止に大きな関わりを持ちます。
+                  湿度が40%未満になると物体全体の静電気的接地抵抗を増大し帯電を促進する為、湿度を40%以上に保つ
+                  様にして下さい。特にラミネータ剥離工程や人の手が介在する工程等は、湿度を50%以上に保ち、且つ除電
+                  ブロアーを使用下さい
+                  Humidity in work area relates to surface resistance of the persons or objects that generate electrostatics,
+                  and it can be manipulated to prevent electrostatic charge. Humidity of 40% or lower increases electrostatic
+                  earth resistance and promotes electrostatic charging. Therefore, the humidity in the work area should be
+                  kept above 40%. Specifically for film peeling process or processes that require human hands, humidity should
+                  be kept above 50% and use electricity removal blower.
+
+
+             ⚫    物流/Transportation
+
+
+
+
+                            AR
+                  運搬・保管はその行為（摩擦や剥離）により容器や発泡スチロール等の保管材料が帯電したり、また人体等
+                  に帯電した静電気等により誘導帯電等を起こす恐れがありますので保管材料等にも静電気対策を行って
+                  下さい。
+
+
+
+                         rR P
+                  Containers and styroform used in transporation and storage may charge electrostatic (from friction and
+                  peeling) or electrostatic charge from human body, etc. may cause containers and styroform to have induced
+                  charge. Proper electrostatic measure should be taken for containers and storage material.
+
+
+
+
+                           ef Co
+                             er
+                                                   《動作時の注意事項》
+
+
+                                    n
+                                           [Precautions for operating LCD module]
+
+
+
+                                en fid
+        (1) ポリクロロフェンのご使用はお控えください。LCDパネルのコネクタ部品に影響を与える塩素ガスが発生します。
+           Do not use polychloroprene (CR) with LCD module. It will generate chlorine gas, which will damage the reliability of
+
+
+
+                                  ce en
+           the connection part on LCD panel.
+
+
+
+
+                                    on tia
+        (2) 動作条件範囲内にて使用して下さい。
+            この範囲を超えた場合、絶対最大定格内であっても動作は保証されません。
+           Be sure to use LCD module within the operating conditions. Operating module out of the range is not guaranteed
+
+
+
+
+                                      ly l
+           even if it is in the absolute maximum rating.
+
+
+             SH
+        (3) LCDパネルは仕様書の規定外で動作させないで下さい。故障の原因となります。
+           Do not operate the LCD panel under outside of electrical specification. Otherwise LCD panel may be damaged.
+
+
+        (4) 本仕様書記載のＡＣタイミングに従わずに使用されると表示不良の原因となります。
+                            fo
+           Do not use the LCD panel under outside of specified driving timing chart. Otherwise LCD panel may not have
+           proper picture quality.
+
+
+        (5) 静止画表示は、2日間以内（常温、常湿）とし、それ以上の場合はリフレッシュ機能を入れて残像が残らない様に
+            配慮してください。
+            A still image should be displayed less than two days, if it is necessary to display still image longer than two hour,
+            display image data must be refreshed in order to avoid sticking image on LCD panel.
+
+
+         (6) LCDモジュールへ静電気が流れた場合、表示用メモリが保持できず、表示に影響が出ます。その場合はデータの
+           再書き込みを行って下さい。
+           If LCD module takes a static electricity, as the display image which is written into pixel memory might not be
+           displayed, Data update should be executed frequently.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                             SPEC No.                     MODEL No.                   PAGE
+                                                             LCP-2619063C                 LS012B7DD06A                         8
+
+        (7) 黒表示や黒部分がある表示の際、外部光により黒レベルが僅かに変わる事がありますが、それは故障でも不良品
+            でもありません。
+           It is neither a breakdown nor a defective indication though very slight change in black level might be periodically
+           seen in a black part on the black display image according to the source of light (angle of the luminance and the
+           source of light).
+
+
+        (8) 本仕様書に規定されている絶対最大定格は、必ず守ってください。これを超えて使用した場合、部品の焼損・破壊
+           や特性の劣化の恐れがあります。周囲温度や入力信号変動、電気部品のバラツキ等も考慮の上、絶対最大定格を
+           超えないように設計して下さい。
+           Be sure to follow the absolute maximum rating in the specification. The design should consider the surrounding
+           temperature, the fluctuating input signal, and tolerance of the electronic parts. Exceeding values is possible to
+           cause worse characteristic such as burn and/or broken of the parts on LCD module.
+
+
+
+
+                              AR
+        (9) モジュールへ電源投入後の入力信号の印加、切断については、本仕様書の電源・信号電圧のシーケンスに従って
+            下さい。
+
+
+
+                           rR P
+           Follow the power, signal, and supply voltage sequence which the specification indicates, regarding on-off input signal
+           after power on of LCD module.
+
+
+
+
+                             ef Co
+      (10) 高温高湿下での長時間使用される場合は、結露対策が必要になります。
+           The prevention of dew condition is necessary when LCD is used for long time under high-temperature and
+
+
+
+
+                               er
+           high-humidity
+
+
+
+
+                                      n
+                                  en fid
+                                    ce en
+                                      on tia
+             SH                         ly l
+                            fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                 SPEC No.                      MODEL No.                    PAGE
+                                                                 LCP-2619063C                  LS012B7DD06A                         9
+
+
+
+                                                         《保管時の注意事項》
+                                                        [Precautions for Storage]
+
+        (1) 包装開封後は、直射日光や強い紫外線下に放置しないで下さい。暗い場所に保管して下さい。
+           After opening the package, do not leave the LCD panel in direct sun or under strong ultraviolet ray.
+           Store in the dark place.
+
+
+        (2) 定格保存温度以下では液晶材料が凝固し、定格保存温度以上では等方向性の液体となり、元の状態に戻らなく
+           なる場合があります。できるだけ室温付近での保存をお願いします。また湿度の高い場所に保管しますと、偏光板
+           およびUVカットフィルムがダメージを受けます。できるだけ常湿付近での保存をお願いします。
+           In temperature lower than specified rating, liquid crystal material will coagulate. In temperature higher than
+
+
+
+
+                              AR
+           specified rating, it will liquefies.   In either condition, the liquid crystal may not recover its original condition.
+           Store the LCD panel in at or around room temperature as much as possible. Also, storing the LCD panel in high
+           humidity will damage the polarizer.       Store in normal room temperature as much as possible.
+
+
+
+
+                           rR P
+         (3) 保管方法 Keeping Method
+                a. 直射日光には当てないで下さい。                                        b．トレイに納めて暗所に保管下さい。
+
+
+
+                             ef Co
+                    a. Don't keeping under the direct sunlight.          b. Keeping in the tray under the dark place.
+
+
+
+
+                               er     n
+                                  en fid
+                                    ce en
+                                      on tia
+             SH                         ly l
+                             fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                            SPEC No.                     MODEL No.                   PAGE
+                                                            LCP-2619063C                 LS012B7DD06A                         10
+
+
+                                                           《他の注意事項》
+                                                           [Other Notice]
+
+        (1) 仕様書規定範囲外でのご使用は、保証いたしかねますのでご了承願います。
+            Operation outside specified environmental conditions cannot be guaranteed.
+
+
+        (2) 電源(VDD-VSS)のインピーダンスを下げて使用する為、LCDモジュールのなるべく近くに
+            パスコンを挿入して下さい。
+            As power supply (VDD-GND、VDDA-GND) impedance is lowered during use, bus controller should be inserted
+            near LCD module as much as possible.
+
+
+
+
+                           AR
+        (3) パネル表面には偏光板が張り付けられていますが、内部の液晶は紫外線に対して劣化しますので、
+            直射日光や強い紫外線のもとで長時間放置しないようにしてください。
+            Polarizer is applied over LCD panel surface.   Liquid crystal inside LCD panel deteriorates with ultraviolet ray.
+
+
+
+                        rR P
+            The panel should not be left in direct sun or under strong ultraviolet ray for prolonged period of time even
+            with the polarizer.
+
+
+
+
+                          ef Co
+        (4) 故障の原因となりますので、決してモジュールを分解しないで下さい。
+
+
+
+
+                            er
+            Disassembling the LCD module will cause permanent damage to the module.
+
+
+
+
+                                   n
+            Do not disassemble the module.
+
+
+
+
+                               en fid
+        (5) LCDパネルが破損した場合、中の液晶を口の中に入れないでください。液晶が手足、衣服等に付いた場合は、
+            直ちに石鹸で洗い落としてください。
+
+
+
+                                 ce en
+            If LCD panel is broken, do not ingest the liquid crystal from the broken panel. If hand, leg or clothes come in
+            contact with liquid crystal, wash off immediately with soap. If mouth or eyes come in contact with liquid crystal,
+
+
+
+
+                                   on tia
+            rinse with water as soon as possible, following the instructions of the appropriate MSDS.
+
+
+        (6) 本製品は、原材料から製品完成までの全生産工程に於いてODS（特定フロン、特定ハロン、
+
+
+
+
+                                     ly l
+            1-1-1トリクロロエタン、四塩化炭素）を一切使用していません。また、含んでおりません。
+
+
+             SH
+            ODS (specific chlorofuorocarbon, specific halon, 1-1-1 trichloroethane, carbon tetrachloride) are not used or
+            contained in material or all production processes of this product.
+
+
+        (7) モジュールの廃棄については、地方自治体により規制を受ける場合があります。
+                           fo
+            それぞれの自治体規制に従って廃棄して下さい。
+           Follow the regulations when LCD module is scrapped. The government you stay may have some regulations
+           about it.
+
+
+        (8) その他、通常電子部品に対する注意事項は遵守してください。
+            Observe all other precautionary requirements in handling general electronic components.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                 SPEC No.                   MODEL No.                     PAGE
+                                                                 LCP-2619063C               LS012B7DD06A                         11
+
+
+                                                《LCDモジュールの廃棄注意事項》
+                                              [Discarding liquid crystal modules]
+
+        LCDモジュールを破棄する場合は以下の事に注意して下さい。
+        Follow the regulations when LCD module is scrapped.
+        The government you stay may have some regulationsabout it.
+
+
+        LCDパネル                 ：     ガラス屑として処理をしてください。
+                                     本LCDモジュールの含有有害物質はありません。
+                                     LCDパネルには、危険・有害物質は含まれておりません｡
+                                     LCDパネルに含まれる液晶材料は、ごく微量（約100mg）で、パネルが割れても漏
+                                     れ出てくる事は無く、安全性も半数致死量（LD50）≧2000mg/kg、
+
+
+
+                           AR
+                                     変異原性（Aims test）：陰性（Negative）の材料を選んで使用しております。
+
+
+
+
+                        rR P
+        LCD Panel          :       Dispose of as glass waste.   This LCD module contains no harmful substances.
+                                   The liquid crystal panel contains no dangerous or harmful substances.
+                                   This liquid crystal panel contains only an extremely small amount of liquid crystal
+
+
+
+
+                          ef Co
+                                   (approximately 100mg) and therefore it will not leak even if the panel should break.
+                                     Its median lethal dose (LD50) is greater than 2,000 mg/kg and a mutagenetic
+
+
+
+
+                            er
+                                     (Aims test: negative) material is used.
+
+
+
+
+                                   n
+                               en fid
+                                 ce en
+                                   on tia
+             SH                      ly l
+                          fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                            SPEC No.                     MODEL No.                  PAGE
+                                                            LCP-2619063C                 LS012B7DD06A                       12
+
+
+                                                   《裏偏光板の注意事項》
+                                             [Precautions for Rear Polarizer]
+
+      裏偏光板の表面には輝度向上フィルムを使用しております。
+      輝度向上フィルムは層間剥離が発生しやすい為、取り扱いにはご注意ください。
+      Brightness enhancement film is being used for reae polaraizer surface.
+      This film is easy to delaminate during layers.
+
+
+     1）本製品の固定、保持、実装において偏光板の端部へ衝撃、強い力が掛からないようにして下さい。
+       層間剥離のきっかけになる可能性があります。
+       Do not have an impact or put on a high stress on the edge of rear polarizer because it has the potential to become
+       a dilamination , when you fix, hold and mount this module.
+
+
+
+                            AR
+      2)裏偏光板の保護フィルムを剥離する際は下記の点に注意して下さい。
+
+
+
+                         rR P
+        Please be careful about the following points when you peel off a protect film on rear polarizer.
+
+         a) 保護フィルムを剥離する場合等に偏光板端部に硬いものや鋭利なものをあてないで下さい。
+
+
+
+
+                           ef Co
+            Do not hit something hard or sharp on polarizaer edge when you peel off a protect film,etc.
+
+
+
+
+                             er
+         b) 保護フィルムの剥離は粘着テープ等を使い、図-POL-1の“A”の方向に剥離して下さい。
+
+
+
+                                    n
+           Please peel off a protect film with adohesive tape.
+
+
+
+
+                                en fid
+           At that time, peel direction is “A” in Figure POL-1.
+
+
+                      10°～30°       0°
+
+
+
+                                  ce en
+                                    on tia
+             SH                       ly l
+                           fo                                                                  A
+
+
+
+
+                                  Figure POL-1     Peel direction of protection film(Rear side up)
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                         SPEC No.                    MODEL No.              PAGE
+                                                         LCP-2619063C                LS012B7DD06A                  13
+
+          c) 剥離を行う際の粘着テープの剥離角度は180°に近い角度で行って下さい。
+             剥離角度90°で剥離するのは最も層間剥離が発生しやすくなります。
+            Please peel off the peel angle by about 180°.
+            Do not peel off the peel angle by about 90° because the angle is easy to delaminate during layers.
+
+
+
+
+                     Adhesive tape                               Rear protect film
+
+
+
+
+                           AR
+                        rR P OK
+                                                                       90°
+                                                                                        NG
+
+
+
+
+                          ef Co
+                    180°
+
+
+
+
+                            er     n
+                               en fid           Figure   POL-2   Peel angle
+
+
+
+                                 ce en
+                                   on tia
+             SH                      ly l
+                           fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                                    SPEC No.                                 MODEL No.                               PAGE
+                                                                                    LCP-2619063C                             LS012B7DD06A                                       14
+
+                                                                                    目次 Contents
+
+      No. ........................................................................................................................................................................... Page.
+
+      1.       適用範囲 Applicable Memory liquid                                64 Color crystal display .................................................................... 15
+
+      2.       概要 Overview .................................................................................................................................................... 15
+
+      3.       機械的仕様 Mechanical Specification .............................................................................................................. 15
+
+      4.       入力端子名称及び機能 Input terminal names and functions.......................................................................... 16
+
+      5.       絶対最大定格                  Absolute Maximum Rating ...................................................................................................... 18
+
+
+
+
+                                    AR
+      6.       電気的特性                Electrical characteristics ............................................................................................................ 19
+
+      7.       光学的特性                Optical specification .................................................................................................................... 38
+
+
+
+
+                                 rR P
+      8.       端子割り当て                  Pin Assignment ........................................................................................................................ 42
+
+      9.       表示品位             Display Qualities ............................................................................................................................. 43
+
+      10.
+
+                                   ef Co
+               推奨例 Recommended example ....................................................................................................................... 44
+
+
+
+                                     er     n
+      11.      印刷形態             Marking ............................................................................................................................................. 47
+
+
+
+
+                                        en fid
+      12.      梱包形態             Packaging form................................................................................................................................ 47
+
+      13.      信頼性試験条件                     Reliability Test Conditions .................................................................................................. 51
+
+      14.      モジュール外形図
+                                          ce en
+                                              Outline dimension............................................................................................................. 52
+
+
+
+
+                                            on tia
+                SH                            ly l
+                                    fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                         SPEC No.                  MODEL No.             PAGE
+                                                         LCP-2619063C              LS012B7DD06A                 15
+
+
+
+
+     1. 適用範囲 Applicable Memory liquid                64 Color crystal display
+        CGシリコン薄膜トランジスタを用いた微透過型の64色カラーメモリ液晶ディスプレイです。
+        外形図は図14-1に示しています。
+        This TFT 64-Color LCD module is a reflective active-matrix with slightly transmissive
+        memory liquid crystal display module with CG silicone thin film transistor.
+        Module outline is indicated in Figure 14-1
+
+
+     2. 概要 Overview
+      ・ 微透過型カラーパネル
+
+
+
+                           AR
+      ・ 画面サイズ1.19型 解像度 240 x 240画素
+      ・ 6bitパラレル信号による表示制御
+
+
+
+
+                        rR P
+      ・ 1画素の表示にRGB各2bitを用いており、64色表現が可能
+      ・ パネル内部にデータ記憶用のメモリーを内蔵
+      ・ モノリシック技術を用いた薄型・軽量・コンパクトなモジュール形態
+
+
+
+
+                          ef Co
+      ・ 超低消費電力ＴＦＴパネル
+      ・ 表偏光板はHC仕様
+      ・ ＦＰＣによる接続
+
+
+
+                            er     n
+      ・ Reflective active-matrix with slightly transmissive panel of Color.
+
+
+
+
+                               en fid
+      ・ 1.19” screen has 240 x 240 resolusion.
+      ・ Display control by 6bit parallel data signal communication.
+      ・ 1 pixel has RGB each 2bit, the pixel can display 64 colors.
+
+
+
+                                 ce en
+      ・ Internal memory for data storage within the panel.
+      ・ Thin, light-weight and compact module with monolithic technology.
+      ・ Super low power consumption TFT panel.
+
+
+
+                                   on tia
+      ・ Front polarizer surface is HC treatment
+      ・ With FPC (Applicable connector : Ref to recommended connector on Table 8-1)
+
+
+
+
+                                     ly l
+     3. 機械的仕様 Mechanical Specification
+             SH
+             Table 3-1 機械的仕様表 Module mechanical specification
+                                 Item                                   Specification                    unit
+              画面サイズ              Screen size               1.19”                                  inch
+              有効表示エリア
+              ドット構成
+              ドットピッチ
+                          fo     Active Area
+                                 Dot configuration
+                                 Dot pitch
+                                                           φ30.24
+                                                           240 (H) x 240 (V)
+                                                           0.126 (H) x 0.126 (V)
+                                                                                                  mm
+                                                                                                  Dot
+                                                                                                  mm
+              画素配列               Pixel Array               縦ストライプ
+                                                                                                  -
+                                                           Stripe Array
+              表示モード              Display mode              Normally Black                         -
+              外形寸法               Outline Dimension         33.04 (W) x 33.94 (H) x 0.89 (D)       mm
+              質量                 Mass                      1.6 (max)                              g
+              表面処理               Surface treatment         HC (Hard coat treatment )              -
+             [Note]   詳細な外形寸法や公差は図14-1を参照
+                      Detail dimension and tolerance are shown in Figure.14-1
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                             SPEC No.                     MODEL No.                PAGE
+                                                             LCP-2619063C                 LS012B7DD06A                    16
+
+
+     4. 入力端子名称及び機能 Input terminal names and functions
+           Table4-1     端子詳細 Pin description
+      Pin                              Cofigur
+               Symbol         I/O                                              Function                               備   考
+      No                                ation
+                                                 ゲートドライバー電源
+      1        VDD2         Power        －
+                                                 Power supply for the Vertical Driver
+      2          －            －          －       Open (No connection）
+      3        GSP          Input      NoPull    ゲートドライバのスタート信号                 Start signal for the Gate-Driver
+                                                 ゲートドライバのクロック信号
+      4        GCK          Input      NoPull
+                                                 Clock for signal for the Gate-Driver
+      5        GEN          Input      NoPull    ゲートイネーブル信号                     Gate enable signal
+
+
+
+                               AR
+                                                 バイナリ/ゲートドライバの初期化信号
+      6        INTB         Input      NoPull
+                                                 Initial signal for Binary/Gate-Driver
+
+
+
+
+                            rR P
+                                                 LCDの黒信号電圧
+                                                 VCOMと同位相のSignal / Duty =50% の方形波                                  Note 4-1
+      7         VB          Input        －
+                                                 Black signal voltage of LCD                                       (Note 4-2)
+
+
+
+
+                              ef Co
+                                                 Inphase signal to VCOM / Duty=50% Square wave
+                                                 LCDの白信号電圧
+
+
+
+
+                                er
+                                                 VCOMと逆位相のSignal/ Duty =50% の方形波
+      8         VA          Input                                                                                  Note 4-1
+
+
+
+                                       n
+                                         －
+                                                 White signal voltage of LCD
+
+
+
+
+                                   en fid
+                                                 Opposite phase signal to VCOM / Duty=50% Square wave
+                                                 バイナリドライバー ＆画素メモリ電源
+      9        VDD1         Power        －
+                                                 Power supply for the Horizontal driver and the Pixels mem
+
+
+
+
+                                     ce en
+      10        VSS         Power        －       GND
+                                                 バイナリドライバのスタート信号
+      11        BSP         Input      NoPull
+
+
+
+
+                                       on tia
+                                                 Start signal for the Binary-Driver
+                                                 バイナリドライバのクロック信号
+      12       BCK          Input      NoPull
+                                                 Clock for driving of Binary-Driver
+
+
+
+
+                                         ly l
+      13       R [0]        Input      NoPull    奇数画素の赤信号                   Red signal for odd Pixels
+      14
+      15
+      16
+               SH
+               R [1]
+               G [0]
+               G [1]
+                            Input
+                            Input
+                            Input
+                                       NoPull
+                                       NoPull
+                                       NoPull
+                                                 偶数画素の赤信号
+                                                 奇数画素の緑信号
+                                                 偶数画素の緑信号
+                                                                            Red signal for even Pixels
+                                                                            Green signal for odd Pixels
+                                                                            Green signal for even Pixels
+      17
+      18
+               B [0]
+               B [1]
+                              fo
+                            Input
+                            Input
+                                       NoPull
+                                       NoPull
+                                                 奇数画素の青信号
+                                                 偶数画素の青信号
+                                                                            Blue signal for odd Pixels
+                                                                            Blue signal for even Pixels
+      19         －            －          －       Open (No connection）
+                                                 LCDのコモン端子電圧 / Duty =50% の方形波
+      20      VCOM          Input        －                                                                         Note 4-1
+                                                 Common terminal voltage for LCD / Duty=50% Square wave
+      21       (NC)           －          －       Open (No connection）
+          NoPull ： プルアップ、プルダウンどちらでもない
+                   Neither Pulled up nor Pulled down.
+
+          Note 4-1 :内部の対向制御電極に直接つながっておりますので、静電気、リップル等が印可されないように注意
+                    して下さい。VBはVCOMと同じ信号です、VAはVCOM,VBの反転信号です。
+                  : Because of direct connecting to internal common electrode,
+                    Please don’t be static electricity/ripple/etc applied.
+                       VB is the same signal as VCOM and VA is the inverse signal of VCOM and VB
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                       SPEC No.                MODEL No.               PAGE
+                                                       LCP-2619063C            LS012B7DD06A                     17
+
+    Table4-2 入力信号レベル Input Signal Level
+
+     Pin                               Signal                     起動時        初期値           データ更新        データ保持
+               Symbol    I/O                       Voltage
+      No                               (type)                     Boot       Initial   (Update mode)   ( Hold mode )
+
+      1        VDD2     Power      DC Power         5.0V          5.0V       5.0V           5.0V          5.0V
+
+      2          －        －
+
+      3        GSP      Input     Pulse Signal     0 / 3.2        0V          0V           Hi / Lo         0V
+
+      4        GCK      Input          CLK         0 / 3.2        0V          0V            CLK            0V
+                                  Pulse Signal
+      5        GEN      Input                      0 / 3.2        0V          0V           Hi / Lo         0V
+                                   /   Hi or Lo
+
+
+
+
+                            AR
+      6        INTB     Input     Pulse Signal     0 / 3.2        0V          0V           Hi / Lo         0V
+                                       方形波
+      7         VB      Input                      0 / 3.2        0V          0V           0 / 3.2        0 / 3.2
+                                  Square pulse
+
+
+
+                         rR P
+                                       方形波
+      8         VA      Input                      0 / 3.2        0V          0V           0 / 3.2        0 / 3.2
+                                  Square pulse
+
+
+
+
+                           ef Co
+      9        VDD1     Power      DC Power         3.2V          3.2V       3.2V           3.2V          3.2V
+
+      10        VSS     Power          GND           0V           0V          0V             0V            0V
+
+      11        BSP     Input
+
+                             er     n
+                                  Pulse Signal     0 / 3.2        0V          0V           Hi / Lo         0V
+
+
+
+
+                                en fid
+      12       BCK      Input          CLK         0 / 3.2        0V          0V            CLK            0V
+
+      13       R [0]    Input     Logic Signal     0 / 3.2        0V          0V           Hi / Lo         0V
+
+
+
+
+                                  ce en
+      14       R [1]    Input     Logic Signal     0 / 3.2        0V          0V           Hi / Lo         0V
+
+      15       G [0]    Input     Logic Signal     0 / 3.2        0V          0V           Hi / Lo         0V
+
+
+
+
+                                    on tia
+      16       G [1]    Input     Logic Signal     0 / 3.2        0V          0V           Hi / Lo         0V
+
+
+
+
+                                      ly l
+      17       B [0]    Input     Logic Signal     0 / 3.2        0V          0V           Hi / Lo         0V
+
+      18       B [1]    Input     Logic Signal     0 / 3.2        0V          0V           Hi / Lo         0V
+
+      19        SH
+                 －        －
+
+                                       方形波         0 / 3.2                                 0 / 3.2        0 / 3.2
+      20       VCOM     Input                                     0V          0V
+                                  Square pulse
+
+      21
+
+           ※
+               (NC)       －fo
+                電圧値は各項目のtyp値の記載
+               Above each Voltage value is typical.
+           ※   起動時               ： 電源投入時
+               Boot              ： When just input Power
+           ※   初期値               ： 電源投入後、信号入力前
+               Initial           ： Between PowerON and Input Signal.
+           ※   データ更新             ： 表示データの書き換えを実施
+               Data Update mode ： Updates data in pixcel memory.
+           ※    データ保持            ： データ更新無しで表示維持
+               Hold mode         ： Maintains memory internal data and maintain current display
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                         SPEC No.                  MODEL No.               PAGE
+                                                         LCP-2619063C              LS012B7DD06A                    18
+
+
+
+     5. 絶対最大定格 Absolute Maximum Rating
+        Table5-1     絶対最大定格 Absolute Maximum Rating                                       VSS(GND)＝0V, Ta＝25℃
+                      Item                    Symbol       Terminal         MIN.         MAX.       Unit    Remark
+
+                                             V_VDD1         VDD1            -0.3          5.5        V
+             ドライバー電源電圧
+                                             V_VDD2         VDD2            -0.3          5.5        V
+             Power supply voltage
+                                              V_VSS          VSS              0            0         V
+                                                         GSP,GCK
+                              High Level       VHI                           －          V_VDD1       V
+                                                         GEN,INTB
+        入力信号電圧                                           BSP,BCK
+
+
+
+                            AR
+     Input signal voltage                                 R [0:1]
+                              Low Level        VLI                          -0.3           －         V
+                                                          G [0:1]
+                                                          B [0:1]
+       コモン端子電圧
+       VCOM terminal
+                         rR P High Level     VH_VCOM
+                                                           VCOM
+                                                                             －            3.4
+                                                                                                     V
+                                                                                                            [Note 5-4]
+
+
+
+
+                           ef Co
+           voltage            Low Level      VL_VCOM                        -0.3           －
+
+       VA/VB端子電圧              High Level     VH_VAB
+                                                             VA              －            3.4               [Note 5-4]
+
+
+
+
+                             er
+                                                                                                     V
+
+
+
+                                    n
+     VA terminal voltage
+                              Low Level      VL_VAB
+                                                             VB             -0.3           －
+
+
+
+
+                                en fid
+                     保存温度                                                                                   [Note 5-1]
+                                               Tstg           －              -30           80        ℃
+             Strage Temperature                                                                             [Note 5-2]
+
+
+
+
+                                  ce en
+         動作温度（パネル表面温度）                                                                                      [Note 5-1]
+            Operation Temperature              Topr           －              -20           70        ℃      [Note 5-2]
+               (at panel surface)                                                                           [Note 5-3]
+
+
+
+
+                                    on tia
+      [Genaral Note ] 電圧はVSS(GND=0V)を基準とした値です。
+                    Above Voltage value is a value based on VSS (GND = 0V)
+
+
+
+
+                                      ly l
+         [Note 5-1] モジュールのいかなる部分に関しても本定格を超えないようにして下さい。
+
+             SH    Do not exceed this temperature in any parts of module.
+
+         [Note 5-2] 湿度は95％（温度40度）までとして下さい。また静電気には注意して下さい。
+                   最大湿球温度39℃以下にし、結露させないで下さい。
+                             fo
+                   結露した場合、電気的リークが発生し本仕様を満足しない場合があります。
+                   Humidity 95%RH Max.(Ta ≦ 40℃) Attention should be paid to static electricity Maximum
+                     wet bulb temperature is 39℃ or lower. No condensation is allowed.
+                     Condensation will cause electrical leak and may cause the module to not meet this specification.
+
+         [Note 5-3] 動作温度は動作のみを保証する温度であり、コントラスト・応答速度・その他の表示品位に関しては
+                    Ta=+25℃にて判定を行います。
+                    Operating temperature is the temperature that guarantees only for the operation.
+                    For contrast, response time, and other display quality determination, use Ta＝＋25℃.
+
+         [Note 5-4] VA,VB,VCOMのHigh-Level電圧はVDD1以下とする。
+                    The Hight Level of VA/VB/VCOM must be below VDD1 voltage.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                            SPEC No.                 MODEL No.                 PAGE
+                                                            LCP-2619063C             LS012B7DD06A                     19
+
+
+
+     6. 電気的特性 Electrical characteristics
+      6-1) TFT液晶パネル駆動部 TFT LCD panel drive
+
+       Table6-1 駆動条件 Operating Condition                                                         VSS(GND)＝0V, Ta＝25℃
+
+                        Item                    Symbol   Terminal      MIN.        Typ           MAX.   Unit     Remark
+
+                                                VVDD1     VDD1         3.1         3.2            3.3    V
+
+             ドライバー電源電圧
+                                                VVDD2     VDD2         4.85        5.0           5.15    V
+            Power supply voltage
+                                                 VVSS     VSS           0           0             0      V
+
+
+
+
+                             AR
+                                                          GSP
+                                                          GCK
+                                High Level       VIH                VDD1－0.1      VDD1           VDD1    V
+
+
+
+
+                          rR P
+                                                          GEN
+        入力信号電圧                                            INTB
+         Input signal                                     BSP
+
+
+
+
+                            ef Co
+           voltage                                        BCK
+                                 Low Level       VIL     R [0:1]       VSS        VSS        VSS+0.1     V
+
+
+
+
+                              er
+                                                         G [0:1]
+
+
+
+
+                                     n
+                                                         B [0:1]
+
+
+
+
+                                 en fid
+                                センター電圧
+       コモン端子電圧                                  VCOMC                  1.55       1.60           1.65    V       Note 6-1
+                               Center voltage
+        VCOM terminal                                    VCOM                                                    Note 6-2
+
+
+
+
+                                   ce en
+           voltage               電圧振幅                                                                            Note 6-3
+                                                VCOMPP                 3.1         3.2            3.3    V
+                               Voltage swing
+
+
+
+
+                                     on tia
+                                センター電圧           VAC
+       VA/VB端子電圧                                                        －        VCOMC            －      V       Note 6-1
+                               Center voltage    VBC       VA
+        VA/VB terminal                                                                                           Note 6-2
+                                                           VB
+
+
+
+
+                                       ly l
+           voltage               電圧振幅            VAPP                                                            Note 6-3
+                                                                               VCOMPP                    V
+                               Voltage swing     VBPP
+
+
+             SH
+        [Genaral Note ] 電圧はVSS(GND=0V) を基準とした値です。
+                          Above Voltage value is a value based on VSS (GND = 0V)
+
+
+                               fo
+        Note 6-1 : VCOMのセンター電圧と同電圧での使用を推奨します。
+                   Match with VCOM center voltage is recommended.
+
+        Note 6-2 : VCOMとVBは同相、VAは逆位相の信号となります。
+                   センター電圧やタイミングのズレが発生しないよう設計願います。
+                   VBはVCOMと同じ信号です、VAはVCOM,VBの反転信号です。
+                   VB is in-phase with VCOM. VA is opposite-phase to VCOM.
+                  Please design not to be occured deviation of Center voltage / Signal timing.
+                     VB is the same signal as VCOM and VA is the inverse signal of VCOM and VB
+
+
+        Note 6-3 : VA,VB,VCOMのHigh-Level電圧はVDD1以下とする。
+                    The Hight Level of VA/VB/VCOM must be below VDD1 voltage.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                                                                              0msec                                                                                                             0msec
+
+
+                                                                                                                                          99% of VDD2
+                                                                                                    VDD2 (5.0V)
+
+                                                                                                                     T1              T2                                                                                                         T7                T8
+
+                                                                                                                                  99% of VDD1
+                                                                                  Power Source
+
+                                                                                                    VDD1 (3.2V)
+                                                                                                                                                              T4 : After 30μsec                                        T6 : After 30μsec
+                                                                                                                                                                                                                    ( last torun-off VCOM,VA,VB)
+                                                                                                                                                            ( first torun-on VCOM,VA,VB)
+                                                                                                                                   SH
+                                             Figure                                                VCOM (3.2V)
+© Copyright 2020 SHARP All rights reserved
+
+                                                                                                                       fo        AR
+                                             6-2
+                                                                                                         VB (3.2V)
+                                                                                                                                                                                                                                                                        6-2) 電源シーケンス Power supply sequence
+                                                                                  COM Signal
+                                                                                                                              rR P
+                                                                                                         VA (3.2V)
+
+
+
+                                                                                                                                               2 GCK cycles                                                           0msec
+                                                                                                                                ef Co
+                                                                                                                                         n                                                                                                                                                                                  SPEC No.
+
+                                                                                                     INTB (3.2V)
+                                                                                                                                  er
+                                                                                                                                                                                                                                                                                                             LCP-2619063C
+                                                                                                                                                T3                                                                       T5
+                                                                                                                                     en fid
+                                                                                                   GSP
+                                                                                  Control Signal
+                                                                                                   GCK        BSP
+                                                                                                   GEN        BCK
+                                                                                                          (3.2V)
+                                             電源シーケンス Power supply sequence
+                                                                                                                                       ce en
+                                                                                                         R [ 0:1 ]
+                                                                                                         G [ 0:1 ]                                                                                                                                                                                                          MODEL No.
+                                                                                                         B [ 0:1 ]                         Initialization                                                           Initialization
+                                                                                                                                         on tia
+                                                                                                           (3.2V)                             初期化                                                                      初期化
+                                                                                  Datal Signal
+                                                                                                                                                 １-A                                                                      １-B
+                                                                                                                                           ly l                                                                                                                                                              LS012B7DD06A
+
+
+                                                                                                                                                                  VCOM/VB/VA                                                           VCOM/VB/VA
+                                                                                      Operation State                                 Initialization                                       ON (Normal Operation )    Initialization
+                                                                                                                     off   boot                                   Start-up time                                                       shut-down time   shutdown   off
+                                                                                                                                         初期化                                                     通常動作                   初期化
+                                                                                                                                                                  立ち上げ時間                                                               立ち下げ時間
+
+
+                                                                                                                                      Power-on Sequence                                                                        Power-off Sequence                                                                           PAGE
+                                                                             1-A：1画面Blackデータの書き込み
+                                                                                 Write all screen Black
+                                                                             1-B：1画面Blackデータの書き込み
+                                                                                                                                                                                                                                                                                                             20
+                                                                                 Write all screen Black
+                                                        SPEC No.                    MODEL No.      PAGE
+                                                        LCP-2619063C                LS012B7DD06A          21
+
+         【ON Sequence】
+             T1：VDD1立上げ時間( ICによる) ※極端に立ち上がりの遅い電源は使用しないで下さい。
+               ：VDD1 rise time(depend on IC) ※Please not use extremely slow power source
+             T2：VDD2立上げ時間( ICによる) ※極端に立ち上がりの遅い電源は使用しないで下さい。
+               ：VDD2 rise time(depend on IC) ※Please not use extremely slow power source
+             T3：画素メモリ内の初期化（画面全体を黒書き込み）します                                      T3 ≧ 1フレーム
+               ：Pixel memory initialization(write all screen black).           T3    ≧ 1 frame
+             T4：VCOM,VA,VB立ち上がり時間                           T4 ≧ 30μs
+                対向制御関係のラッチ回路の初期化を解除するための時間
+                ：VCOM,VA,VB rise time                       T4 ≧ 30μs
+
+
+
+                           AR
+                 Release time for initialization of the latch for common control.
+
+
+
+
+                        rR P
+         【Normal Operation】
+             通常駆動の期間
+
+
+
+
+                          ef Co
+              Duration of normal driving.
+
+
+
+
+                            er     n
+         【Off Sequence】
+
+
+
+
+                               en fid
+             T5：画素メモリ内の初期化（画面全体を黒書き込み）します                                      T5 : T3と同様
+               ：Pixel memory initialization(write all screen black).           T5: same T3
+
+
+
+
+                                 ce en
+             T6：VA,VB,VCOM立下げ時間                    T6 ≧ 30μs
+                ：VCOM,VA,VB fall time              T6 ≧ 30μs
+
+
+
+
+                                   on tia
+             T7：VDD2立ち下げ時間( ICによる) ※極端に立ち下がりの遅い電源は使用しないで下さい。
+                  必要に応じディスチャージ回路を搭載して下さい。
+
+
+
+
+                                     ly l
+               ：VDD2 fall time(depend on IC) ※Please not use extremely slow power source
+                 If necessary use discharge circuit.
+
+             SH
+             T8：VDD1立ち下げ時間( ICによる) ※極端に立ち下がりの遅い電源は使用しないで下さい。
+                  必要に応じディスチャージ回路を搭載して下さい。
+               ：VDD1 fall time(depend on IC) ※Please not use extremely slow power source
+                          fo
+                 If necessary use discharge circuit.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                            SPEC No.                        MODEL No.             PAGE
+                                                            LCP-2619063C                    LS012B7DD06A                   22
+
+    6-3) 入力信号の基本特性 Input signal characteristics
+
+
+     Table6-3-1 基本特性 Recommend Operating Conditions and DC Characteristics
+                                                       VDD1=3.2V, VDD2=5.0V, VSS(GND)=0V, Ta=25℃
+                         Item                  Symbol          Min           Typ      Max       Unit       Remark
+                   1frame frequency               fV           －             30        33        Hz
+                    vertical period               tV          30.3          33.34      －        msec
+
+
+
+
+     Table 6-3-2     AC 特性 1 Input Signal timing Parameters 1
+
+
+
+
+                           AR
+                                                                      VDD1=3.2V, VDD2=5.0V, VSS=(GND)=0V, Ta=25℃
+
+       Signal                Item                  Symbol            Min            Typ          Max    Unit        Remark
+                          Rising time              trINTB              －             －            50       ns
+
+
+
+                        rR P
+                         Falling time              tfINTB              －             －            50       ns
+                    Pulse width Hight level       thwINTB            30.3           33.33         －        ms
+
+
+
+
+                          ef Co
+        INTB
+                    Pulse width Low level         tlwINTB              10            11           －        μs
+                                                                       10            11
+
+
+
+                            er
+                    Setup time (Hight level)      thsINTB                                                  μs    INTB to GSP
+
+
+
+
+                                   n
+                    Hold time (Hight level)       thhINTB            62.67          68.94                  μs   GCK(483) to INTB
+
+
+
+
+                               en fid
+                          Rising time              trGSP               －             －            50       ns
+                         Falling time              tfGSP               －             －            50       ns
+        GSP
+
+
+
+                                 ce en
+                    Setup time Hight level        thsGSP               10            11           －        μs
+                     Setup time Low level          tlsGSP              10            11           －        μs
+
+
+
+
+                                   on tia
+                          Rising time              trGCK               －             －            50       ns
+                         Falling time              tfGCK               －             －            50       ns
+
+
+
+
+                                     ly l
+                    Setup time Hight level        thsGCK               0            (440)         －        ns     GCK to BSP
+                     Hold time Hight level        thhGCK              4.0            4.4          －        μs     GCK to GEN
+
+
+        GCK   SH    GCK width Hight level         thwGCK
+                                                                     62.67
+
+                                                                     (1.0)
+                                                                                    68.89
+
+                                                                                     －
+                                                                                                  －
+
+                                                                                                  －
+                                                                                                           μs
+
+                                                                                                           μs
+                                                                                                                    Duty 50%
+
+                                                                                                                    Note 6-3-1
+                                                                                                                    Duty 50%
+
+
+                          fo
+                     GCK width Low level          tlwGCK
+                                                                     62.67
+
+                                                                     (1.0)
+                                                                                    68.89
+
+                                                                                     －
+                                                                                                  －
+
+                                                                                                  －
+                                                                                                           μs
+
+                                                                                                           μs
+                                                                                                                    Duty 50%
+
+                                                                                                                    Note 6-3-1
+                                                                                                                    Duty 50%
+
+                          Rising time              trGEN               －             －            50       ns
+                         Falling time              tfGEN               －             －            50       ns
+        GEN
+                    Pulse width Hight level       thwGEN             9.67           10.64         －        μs
+                     Setup time (Low level)       tlsGEN               0             －            －        μs     GEN to BCK
+      Note 6-3-1
+        Partial Update mode (non-updated line’s timing)   [Fast forward GCK ]
+        Partial Update mode is a Reference.(Not a guaranteed )
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                             SPEC No.                 MODEL No.               PAGE
+                                                             LCP-2619063C             LS012B7DD06A                     23
+
+     Table 6-3-3 AC特性 2            Input Signal timing Parameters 2     △A
+
+
+                                                                             VDD1=3.2V, VDD2=5.0V, VSS=0V, Ta=25℃
+
+         Signal                  Item               Symbol        Min        Typ       Max        Unit        Remark
+                             Rising time            trBSP         －           －         50        ns
+                             Falling time           tfBSP         －           －         50        ns
+          BSP
+                        Setup time Hight level      thsBSP        200        220        －         ns        BSP to BCK
+                         Setup time Low level       tlsBSP        200        220        －         ns        BSP to BCK
+
+                             Rising time            trBCK         －           －         50        ns
+                             Falling time           thBCK         －           －         50        ns
+                            BCK frequency            fBCK         －          1.136     1.25       MHz        Duty 50%
+
+
+
+
+                              AR
+          BCK
+                             BCK period             tpBCK         800        880        －         ns         Duty 50%
+
+                        BCK width Hight level      thwBCK         400        440        －         ns         Duty 50%
+
+
+
+
+                           rR P
+                         BCK width Low level        tlwBCK        400        440        －         ns         Duty 50%
+
+         DATA                Rising time            trRGB         －           －         50        ns
+
+
+
+
+                             ef Co
+        R [0],R[1]           Falling time           tfRGB         －           －         50        ns
+        G [0],R[1]         Data set-up time         tsRGB         200        220        －         ns
+
+
+
+
+                               er
+        B [0],R[1]          Data hold time          thRGB         200        220        －         ns
+
+
+
+                                      n
+                                                                                                             Duty 50%
+
+
+
+
+                                  en fid
+                                                                  0.5         －         45        Hz         Note 6-3-2
+                                                                                                         Reflective mode
+                           VCOM frequency           fVCOM
+
+
+
+
+                                    ce en
+         VCOM                                                                                                Duty 50%
+           VA                                                     30          －         45        Hz         Note 6-3-2
+           VB                                                                                            Transmissive mode
+
+
+
+
+                                      on tia
+                             Rising time           trVCOM         －           －        100        μs
+                             Falling time          tfVCOM         －           －        100        μs
+
+
+
+
+                                        ly l
+                              (Duty cycle)        (tdyVCOM)       48          50        52         %
+
+
+              SH
+       Note 6-3-2 :When the VCOM,VA and VB frequency are slower,the flicker might be seen.
+                     Please evaluate sufficienth when determing the VCOM,VA and VB frequency.
+
+
+                             fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                                SPEC No.                                        MODEL No.                     PAGE
+                                                                                LCP-2619063C                                    LS012B7DD06A                         24
+
+     6-3-1) AC タイミング特性図 Signal Timing
+
+                             90%               90%                                                            90%                     90%
+
+
+              BSP      10%                           10%                                      GSP       10%                               10%
+
+
+                              trBSP          tfBSP                                                                trGSP           tfGSP
+
+                                                                                                                                thwGEN
+                             90%               90%
+            R [0:1]                                                                                                       90%   90%
+                                                                                                             50%                                    50%
+            G [0:1]    10%                            10%                                      GEN      10%                                             10%
+            B [0:1]
+                               trRGB         tfRGB                                                                trGEN                         tfGEN
+
+
+
+
+                                  AR
+                                                                 tlwGCK                     thwGCK
+                       90%
+                                             90%                                                                                            GCK Duty is 50%
+                                                        50%                         50%                           50%
+
+      GCK
+
+
+
+                               rR P
+                 10%                                       10%
+
+
+
+                        trGCK                      tfGCK
+
+
+
+
+                                 ef Co
+                                                                 tlwBCK                    thwBCK
+                                             90%
+                       90%
+                                                                                                                                            BCK Duty is 50%
+                                                                                50%                           50%
+
+
+
+
+                                   er
+                                                      50%
+       BCK
+
+
+
+                                          n
+                10%                                        10%
+
+
+
+
+                                      en fid
+                       trBCK                  tfBCK
+
+                                                                 tlwINTB                  thwINTB
+
+
+
+
+                                        ce en
+                                         90%
+                      90%
+                                                     50%                        50%                           50%
+
+       INTB     10%                                     10%
+
+
+
+
+                                          on tia
+                      trINTB                   tfINTB
+
+
+
+
+                                            ly l
+                                                                                                    fVCOM
+
+
+
+      VCOM
+              SH
+               10%
+                             90%
+
+
+
+
+                         trVCOM
+                                                90%
+
+                                                        10%
+
+                                                    tfVCOM
+                                                                              10%                                                     10%
+
+
+
+
+                                                                                                    fVCOM
+
+
+
+        VB     10%
+                             90%     fo         90%
+
+                                                        10%                   10%                                                     10%
+
+                         trVCOM                     tfVCOM
+
+                                                                      fVCOM
+
+                        90%                           90%
+
+         VA
+                                       10%
+                               10%                                                                          10%
+
+                         tfVCOM                     trVCOM
+
+
+              VB is the same signal as VCOM,and VA is the inverse signal of VCOM and VB
+
+              fVCOM ( VCOM / VA / VB ) : Duty is 50%
+
+                                                                    Figure      6-3-1          AC timing 1                  △C
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                  SPEC No.                 MODEL No.                    PAGE
+                                                                  LCP-2619063C             LS012B7DD06A                         25
+
+     6-3-2) 垂直 AC タイミング特性図 Vertical Signal Timing
+
+
+
+
+                    50%                                                                                                        50%
+          INTB                                                                                               thhINTB
+                              thsINTB
+
+
+
+                                     50%                        50%
+          GSP
+
+                                 thsGSP                           tlsGSP
+
+                                                      1    2           3     4            480   481    482        483
+
+
+          GCK
+                              AR           50%                        50%                                        50%
+
+
+
+
+                           rR P
+                             ef Co
+           GEN             Low (GEN : Inactive )                                                       Low (GEN : Inactive )
+
+
+
+
+                               er
+                                                          MSB         LSB    MSB          MSB   LSB
+
+
+
+                                      n
+             Data                                          1           1      2           240   240
+
+
+
+
+                                  en fid
+                                    ce en
+          Horizon Cotrol
+                                           Inactive                              Active                  Inactive
+                  Pulse
+
+
+
+
+                                      on tia
+                                        ly l
+          GCK Duty is 50%
+          Data : R[0],R[1],G[0],G[1],B[0],B[1]
+
+             SH
+          Horizon Cotrol Pulse : BCK,BSP
+
+
+
+
+                            fo                   Figure   6-3-2        AC timing 2
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                           SPEC No.                MODEL No.                      PAGE
+                                                                           LCP-2619063C            LS012B7DD06A                           26
+
+     6-3-3) 水平 AC タイミング特性図 Horizontal Signal Timing
+
+
+
+
+     GCK         50%                                                                                                                       50%
+
+
+
+                                                                                                                             twhGEN
+                                                                                                                                         thhGCK
+                                                                                                                                50%
+     GEN
+                                                                                                                 50%
+
+
+
+
+                        thsGCK                                                                              tlsGEN
+
+
+
+
+                            AR
+                                          50%                  50%
+      BSP
+
+                           thsBSP                                    tlsBSP
+
+
+
+
+                         rR P
+                                                1        2             3           4                121      122       123
+
+                                    50%                                                                                50%
+      BCK                                                        50%
+
+
+
+
+              R [0]
+
+                           ef Co
+                             er
+         Odd Pixels
+                                                               R1             R3        50%    R237       R239
+
+
+
+
+                                    n
+              R [1]
+
+
+
+
+                                en fid
+        Even Pixels                                             R2            R4               R238       R240
+
+
+              G [0]
+                                                                G1            G3               G237       G239
+
+
+
+
+                                  ce en
+         Odd Pixels
+
+
+              G [1]
+        Even Pixels                                             G2            G4               G238       G240
+
+
+
+
+                                    on tia
+              B [0]
+         Odd Pixels                                             B1            B3               B237       B239
+
+
+
+
+                                      ly l
+              B [1]
+        Even Pixels                                             B2            B4               B238       B240
+
+
+               SH
+                           fo
+                       BCK rise                     BCK fall
+
+                                                         50%
+                                 50%
+             BCK
+                       tsRGB     thRGB          tsRGB    thRGB
+
+                                                                                                          BCK Duty is 50%
+             R [0/1]
+             G [0/1]    50%                     50%                    50%                                GCK Duty is 50%
+             B [0/1]
+
+
+
+                                                 Figure        6-3-3          AC timing 3     △C
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                     SPEC No.                         MODEL No.                      PAGE
+                                                                     LCP-2619063C                     LS012B7DD06A                          27
+
+    6-4) 入力信号と画面表示                   Input Signal and the transfer method of data.
+
+         ゲートライン1のデータ更新                         Example : Updates Gate Line 1
+
+         1) 最初に各画素のMSBデータを１Line分送信後、同じ各画素のLSBデータを1Line分送信します。
+            First: Transfer MSB data of 1 line, Second: Transfer LSB data of 1 line
+
+         2) この動作を１Line～240ライン分を連続的に繰り返す事で全画面のデータ更新を行うことが出来ます。
+             Repeat 1) from 1st line to 240th line, can update full screen.
+
+
+
+    6-5) 入力信号のタイミングチャート Input Signal Timing Chart
+
+
+      6-5-1)垂直タイミング
+                               AR Vertical Stanard timing.
+
+
+
+                            rR P                                       1 Frame
+
+
+
+
+                              ef Co
+                    IN TB
+
+
+                     GSP
+
+
+
+                                er     n
+                                              1    2     3     4      5      6            478   479   480   481   482     483
+
+
+
+
+                                   en fid
+                     GCK
+
+
+
+
+                                     ce en
+                     GEN          GEN : Inactive                                                                    GEN : Inactive
+
+                   D ata *
+              ( 6 Signa l )      Data Low                                                                               Data Low
+
+
+
+
+                                       on tia
+                                                   MSB   LSB   MSB    LSB    MSB         MSB    LSB   MSB   LSB
+                                                    1     1     2      2      3          239    239   240   240
+
+
+
+
+                                         ly l
+                 H orizontal
+               Control Pulse           Inactive                               Active x                             Inactive
+
+
+
+             SH               1Line目のデータ転送期間 (Internal logic )
+                              Data transfer period of 1st line
+                                                                                         240Line目のデータ転送期間 (Internal logic )
+                                                                                         Data transfer period of 240th line
+
+                              1Line目のデータ入力期間
+                              fo
+                              Data input period of 1st line
+                                                                                         240Line目のデータ入力期間
+                                                                                         Data input period of 260th line
+
+
+                               D ata : R[0],R[1],G[0],G[1],B[0],B[1]
+                               H orizontal Control Pulse : BCK,BSP
+
+
+
+                                                         Figure      6-5-1    Vertical Diagram
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                                   SPEC No.                            MODEL No.                              PAGE
+                                                                                   LCP-2619063C                        LS012B7DD06A                                  28
+
+
+
+         6-5-2)水平タイミング                     Horizontal Stanard timing
+
+                              1Lineのデータで MSB部のみデータを送信                                             1Lineのデータで LSB部のみデータを送信
+                              Transfer Only MSB data of Single line                               Transfer Only LSB data of Single line
+
+
+        GCK
+
+
+        GE N
+
+
+        BSP
+
+
+
+
+                            AR
+                          1            2         3         4   121      122        123        1       2           3     4           121   122      123           1
+        BCK
+
+
+
+
+                         rR P
+      Data 6Signa l
+           R[0]/[1]
+           G[0]/[1]                        pixel pixel           pixel                                     pixel pixel                pixel
+
+
+
+
+                           ef Co
+           B[0]/[1]                        1:2 3:4              239:240                                    1:2 3:4                    239:240
+
+
+
+
+                             er     n
+                                en fid
+                          Pixe l_ 1          Pixe l_ 3               pixe l-23 9                          pixe l-1      pixe l-3                pixe l-23 9
+                  R[0]                                                                        R[0]
+                          R _ M SB .         R_ M SB .               R_ M SB .                            R _ LS B .    R_ LS B .                R _ LS B .
+
+                          Pixe l_ 2           Pixe l_ 4              pixe l-24 0                          pixe l-2      pixe l-4                pixe l-24 0
+                  R[1]                                                                        R[1]
+                          R_ M SB .           R_ M SB .               R_ M SB .                           R_ LS B .     R_ LS B .                R_ LS B .
+
+
+
+
+                                  ce en
+                          Pixe l_ 1           Pixe l_ 3              pixe l-23 9                          pixe l-1      pixe l-3                pixe l-23 9
+                  G[0]                                                                        G[0]
+                          G_ M SB .           G _ M SB .              G_ M SB .                           G_ LS B .     G_ LS B .                G_ LS B .
+
+                          Pixe l_ 2           Pixe l_ 4              pixe l-24 0                          pixe l-2      pixe l-4                pixe l-24 0
+                  G[1]                                                                        G[1]
+
+
+
+
+                                    on tia
+                          G_ M SB .           G _ M SB .              G_ M SB .                           G_ LS B .     G_ LS B .                G_ LS B .
+
+                          Pixe l_ 1           Pixe l_ 4              pixe l-23 9                          pixe l-1      pixe l-3                pixe l-23 9
+                  B[0]                                                                        B[0]
+                          B_ M SB .           B_ M SB .               B_ M SB .                           B_ LS B .     B_ LS B .                B_ LS B .
+
+
+
+
+                                      ly l
+                          Pixe l_ 2           Pixe l_ 4              pixe l-24 0                          pixe l-2      pixe l-4                pixe l-24 0
+                  B[1]                                                                        B[1]
+                          B_ M SB .           B_ M SB .               B_ M SB .                           B_ LS B .     B_ LS B .                B_ LS B .
+
+
+
+
+               SH          送信する画素データ
+                      Transferred(Input) pixel data.
+                                                                                                           送信する画素データ
+                                                                                                      Transfered(Input) pixel data.
+
+                          MSB部のみデータを送信                                                                     LSB部のみデータを送信
+
+                              fo
+                      Transfer(Input) Only MSB data
+
+
+
+                                                           Figure      6-5-2        Horizontal
+                                                                                                       Transfer(Input) Only LSB data
+
+
+
+                                                                                                     Diagram
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                                                                                                                                                                                                                                 6-5-3)
+
+
+
+                                                                              VDD1
+                                                                    Power
+
+                                                                              VDD2                                                  SH
+                                                                             VCOM              [ Inactive ]
+
+                                                                     COM
+                                                                    Signal         VB          [ Inactive ]
+© Copyright 2020 SHARP All rights reserved
+
+                                                                                                                            fo         AR
+                                                                                   VA
+                                                                                                [ Inactive ]
+                                             Figure
+                                                                            INTB                                     [ Inactive ]                 [ Inactive ]                                           [ Inactive ]                 [ Inactive ]
+                                                                                                                                    rR P                                                                                                                                       Power-On/Off and Mode Change Sequence
+
+
+
+                                             6-5-3
+                                                                            GSP                                      [ Inactive ]                  [ Inactive ]                                          [ Inactive ]                  [ Inactive ]
+                                                                                                                                      ef Co
+                                                                                                                                                                                                                                                                                                                                      SPEC No.
+                                                                     Horizontal
+                                                                       Control                      Active           [ Inactive ]    Active
+                                                                                                                                        er     n  [ Inactive ]                    Active                 [ Inactive ]     Active       [ Inactive ]    Active
+                                                                         Signal                                                                                                                                                                                                                                        LCP-2619063C
+
+                                                                          Data
+                                                                                                   Initial #0                       Image #1                        Image #2 Image #3      Image #4                     Image #5                      Initial #99
+                                                                                                                                           en fid
+                                                                         signal
+                                             Mode Change Sequence
+                                                                       Display                                                                                                                                                                           #99
+                                                                                                                                             ce en
+                                                                                        (B lack)                #0 (Black)          #0 #1              #1            #1 #2       #2 #3     #3 #4             #4          #4 #5               #5                     (Black)
+                                                                        view                                                                                                                                                                           (Black)
+
+                                                                        Module                                                        Data                            Data        Data       Data                          Data
+                                             △Ａ                                          Boot       Initial          Hold                             Hold                                                  Hold                            Hold        Initial     Shutdown
+                                                                        status                                                       update                          update      update     update                        update                                                                                                      MODEL No.
+                                                                                                                                               on tia
+                                                                      Operation
+                                                                                            Power-ON                                                               ON (Normal Operation )                                                                  Power-OFF
+                                                                          State
+                                                                                                                                                 ly l                                                                                                                                                                  LS012B7DD06A
+
+
+                                                                                         Horizontal Control Signal : BSP , BCK                 Initial #0 : Write all screen Black         Boot : make all terminals Lo (GND)
+                                                                                         Data signal : R[0],R[1],G[0],G[1],B[0],B[1]           Initial #99 : Write all screen Black        Initial : VCOM,VA and VB is keep Lo (GND) until module initialize.
+
+                                                                                                                                                                                                                                                                                                                                      PAGE
+
+                                                                                                                                                                                                                                                                                                                       29
+                                                                                              SPEC No.                                          MODEL No.                                   PAGE
+                                                                                              LCP-2619063C                                      LS012B7DD06A                                       30
+
+    6-5-4 ) Partial Update mode                            Sequence (Reference Specification )
+        ※ These timing chart of partial update mode are Reference Specification and it does Not guarantee.
+
+                                                              When 80-160 lines of the image is updated.
+
+
+
+                       50%                                                                                                                                                  50%
+           INTB                                                                                                                                       thhINTB
+                                    thsINTB
+
+
+                             50%             50%
+            GSP
+
+                        thsGSP                           tlsGSP
+
+
+
+                                         1         2           3 ～ 159         160   161                                          321                             483
+
+
+
+
+                                            AR
+                                                                                                                                           322 ～482
+
+
+                                   50%             50%
+            GCK
+
+
+
+
+                                         rR P
+            GCK
+                          Normal GCK                     Fast forward GCK                          Normal GCK                             Fast forward GCK              Normal GCK
+            type
+
+
+
+
+                                           ef Co
+                                     Low (GEN : Inactive )                                                                                            Low (GEN : Inactive )
+            GEN
+
+
+
+
+                                             er     n
+                                                en fid
+                                                                               MSB   L SB   MSB    L SB                   MSB     L SB
+                                                                                80    80     81     81                    160     160
+                                                                         Low                                                              Low
+            Data
+
+
+
+
+                                                  ce en
+        Horizont al                                       Low (Inactive )                                 Active                         Low (Inactive )
+          Control
+             Pulse
+
+
+
+
+                                                    on tia
+                                                                                                                                                 Non-update
+            State                   Non-update (Static image )                        Partial Update of Pixels                                  (Static image )
+
+
+
+
+                                                      ly l
+       DIS PLAY                                     #1                                             ( #1 to #2)                           #2
+
+
+
+                SH    Example
+                                                                                                                     Line No =1
+
+
+                                                                                                                    Line No=80
+                                                                                                                                                                        No update
+
+                                                                                                                                                                        Partial update of
+                                                                                                                                              Partial
+                                         fo                                                                        Line No=160
+
+
+                                                                                                                   Line No =240
+                                                                                                                                                                         80 to 160 lines
+
+                                                                                                                                                                        No update
+
+
+
+                              1st : ALL Vertical stripe (Red) [#1]             2nd : Lines (80-160) Partial update [#2]
+                                                                                   (Back is Yellow,Text is Partial (Blue))
+
+
+                                             Static image                                         Partial Update                                      Static image
+
+
+
+
+                      Data : R[0],R[1],G[0],G[1],B[0],B[1]
+
+                      Horizontal Control Pulse ： BCK , BSP
+
+
+
+                          Figure                   6-5-4      Partial update                Sequence                 (Reference Specification)
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                                            SPEC No.                           MODEL No.                 PAGE
+                                                                            LCP-2619063C                       LS012B7DD06A                     31
+
+     6-6) 入力信号と画面表示、ゲートライン設定 Input Signal and Display, Gate Line Setting
+     <データの画面表示位置 Data position in display[H,V] >
+
+
+
+                    P1       P2                                       P239    P240
+                                                                                                                   P*: Pixels position
+                    L1       L1                                        L1      L1
+                                                                                                                   L*: Gate line
+                    P1
+                    L2
+                                              Display                         P240
+                                                                               L2
+
+                                              Side up
+                                              ActiveArea
+
+                  P1                                                          P240                     Pin               Signal Data
+                 L120                    ２４０×２４０ dot                          L120
+                                                                                                             Ｒｅｄの奇数Pixel用データSignal
+
+
+
+                                  AR
+                  P1                      １Pixel = RGB                        P240                 R [0]
+                 L121                                                         L121                           Red signal for odd Pixels
+                                                                                                             Ｒｅｄの偶数Pixel用データSignal
+                            RGB各２画素での面積階調                                                          R [1]
+                                                                                                             Red signal for even Pixels
+
+
+
+                               rR P
+                     Area gradation of rach RGB have 2 ddot                                                  Greenの奇数Pixel用データSignal
+                                                                                                   G [0]
+                                                                                                             Green signal for odd Pixels
+                                             （６４色表示）                                                         Greenの偶数Pixel用データSignal
+                  P1
+                                         ( 64 color display )                 P240                 G [1]
+
+
+
+
+                                 ef Co
+                 L239                                                         L239                           Green signal for even Pixels
+                                                                                                             Blueの奇数Pixel用データSignal
+                  P1         P2                                       P239    P240                 B [0]
+                 L240       L240                                      L240    L240                           Blue signal for odd Pixels
+
+
+
+
+                                   er
+                                                                                                             Blueの偶数Pixel用データSignal
+                                                                                                   B [1]
+
+
+
+                                          n
+                                                                                                             Blue signal for even Pixels
+
+
+
+
+                                      en fid
+                                                   FPC
+
+                                                    １Line分のピクセルデータと画素比率について
+
+
+
+                                        ce en
+                                               About Pixel data of 1 line and the area ratio of 1 pixel.
+                         pixel-1    pixel-2    pixel-3   pixel-4               pixel-239   pixel-240
+
+
+
+
+                                          on tia
+                                            ly l
+                                                    1pixelでの画素比率
+                                                                                                 bitと画素の関係
+
+             SH
+              MSB
+
+
+              LSB
+                         MSB
+
+
+                         LSB
+                                   MSB
+
+
+                                   LSB
+                                                  The area Ratio of pixel
+
+
+                                              MSB : 2 out of 3 sub-pixels.
+                                                                                     Bit-data
+
+
+
+                                                                                      MSB
+                                                                                                 Relationship between bit data and pixel
+
+                                                                                                 1pixel内の各RGB画素で２／３を占める。
+                                                                                                 MSB-Pixel-Block occupies 2/3 the subpixels
+                                                                                                 of the each pixels.
+                                              LSB : 1 out of 3 sub-pixels.
+              MSB        MSB
+                                   fo
+                                   MSB
+                                                                                      LSB
+                                                                                                 1pixel内の各RGB画素で１／３を占める。
+                                                                                                 LSB-Pixel-Block occupies 1/3 the subpixels
+                                                                                                 of the each pixels.
+
+
+
+                                                             Figure   6-6-1     Data position 1
+
+
+       ＜書き込みデータと表示エリア＞
+         書き込みモードやゲートライン番地に関わらず、データ転送が必要となります。
+         非表示エリアであっても、ゲートラインに対して240 dot分のデータ転送が必要です。
+         その際、非表示エリアへのデータ転送分は回路にて適切に処理されます。
+
+       <About write data and display area>
+        Regardless of the write mode and the number of GL the following data transmission is required.
+        Undisplayed area also needs the data transmission of 240 dots to each GL.
+        In this case, the undisplayed area data is appropriately processed in circuit.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                         SPEC No.                     MODEL No.                PAGE
+                                                         LCP-2619063C                 LS012B7DD06A                    32
+
+
+
+
+                                                                      Screen size :     R=1.19 inch
+
+                                                                                                      BM (Black Mask )
+                                  Screen     Center
+
+
+
+
+                           AR
+                        rR P
+                Active Pixel
+
+
+
+                          ef Co
+                            er     n
+                               en fid
+                                 ce en
+                                   on tia
+                                                                                                               ※１
+
+
+
+
+             SH                      ly l
+                          fo
+                                                            ※１ ： r = 0.60 inch        [ 120 pixel ]
+
+
+
+
+                                                                 ※１
+                                                                                                      Screen   Center
+                                                Figure   6-6-2   Data position 2
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                            SPEC No.                    MODEL No.                 PAGE
+                                                            LCP-2619063C                LS012B7DD06A                     33
+
+     Table 6-6-1 表示領域内の画素数1                   Number of Pixels in Active area 1
+
+            Line      Left Dummy    Active       Right Dummy      Line     Left Dummy      Active   Right Dummy
+
+           number      pixels        Pixels        Pixels       number      pixels         Pixels      Pixels
+             1          109           22           109            51        22              196         22
+             2          101           38           101            52        21              198         21
+             3           95           50            95            53        20              200         20
+             4           91           58            91            54        20              200         20
+             5           87           66            87            55        19              202         19
+             6           84           72            84            56        18              204         18
+             7           81           78            81            57        18              204         18
+             8           78           84            78            58        17              206         17
+             9           75           90            75            59        16              208         16
+
+
+
+
+                           AR
+             10          73           94            73            60        16              208         16
+             11          70          100            70            61        15              210         15
+             12          68          104            68            62        15              210         15
+
+
+
+                        rR P
+             13          66          108            66            63        14              212         14
+             14          64          112            64            64        14              212         14
+             15          62          116            62            65        13              214         13
+
+
+
+
+                          ef Co
+             16          61          118            61            66        13              214         13
+             17          59          122            59            67        12              216         12
+             18          57          126            57            68        12              216         12
+
+
+
+                            er
+             19          55          130            55            69        11              218         11
+
+
+
+                                   n
+             20          54          132            54            70        11              218         11
+
+
+
+                               en fid
+             21          52          136            52            71        10              220         10
+             22          51          138            51            72        10              220         10
+             23          50          140            50            73         9              222         9
+
+
+
+                                 ce en
+             24          48          144            48            74         9              222         9
+             25          47          146            47            75         8              224         8
+             26          46          148            46            76         8              224         8
+
+
+
+
+                                   on tia
+             27          44          152            44            77         8              224         8
+             28          43          154            43            78         7              226         7
+
+
+
+
+                                     ly l
+             29          42          156            42            79         7              226         7
+             30          41          158            41            80         7              226         7
+
+
+             SH
+             31
+             32
+             33
+             34
+                         40
+                         38
+                         37
+                         36
+                                     160
+                                     164
+                                     166
+                                     168
+                                                    40
+                                                    38
+                                                    37
+                                                    36
+                                                                  81
+                                                                  82
+                                                                  83
+                                                                  84
+                                                                             6
+                                                                             6
+                                                                             6
+                                                                             5
+                                                                                            228
+                                                                                            228
+                                                                                            228
+                                                                                            230
+                                                                                                        6
+                                                                                                        6
+                                                                                                        6
+                                                                                                        5
+             35          35          170            35            85         5              230         5
+             36
+             37
+             38
+                         34
+                         33
+                         32
+                           fo        172
+                                     174
+                                     176
+                                                    34
+                                                    33
+                                                    32
+                                                                  86
+                                                                  87
+                                                                  88
+                                                                             5
+                                                                             4
+                                                                             4
+                                                                                            230
+                                                                                            232
+                                                                                            232
+                                                                                                        5
+                                                                                                        4
+                                                                                                        4
+             39          31          178            31            89         4              232         4
+             40          31          178            31            90         3              234         3
+             41          30          180            30            91         3              234         3
+             42          29          182            29            92         3              234         3
+             43          28          184            28            93         3              234         3
+             44          27          186            27            94         2              236         2
+             45          26          188            26            95         2              236         2
+             46          25          190            25            96         2              236         2
+             47          25          190            25            97         2              236         2
+             48          24          192            24            98         2              236         2
+             49          23          194      Figure23 6-6-1    Data
+                                                                  99 and Pixel1             238         1
+             50          22          196            22           100         1              238         1
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                           SPEC No.                 MODEL No.                 PAGE
+                                                           LCP-2619063C             LS012B7DD06A                     34
+
+       Table 6-6-2 表示領域内の画素数 2               Number of Pixels in Active area 2
+
+          Line      Left Dummy    Active     Right Dummy       Line    Left Dummy     Active    Right Dummy
+
+         number      pixels       Pixels       Pixels         number      pixels      Pixels      Pixels
+           101          1          238           1             151         3          234           3
+           102          1          238           1             152         4          232           4
+           103          1          238           1             153         4          232           4
+           104          1          238           1             154         4          232           4
+           105          1          238           1             155         5          230           5
+           106          0          240           0             156         5          230           5
+           107          0          240           0             157         5          230           5
+           108          0          240           0             158         6          228           6
+           109          0          240           0             159         6          228           6
+
+
+
+
+                            AR
+           110          0          240           0             160         6          228           6
+           111          0          240           0             161         7          226           7
+           112          0          240           0             162         7          226           7
+
+
+
+                         rR P
+           113          0          240           0             163         7          226           7
+           114          0          240           0             164         8          224           8
+           115          0          240           0             165         8          224           8
+
+
+
+
+                           ef Co
+           116          0          240           0             166         8          224           8
+           117          0          240           0             167         9          222           9
+           118          0          240           0             168         9          222           9
+
+
+
+                             er
+           119          0          240           0             169         10         220           10
+
+
+
+                                    n
+           120          0          240           0             170         10         220           10
+
+
+
+                                en fid
+           121          0          240           0             171         11         218           11
+           122          0          240           0             172         11         218           11
+           123          0          240           0             173         12         216           12
+
+
+
+                                  ce en
+           124          0          240           0             174         12         216           12
+           125          0          240           0             175         13         214           13
+           126          0          240           0             176         13         214           13
+
+
+
+
+                                    on tia
+           127          0          240           0             177         14         212           14
+           128          0          240           0             178         14         212           14
+
+
+
+
+                                      ly l
+           129          0          240           0             179         15         210           15
+           130          0          240           0             180         15         210           15
+
+
+             SH
+           131
+           132
+           133
+           134
+                        0
+                        0
+                        0
+                        0
+                                   240
+                                   240
+                                   240
+                                   240
+                                                 0
+                                                 0
+                                                 0
+                                                 0
+                                                               181
+                                                               182
+                                                               183
+                                                               184
+                                                                           16
+                                                                           16
+                                                                           17
+                                                                           18
+                                                                                      208
+                                                                                      208
+                                                                                      206
+                                                                                      204
+                                                                                                    16
+                                                                                                    16
+                                                                                                    17
+                                                                                                    18
+           135          0          240           0             185         18         204           18
+           136
+           137
+           138
+                        1
+                        1
+                        1
+                              fo   238
+                                   238
+                                   238
+                                                 1
+                                                 1
+                                                 1
+                                                               186
+                                                               187
+                                                               188
+                                                                           19
+                                                                           20
+                                                                           20
+                                                                                      202
+                                                                                      200
+                                                                                      200
+                                                                                                    19
+                                                                                                    20
+                                                                                                    20
+           139          1          238           1             189         21         198           21
+           140          1          238           1             190         22         196           22
+           141          1          238           1             191         22         196           22
+           142          1          238           1             192         23         194           23
+           143          2          236           2             193         24         192           24
+           144          2          236           2             194         25         190           25
+           145          2          236           2             195         25         190           25
+           146          2          236           2             196         26         188           26
+           147          2          236           2             197         27         186           27
+           148          3          234           3             198         28         184           28
+           149          3          234           3             199         29         182           29
+           150          3          234           3             200         30         180           30
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                              SPEC No.              MODEL No.      PAGE
+                                                              LCP-2619063C          LS012B7DD06A          35
+
+     Table 6-6-3 表示領域内の画素数3                     Number of Pixels in Active area 3
+
+
+               Line     Left Dummy     Active        Right Dummy
+
+             number      pixels        Pixels          Pixels
+               201         31          178               31
+               202         31          178               31
+               203         32          176               32
+               204         33          174               33
+               205         34          172               34
+               206         35          170               35
+               207         36          168               36
+               208         37          166               37
+               209         38          164               38
+
+
+
+                           AR
+               210         40          160               40
+               211         41          158               41
+
+
+
+
+                        rR P
+               212         42          156               42
+               213         43          154               43
+               214         44          152               44
+               215         46          148               46
+
+
+
+                          ef Co
+               216         47          146               47
+               217         48          144               48
+
+
+
+                            er
+               218         50          140               50
+
+
+
+                                   n
+               219         51          138               51
+
+
+
+
+                               en fid
+               220         52          136               52
+               221         54          132               54
+               222         55          130               55
+
+
+
+
+                                 ce en
+               223         57          126               57
+               224         59          122               59
+               225         61          118               61
+
+
+
+
+                                   on tia
+               226         62          116               62
+               227         64          112               64
+               228         66          108               66
+
+
+
+
+                                     ly l
+               229         68          104               68
+               230         70          100               70
+
+             SH231
+               232
+               233
+                           73
+                           75
+                           78
+                                        94
+                                        90
+                                        84
+                                                         73
+                                                         75
+                                                         78
+               234         81           78               81
+               235
+               236
+               237
+                          fo
+                           84
+                           87
+                           91
+                                        72
+                                        66
+                                        58
+                                                         84
+                                                         87
+                                                         91
+               238         95           50               95
+               239        101           38              101
+               240        109           22              109
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                              SPEC No.               MODEL No.                 PAGE
+                                                              LCP-2619063C           LS012B7DD06A                      36
+
+     6-7) 消費電力 Power consumption
+
+        Table6-7-1 消費電力 Power Consumption                                   VDD1=3.2V, VDD2=5.0V, VSS(GND)=0V, Ta=25℃
+       Operating Mode                    Power consumption                    Min    Typ     Max      unit      Remark
+                            ホールドモード（データ更新無し：全面白表示）
+         測定条件1
+                                Hold mode(no display data update)              -     11       180     μW       [Note 6-7-1]
+         Condition 1
+                                  Display pattern : White display
+                              データ更新モード（1Hz更新：全面白表示）
+         測定条件2             Data update modewith display update 1Hz
+                                                                               -     33       210     μW       [Note 6-7-2]
+         Condition 2                            (1fram/sec)
+                                  Display pattern : White display
+
+
+
+
+                            AR
+                             データ更新モード(30)Hz更新：全面白表示）
+         測定条件3                Data update modewith display update
+                                                                               -     500     1200     μW       [Note 6-7-3]
+         Condition 3                    (30)Hz (30fram/sec)
+
+
+
+                         rR P
+                                  Display pattern : White display
+
+
+       共通条件 Common condition
+
+
+
+                           ef Co
+                                          △C
+        VDD1=3.2V、VDD2=5.0V、VCOMH=VDD1,VCOML=0V(GND)、fVCOM= (30Hz)
+
+
+
+
+                             er     n
+        表6-7-1の消費電流には表6-7-2のVCOM,VA,VB端子のドライブ（等価回路 Capasitanceへのチャージ、ディスチャージ電流）は
+
+
+
+
+                                en fid
+       含みません。
+        The contents of VCOM, VA, and VB terminals(Equivalent circuit Charge to capacitor,Discharge current)
+        in Table 6-7-2 are not included in the current consumption in Table 6-7-1.
+
+
+
+
+                                  ce en
+      [Note 6-7-1], [Note 6-7-2] [Note 6-7-3]
+
+
+
+
+                                    on tia
+             Power consumption expenditure of module
+                         ( Ivdd1 (μA) x 3.2V ) + ( Ivdd2 (μA) x 5.0V )
+
+
+
+
+             SH
+       ( Common Note )
+
+                                      ly l
+        この値は平均値であり、データ更新時のPeak電流ではありませんので、電源に余裕を持たせて下さい。
+        VDD1,VDD2用にコンデンサの搭載を推奨致します。
+
+
+                            fo
+        This is value in average, not the falue of peak power at the time of data-update operation.
+         Some marging for power supply is recommended.
+         We recommend capacitor for VDD1 and VDD2.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                             SPEC No.                     MODEL No.                     PAGE
+                                                             LCP-2619063C                 LS012B7DD06A                            37
+
+     6-8) Electrical characteristics of COM terminals            △C
+
+
+        6-8-1 ) COM端子入力容量              COM terminal Capacitance
+
+
+
+     Table 6-8-1    COM端子入力容量                 COM terminal Capacitance  △C
+                                                               VDD1=3.2V、VDD2=5.0V、VSS=GND (0V)                         Ta=25℃
+         Signal          Symbol               Min          Typ          Max          Unit                    Remark
+         VCOM                Cvcom             －            33           43              nF                    CLC
+           VB                 Cvb              －            36           47              nF                  CLC + Cp
+           VA                 Cva              －            36           47              nF                  CLC + Cp
+
+
+
+
+                            AR
+                         rR P  DISPLAY : White                                                DISPLAY : Black
+
+
+                VCOM
+
+                           ef Co                                          VCOM
+
+
+
+
+                             er     n
+                   VB                                                          VB
+
+
+
+
+                                en fid
+                                       Cp                    C LC                                                          C LC
+                                                                                                      Cp
+
+                   VA                                                          VA
+
+
+                  External
+                                  ce en
+                               LCD internal
+
+
+
+
+                                    on tia
+                                                                              External        LCD internal
+
+
+
+
+                                      ly l
+                                            Figure 6-8-1   COM terminal Equivalent circuit          △C
+
+             SH
+                              fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                             SPEC No.                 MODEL No.                 PAGE
+                                                             LCP-2619063C             LS012B7DD06A                      38
+
+
+
+     7. 光学的特性 Optical specification
+
+
+         Table 7-1     光学的特性（反射特性） Optical specification(Reflective mode)
+                                                                    VDD1=3.2V, VDD2=5.0V, VSS(GND)=0V, Ta=25℃
+                     Item                Symbol       Min.       Typ.          Max.     unit               Remark
+
+                                          θ 21         40         60            －
+         視角特性               Horizontal
+        Viewing angle                     θ 22         40         60            －
+                                                                                      °(degree)           [Note 7-1]
+             range                        θ 11         40         60            －
+             CR≧2            Vertical
+
+
+
+                               AR
+                                          θ 12         40         60            －
+                コントラスト比
+                                           CR          20         25            －        －          [Note 7-2] , [Note 7-3]
+
+
+
+                            rR P
+               Contrast ratio
+                     反射率
+                                           R          7.0         8.4           －        %                [Note 7-3]
+              Reflectivity ratio
+
+
+
+
+                              ef Co
+                                                                                                        Black → White
+            応答速度              Rise         τr          －          20           40        ms
+                                                                                                   [Note 7-3]   , [Note 7-4]
+
+
+
+
+                                er
+            Response
+                                                                                                        White → Black
+
+
+
+                                       n
+             Time              Fall        τd          －          20           40        ms
+                                                                                                   [Note 7-3]   , [Note 7-4]
+
+        パネル面色度
+             Panel
+                              White
+                                   en fid Wx
+                                          Wy
+                                                    (0.271)      0.321     (0.371)       －
+                                                                                         －
+
+
+
+                                     ce en
+                                                    (0.297)      0.347     (0.397)
+        Chromaticity                       Rx                                            －
+                                                    (0.480)      0.530     (0.580)
+                              RED
+                                           Ry                                            －
+
+
+
+                                       on tia
+                                                    (0.260)      0.310     (0.360)                        [Note 7-3]
+                                           Gx       (0.269)      0.319     (0.369)       －        ※Reference value
+                             GREEN
+
+
+
+
+                                         ly l
+                                           Gy       (0.367)      0.417     (0.467)       －
+                                           Bx       (0.125)      0.175     (0.225)       －
+
+              SH  NTSC 比
+                              BLUE
+                                           By
+
+                                           －
+                                                    (0.173)
+
+                                                       －
+                                                                 0.223
+
+                                                                  18
+                                                                           (0.273)
+
+                                                                                －
+                                                                                         －
+
+                                                                                         －
+                 NTSC ratio
+        ※
+                             fo
+              パネル面色度は、保証値ではありません。（参考値）
+              Panel Chromaticity is not a guaranteed value.(Reference value)
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                          SPEC No.                 MODEL No.                 PAGE
+                                                          LCP-2619063C             LS012B7DD06A                      39
+
+
+
+       Table 7-2 光学的特性（透過特性） Optical specification(Transmissive mode)
+
+
+                                                                 VDD1=3.2V, VDD2=5.0V, VSS(GND)=0V, Ta=25℃
+                  Item                 Symbol      Min.       Typ.       Max.        unit               Remark
+
+                 透過率
+                                             T     (－)        (0.95)      (－)         %                 [Note 7-5]
+           Transmissivity ratio
+                                                                                                    Black → White
+                 応答速度                                                                                   [Note 7-3]
+                                        Tτ r        －         (200)      (500)        ms
+              Response Time                                                                             [Note 7-4]
+                                                                                                        [Note 7-5]
+
+
+
+                            AR
+       [Note 7-5] 透過率及び応答速度は、保証値ではありません。（参考値）
+                 Transmissirity ratio and Response Time is not a guaranteed value. (Reference value )
+
+
+
+                         rR P
+                           ef Co
+                             er     n
+                                en fid
+                                  ce en
+                                    on tia
+             SH                       ly l
+                           fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                          SPEC No.                   MODEL No.             PAGE
+                                                          LCP-2619063C               LS012B7DD06A                 40
+
+
+
+      [Note 7-1] 視野角の定義 Defintion of Viewing Angle
+
+
+
+                               Normal line
+                                                                                          Normal line
+                                             Δθ12
+                                                                                 Δθ22
+       Δθ11
+                                                                                                        Δθ21
+
+
+
+
+                           AR
+                 FPC
+                        rR P                                                 FPC
+
+
+                          ef Co
+              6 o'clock direction
+                                                                  6 o'clock direction
+
+
+                            er     n
+                               en fid
+                                         Figure 7-1     Defintion of Viewing Angle
+
+
+
+
+                                 ce en
+      [Note 7-2] コントラスト比の定義 Defintion of Contrast Ratio
+                 コントラスト比を以下のように定義する。
+
+
+
+
+                                   on tia
+                  The contrast ratio is defined as the following.
+
+
+
+
+                                     ly l
+                                             Reflection intensity in white display
+             Contrast ratio(CR) ＝
+
+             SH                              Reflection intensity in black display
+
+
+      [Note 7-3] 光学特性の測定機器 Optical characteristics measurement equipment.
+
+                          fo
+                コントラスト比、反射率、パネル表面色度の測定は図7-2、応答速度の測定は図7-3の測定方法を用いて、
+                暗室あるいはこれと同等な状態にて測定します。
+                Figure 7-2 is for contrast ratio, reflectivity ratio, and panel chromaticity measurement, and
+                Figure 7-3 is for response time measurement.
+                Both are to be conducted in a dark or room equipment to a dark room.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                           SPEC No.                      MODEL No.                          PAGE
+                                                           LCP-2619063C                  LS012B7DD06A                              41
+
+
+
+              測定器 Measurement equipment                                              測定器 Measurement equipment
+                (CM-700D)                                                              (DMS-803 )
+                          Normal line
+
+
+                                              8°                                                     Normal line
+
+
+                                              sensor
+
+                                                                              Light Source                         sensor
+
+
+
+
+                             AR
+                                                         Light Source
+
+                                                         (D65)
+
+
+
+
+                          rR P
+                                                        Integrating
+                                                        sphere
+
+
+
+
+                            ef Co
+                                                                                              -30°
+                                                                                                                            LCD panel
+                                                    LCD panel
+
+
+
+
+                              er     n
+                                 en fid
+                        Display center                                                               Display center
+
+             Figure 7-2
+                                   ce en
+                            Contrast ratio, Reflection ratio,                                Figure 7-3    Response time
+
+
+
+
+                                     on tia
+                            Panel chromaticity
+
+
+
+
+                                       ly l
+        [Note 7-4] 応答速度(反射率の変化) Respons time (Change in reflection ratio)
+
+
+             SH  白及び黒状態となる信号を入力し、その時の受光器出力の時間変化にて定義します。
+                  It’s difined by the time change of optical receiver output when signal is input to display
+                  white or black
+
+
+                            fo     Black
+
+                                  10%
+                                                                  White
+
+
+
+
+             Optical receiver output
+
+                 (Incremental )
+
+                                       90%
+                                       100%
+                                                                      Time
+                                               τr                                              τd
+
+
+                                                       Figure 7-4       Respons time
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                       SPEC No.               MODEL No.                PAGE
+                                                       LCP-2619063C           LS012B7DD06A                    42
+
+
+
+     8. 端子割り当て Pin Assignment
+      8-1) 端子割り当て Pin Assignment
+               ※外形寸法の詳細は図14-1に示します。
+                 The outline dimensions are shown in Figure 14-1
+
+
+                                                                               Table 8-1-1   Pin Assignment
+
+
+                                                                                   No.       Symbol
+
+                                                                                    1        VDD2
+                                                                                    2         －
+
+
+
+
+                           AR
+                                                                                    3         GSP
+                                                                                    4        GCK
+                                                                                    5        GEN
+
+
+
+
+                        rR P
+                                                                                    6        INTB
+                                                                                    7         VB
+                                                                                    8         VA
+
+
+
+
+                          ef Co
+                                                                                    9        VDD1
+                                                                                   10         VSS
+                                                                                   11         BSP
+
+
+
+
+                            er
+                                                                                   12        BCK
+
+
+
+
+                                   n
+                                                                                   13        R [0]
+                                                                                   14        R [1]
+
+
+
+
+                               en fid
+                                                                                   15        G [0]
+                                                                                   16        G [1]
+                                                                                   17        B [0]
+
+
+
+
+                                 ce en
+                                                                                   18        B [1]
+                            Display surface                                        19          －
+                                                                                   20        VCOM
+
+
+
+
+                                   on tia
+                                                                                   21         NC
+
+
+
+
+             SH                      ly l
+                          fo
+
+                                                                              21                          1
+
+
+                             Rear surface
+                                              Figure 8-1-1   Pin Assignment
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                       SPEC No.                 MODEL No.           PAGE
+                                                       LCP-2619063C             LS012B7DD06A                43
+
+      8-2) FPC 折り曲げ特性 FPC Bend Specification
+
+           Table 8-2-1    推奨コネクタ Recommended Connector            △C
+          Product manufacturer      Series       Part number           Contact Orientation         Remark
+                                                                       接点位置
+
+          MOLEX                     503566       (503566-2100)         Bottom side             Note 8-2-4
+                                                                       下側接点
+          MOLEX                     503566       503566-2102           Bottom side
+                                                                       下側接点
+
+
+        ＦＰＣを折り曲げる際は、条件(1)で推奨する箇所を条件(2)で規定したＲ以上で曲げて下さい。
+
+
+
+                            AR
+        FPCはガラスに接触しない様お願い致します。また、FPCとパネルの接合部にはストレスを与えない様お願い致します。
+        When bending FPC, bend where specified in Condition (1) and the bend R should be more than R specified
+
+
+
+
+                         rR P
+        in Condition (2). FPC is not to contact glass edge, and there should be no stress to connective area
+        between panel and FPC.
+
+
+
+
+                           ef Co
+        特にガラスエッジ付近は断線しやすい為、下記の注意事項を徹底して下さい。
+        Especially,It is easy to break near the glass edge of the FPC,Please follow below precautions.
+
+
+
+                             er     n
+          ※ 条件（1） FPC推奨曲げ領域： ガラスエッジから 1.0 mm – 11.0 mm
+            条件（2） 最小曲げR： 内径 R0.45 mm
+              Condition (1)
+              Condition (2)
+                                en fid
+                              FPC bend recommended area: 1.0 mm － 11.0 mm from glass edge.
+                              Minimum bend R: Inner diameter R0.45
+
+
+
+                                  ce en
+                                    on tia
+                                      ly l
+                                             Figure 8-2-1   FPC Bend Specification
+
+
+             SH
+        [Note 8-2-1] 表偏光板側へ折り曲げないで下さい。
+                   Do not bend to the front polarizer film side.
+        [Note 8-2-2] 折り曲げる回数は3回までとして下さい。
+
+                          fo
+                   Bend frequency: 3 times or less (Repeat bend condition: 180°～ 0°)
+        [Note 8-2-3] FPCを持ってLCDモジュールをぶら下げたり、FPCに無理な力を加えたりしないでください。
+                   Do not hang LCD module by FPC or apply force to FPC.
+        [Note 8-2-4] メーカ品番は廃盤。（使用は可能です）
+                    The production of part number is already terminated,but it can be used.
+
+
+
+
+     9. 表示品位 Display Qualities
+       液晶ディスプレイモジュール表示品位に関する基準は、出荷検査基準書に基づく。
+       Please refer to the Incoming Inspection Standard.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                            SPEC No.             MODEL No.              PAGE
+                                                            LCP-2619063C         LS012B7DD06A                  44
+
+
+     10. 推奨例 Recommended example
+
+         10-1) 外付け回路例           External Capacitors
+
+
+
+
+        VDD2 (5.0V)
+          VDD1 (3.2V)
+
+                                                                                  1.19 inch
+                            AR
+                               C2            Logic Signal
+                        C1
+
+                                             VCOM                               64 Color LCD
+
+                         rR P
+                                               VA
+                                               VB
+                GND
+                (VSS)
+
+
+
+
+                           ef Co
+                             er     n
+                                en fid
+                                  ce en
+                             Figure 10-1-1    External capacitor recommendation capacity value
+
+
+
+
+                                    on tia
+                                      ly l
+                ＜推奨コンデンサ容量値 Recommended capacity value＞
+
+
+             SH  C1： VDD1- VSS
+
+                 C2： VDD2 – VSS
+                                      : rank B
+
+                                      : rank B
+                                                   1.0μF Ceramic capacitor
+
+                                                   1.0μF Ceramic capacitor
+
+                           fo            ※上記回路及び部品については推奨例です。
+
+                              ご使用の際は貴社システムと整合性を評価頂いた上で設計してください。
+                                 （コンデンサ容量は記載値よりも大きなものを使用する事は可能）
+                                     ※Above circuit and parts are only recommendation.
+                        For actual use, please evaluate their conformity with your system and design.
+                                 (Capacitor value can be larger than value indicated above.)
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                         SPEC No.                  MODEL No.                   PAGE
+                                                         LCP-2619063C              LS012B7DD06A                       45
+
+
+
+        10-2)   推奨構造図 Recommended Structure Diagram
+
+
+        筐体設計時の注意事項              Precautions for SET design.
+
+            プーリングを抑制する為に次の1,2の機構設計を考慮願います。
+            1,2により液晶への負荷が抑えられプーリングの発生を防止します。
+                1 ： Space-1 バックライトと基板等の間にはスペースを確保願います。
+                2 ： CG      下記図のようにカバーガラスに液晶モジュールを固定願います。
+                            アクリル等では剛性が弱く液晶モジュールと共に反りが発生し、表示ムラが発生する
+                            可能性が有りますのでご注意願います。
+
+
+
+
+                           AR
+          To prevent pooling, please consider the following mechanical design.
+          Pooling can not be seen with adopting below structure 1,2 because the pressure on the LCD is reduced.
+               1： Space-1       Making space between BL(Back Light) unit and lectrical components.
+
+
+                        rR P
+               2： CG            Fixing LCD module and set with using CG (cover glass) as below.
+                                For other materials, such as acrylic, the LCD may warp and reduce uniformity
+
+
+
+
+                          ef Co
+   .
+
+          また、筐体設計の際には外圧によって歪み等が発生しないように十分に考慮願います。
+
+
+
+                            er     n
+          In design the housing , please fully consider that no distortion is caused by the external force.
+
+
+
+
+                               en fid
+                                 ce en
+                                   on tia
+                                                         CG
+                                                                                                 Adhesive
+
+
+
+
+                                     ly l
+                                                  LCD Module .                                   OCA
+
+
+             SH                                       BL unit .
+                                                              Space-1
+                                                                                                 BL rim tape
+
+
+
+                                              PWB,Electrical components .
+
+                          fo
+                                         Figure 10-2-1      Precautions for SET design
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                           SPEC No.                MODEL No.                   PAGE
+                                                           LCP-2619063C            LS012B7DD06A                       46
+
+
+          10-3) 組み込み行程における取扱い上の注意事項                                             △B
+                  Handling precautions in the integration process.
+
+
+        商品の組み込み、実装工程における注意事項
+
+
+             パネル表面に強いストレスを加えると、表示不良（ムラ等）の原因になります。
+             組み込みの際は極力パネル表面にストレスを加えない様に細心の注意を払って、ハンドリング頂きます様
+             宜しくお願いします。
+             If strong stress is applied to the panel surface, it may cause irregular display (“Mura”,etc) .
+             When assembling the LCD module, please pay attention not to stress the LCD surface as can as possible.
+
+
+
+                           AR
+                        rR P
+                          ef Co
+                            er     n
+                               en fid
+                                 ce en
+                                   on tia
+             SH                      ly l
+                          fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                              SPEC No.                          MODEL No.              PAGE
+                                                              LCP-2619063C                      LS012B7DD06A                  47
+
+
+
+     11. 印刷形態 Marking
+
+
+      11-1)インクジェット印刷 Displayed by printing. (Ink-jet print)
+
+        図11-1-1 に印刷位置を示します。
+        The display position is shown in Figure.11-1-1.
+
+                                                                                                            Display
+                                                                                                             side up
+
+
+
+                            AR
+                     Dispaly contents   (top view    not to scale )
+
+
+                        Line 1 →        YMDDPA
+
+
+                         rR P
+                                                                         Printing Area
+                        Line 2 →        012345
+
+
+
+
+                           ef Co                                              012345
+                                                                                       YMDDPA
+
+
+
+                             er     n
+                                en fid
+                                  ce en
+                                             Figure. 11-1-1    Lot number printing position
+
+
+
+
+                                    on tia
+                                      ly l
+           Table 11-1-1 印字内容詳細 Marking line definition
+
+
+             SH
+              Line
+               1
+                       Marking
+                       YMDDPA           Y        製造年1桁（西暦末尾）(0,1,- - 8,9)
+                                                                         Description
+
+                                                 Single-digit year (Last digit of the year ) (0,1,- - 8,9)
+                                        M        製造月1桁(1,2,--,9,X,Y,Z)
+                           fo           DD
+                                                 Single-digit Months (1,2,--,9,X,Y,Z)
+                                                 製造日2桁(01,--,31)
+                                                 Digit of the day (01,--,31)
+                                        P        製造工場コード
+                                                 Code of manufacture
+                                        A        改訂コード
+                                                 Product revision
+               2       012345      012345        シリアルNo(6桁)
+                                                 Consecutive number (Traceabillity number)
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                        SPEC No.                  MODEL No.                   PAGE
+                                                        LCP-2619063C              LS012B7DD06A                       48
+
+
+     12. 梱包形態 Packaging form
+
+      12-1) カートン保管条件 Carton storage condition
+
+             1) カートン積み上げ段数                                  ： 8 (max)
+                Piling number of cartons.
+             2) １カートン収納個数                                   ： 600 pcs
+                Pakage quantity in one carton
+             3) カートンサイズ                                     ： 578mm x 382mm x 255mm
+                Carton size (Typ.)
+             4) 合計重量                                        ： 7.0 kg (One carton filled with   (600) modules)
+                Total mass
+
+
+
+                           AR
+             5) カートン保管環境 Carton store environment
+                 ・温度 Temperature
+
+
+                        rR P
+                    0～40℃
+                 ・湿度 Humidity
+
+
+
+
+                          ef Co
+                      60％RH以下
+                       低温度高湿度下においても結露のない事
+
+
+
+                            er
+                       60%RH or lower (at 40℃)
+
+
+
+                                   n
+                       There should be no condensation at low temperature and high humidity.
+
+
+
+
+                               en fid
+                 ・雰囲気 Atmosphere
+
+
+
+
+                                 ce en
+                      酸、アルカリ等電子部品及び配線材を著しく腐食させる有害ガスが検出されない事
+                      No harmful gas, such as acid or alkali, which causes severe corrosion on electronic parts
+                      and wiring, are to be detected.
+
+
+
+
+                                   on tia
+                 ・開梱 Opening the package
+
+
+
+
+                                     ly l
+                      静電気による開梱時のTFTモジュールの破損を防止する目的で、
+                      50%RH以上に調湿後、静電アース等の有効な対策を施して開梱下さい。
+
+             SH       In order to prevent electrostatic damage to TFT modules, room humidity should be made
+                      over 50%RH and take effective measure such as use of earth when opening the package.
+
+
+                 ・直射日光 Direct sunlight
+                          fo
+                      太陽光による劣化を防ぐために、暗室での保管かカバー掛けて保管願います。
+                      Please keep the product in a dark room or cover the product to protect from direct sunlight.
+
+
+                 ・大気条件 Atmospheric condition
+                      腐食性のガスや揮発性のものと一緒に保管する事はご遠慮ください。
+                      Please refrain from keeping the product with possible corrosive gas or volatile flux.
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                       SPEC No.                  MODEL No.                PAGE
+                                                       LCP-2619063C              LS012B7DD06A                    49
+
+
+
+                 ・結露防止 Prevention of dew
+                      結露を防ぐため、直接床に置かず木板やスタンドの上にカートンを置いて下さい。
+                      パレット底部分の適度な換気を行うため、正しく設置してください。
+                      倉庫内は良く換気し、壁から離して保管下さい。倉庫には換気扇の設置を推奨します。
+                      急激な温度変化にも注意して下さい。
+                      Do not place directly on the floor, and please store the product carton either on a wooden
+                      pallet or a stand to avoid dew condensation. In order to obtain moderate ventilation in the
+                      pallet’s bottom surfaces, arrange correctly in the fixed direction. Please place the product
+                      cartons away from the storage wall. Be careful of the inside of a warehouse to ventilate well
+                      and please consider installation of a ventilator. Manage to rapid temperature change under
+                      natural environment.
+
+
+
+                           AR
+                 ・振動 Vibration
+
+
+
+
+                        rR P
+                      常に振動している場所には保管しないでください。
+                      Please refrain from keeping the product in the place which always has vibration.
+
+
+
+
+                          ef Co
+                 ・保存期間 Storage Period
+                      上記条件下かつ未開封状態で、6 カ月程度
+
+
+
+                            er
+                      ※アルミパックから取り出した状態での保管はご遠慮願います。
+
+
+
+                                   n
+                      Within above mentioned conditions, storage period is about 6 months
+
+
+
+                               en fid
+                      ※Please refrain from storing in the state that it is taken out from the aluminum pack.
+
+
+
+
+                                 ce en
+                                   on tia
+      12-2) 梱包形態図 Packaging form figure           △B
+            梱包形態を図12-2-1に示します。
+            モジュールが運送時に壊れない様設計しています。
+
+
+
+
+                                     ly l
+            The packing condition is shown in Figure. 12-2-1
+            The packaging is designed such that the module does not break during transit.
+             SH
+                          fo
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                          SPEC No.                  MODEL No.      PAGE
+                                                          LCP-2619063C              LS012B7DD06A          50
+
+
+
+
+                           AR
+                        rR P
+                          ef Co
+                            er     n
+                               en fid
+                                 ce en
+                                   on tia
+             SH                      ly l
+                          fo
+
+
+                                             Figure. 12-2-1   Packaging Form   △B
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                                      SPEC No.                   MODEL No.              PAGE
+                                                      LCP-2619063C               LS012B7DD06A                     51
+
+
+
+     13. 信頼性試験条件 Reliability Test Conditions
+      13-1) 信頼性試験項目 Reliability Test Items
+
+            Table13-1-1    ReliabilityTest Items
+
+           No.                Test Item                              Condition                      Remark
+                 高温保存（非動作）
+            1    High temperature storage test       Ta=80℃                       240h
+                 (Non operating test)
+                 低温保存（非動作）
+            2    Low temperature storage test        Ta=-30℃                      240h
+
+
+
+                           AR
+                 (Non operating test)
+                 高温高湿
+                                                     Tp=40℃/95%RH          240h
+
+
+
+                        rR P
+            3    High temperature and high
+                                                     (結露禁止 No condensation )
+                 humidity operating test
+                 高温動作
+            4                                        Tp=70℃                       240h
+
+
+
+                          ef Co
+                 High temperature operating test
+                 低温動作
+            5                                        Tp=-20℃                      240h
+
+
+
+                            er
+                 Low temperature operating test
+
+
+
+                                   n
+                 熱衝撃（非動作）
+                                                     Ta=-30℃ (1h)～+80 ℃
+
+
+
+                               en fid
+            6    Thermal Shock test
+                                                     1h / 5 cycle
+                 (Non operating test)
+
+
+
+
+                                 ce en
+                静電耐圧 （非動作）
+                                               ±200V、200pF (0Ω)
+           7    Electro static discharge test
+                                              各端子： 1回 each terminai: 1 time
+                (Non operating test)
+
+
+
+
+                                   on tia
+         [Note] Ta = 周囲温度 Ambient temperature
+                Tp = パネル温度 Panel surface temperature
+
+
+
+
+                                     ly l
+         評価基準
+
+             SH 標準状態において、表示品検査条件のもと実使用上支障となる変化が無い事
+         Result Evaluation Criteria
+                Under the display quality test conditions with normal operation state, these shall be no change
+                which may affect practical display function.
+                          fo
+             (※)標準動作環境： 温度=15～35℃、湿度=45～75％、周辺気圧=86～106kPa
+                normal operation state：Temperature:15～35℃,Humidity:45～75％,
+                                                   Atmospheric pressure:86～106kpa
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+                                             LCP-2619063C   LS012B7DD06A   52
+
+
+
+
+                        fo AR
+                          rR P
+                            ef Co
+                              er     n
+                                 en fid
+                                   ce en
+                                     on tia
+                                       ly l
+             SH
+
+
+
+
+© Copyright 2020 SHARP All rights reserved
+
