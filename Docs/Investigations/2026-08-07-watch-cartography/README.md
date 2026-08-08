@@ -8,7 +8,7 @@ scratch directory).
 default branch. No tiles were fetched from anyone's tile server. Every raster byte
 analysed here came from the committed `athens.rawtiles` fixture or was generated locally.
 
-Seven experiments. **Two of my own hypotheses were falsified** (E2 and E5); both are
+Eight experiments. **Two of my own hypotheses were falsified** (E2 and E5); both are
 recorded, because in each case the falsification changed a recommendation.
 
 ---
@@ -122,11 +122,18 @@ L\* 80** and uses the panel's maximum-contrast code for **0.007 %** of them. Roa
 contrast — and label text is `0xD5` (L\* 66.5), **2.8 : 1**. On a display capable of
 25 : 1 the shipped reference cartography exercises roughly 3 : 1.
 
-This is not a quantiser bug. It is what happens when a style tuned for a bright emissive
-sRGB screen — osm-carto encodes hierarchy in *hue* (yellow roads, pink buildings, green
-parks) and keeps lightness nearly constant — is transplanted onto a reflective panel
-where hue is the weak axis and lightness is the strong one. **osm-carto is close to a
-worst-case style for this hardware**, and that is the measured case for palette-first.
+Most of this is the style, not the quantiser. It is what happens when a style tuned for a
+bright emissive sRGB screen — osm-carto encodes hierarchy in *hue* (yellow roads, pink
+buildings, green parks) and keeps lightness nearly constant — is transplanted onto a
+reflective panel where hue is the weak axis and lightness is the strong one. **osm-carto
+is close to a worst-case style for this hardware**, and that is the measured case for
+palette-first.
+
+**Amended after E8:** the quantiser is a *second, independent* contributor, stacked on top
+of the style. Spec § 9.1.1's canonical thresholds assume the quanta display as
+{0, 85, 170, 255}; on this panel they display as ≈ {56, 162, 215, 255}, so the quantiser
+pushes 93.2 % of colours a level too light — in the same direction the style already
+erred. See E8.
 
 ---
 
