@@ -349,3 +349,67 @@ would settle it).
 3. **50 tiles/s/core render throughput** (E7) — estimated, not measured.
 4. **E4's byte sizes are synthetic geometry.** Re-measure on real rendered tiles before
    quoting. E3's ratios are the real-content ones.
+
+---
+
+## E8 — Does spec § 9.1.1's canonical quantiser suit this panel? (`scripts/quantiser.py`)
+
+Added after the main run, when the recommendation's format-fit was assessed against
+`rawtiles` @ `38d4d26`.
+
+**Method.** § 9.1.1 states the 2-bit quanta are "displayed as `{0, 85, 170, 255}` (8-bit
+equivalents)" and places thresholds at 42/127/212 accordingly. E1 established the panel's
+four levels are area-modulated, hence linear in *reflectance*. Convert each level's
+modelled reflectance back to its sRGB-equivalent code and compare.
+
+**Log.**
+
+```
+quantum 0: L*= 23.67  Y/Yw=0.0400  sRGB-equivalent  56.3   spec assumes   0
+quantum 1: L*= 66.52  Y/Yw=0.3600  sRGB-equivalent 161.7   spec assumes  85
+quantum 2: L*= 86.01  Y/Yw=0.6800  sRGB-equivalent 215.1   spec assumes 170
+quantum 3: L*=100.00  Y/Yw=1.0000  sRGB-equivalent 255.0   spec assumes 255
+
+Panel-correct thresholds : [109. 188. 235.]
+Spec 9.1.1 thresholds    : [ 42. 127. 212.]
+
+grey values where the two disagree: 151 of 256 (59 %)
+  input  43-109: spec picks 1, panel-correct is 0   (spec is too LIGHT)
+  input 128-188: spec picks 2, panel-correct is 1   (spec is too LIGHT)
+  input 213-235: spec picks 3, panel-correct is 2   (spec is too LIGHT)
+
+random RGB888 colours quantised differently: 93.2 %
+
+mean dE2000 to the intended grey, over the 0-255 axis:
+  spec 9.1.1 quantiser :  16.24   worst  44.36
+  panel-aware          :   6.65   worst  18.60
+```
+
+**Verdict — CONFIRMED.** The canonical quantiser is **correct for a bit-replicating
+display path** — a framebuffer whose 2-bit value is expanded to 8 bits and shown on a
+normal sRGB display, which is a real and common target and plausibly the one § 9.2's
+ST77xx/PineTime note has in mind. It is **wrong for the LS012B7DD06A**, whose area
+gradation makes reflectance linear in the code value. The error is systematic and always
+in the same direction: **too light**. Mean fidelity loss on the grey axis is **2.4×**.
+
+This is a second, independent cause of E2's washed-out reference basemap, stacked on top
+of the style choice: osm-carto puts everything in the top of the range, and then the
+canonical quantiser pushes it further up.
+
+**Why it does not block the recommendation:** palette-first declares its colours as
+palette slots and snaps to the nearest declared slot (E5), so the canonical RGB888 path is
+never invoked on a colour it can get wrong. The defect bites naive-quantisation workflows
+only — which is what the Athens pack is.
+
+**The architectural point.** A display's transfer function is a property of the *target
+panel*, not of the writer. § 9.1.1 welds one into the canonical quantiser and § A.3 ties
+it to `quantiser_version`, which makes the format's identity contract quietly
+device-specific for a format that explicitly courts several devices. The machinery to fix
+this already exists — `quantiser_version` is per-pixel-format and versioned — so the change
+is additive: keep `1` for bit-replication targets, add `2` for linear-reflectance targets.
+
+**Caveat.** This inherits E1's stated assumption that the four area-gradation levels are
+equal steps 0, ⅓, ⅔, 1. If the sub-dots are weighted differently the exact thresholds move;
+the *direction* of the error does not, because any area-modulated ramp is linear in light
+while § 9.1.1's is linear in sRGB code. A photometer reading of the four levels settles the
+exact numbers.
