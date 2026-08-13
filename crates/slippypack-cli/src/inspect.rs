@@ -98,7 +98,23 @@ fn write_summary<W: std::io::Write>(
     writeln!(out, "projection: {:?}", meta.projection)?;
     writeln!(out, "tile_addressing_scheme: {:?}", meta.tile_addressing_scheme)?;
     writeln!(out, "tile_axis_convention: {:?}", meta.tile_axis_convention)?;
-    writeln!(out, "tile_dim_px: {}", meta.tile_dim_px)?;
+    // Report the declared edge length, and whether the tiles agree with it.
+    // A silent `tile_dim_px` is a trap: nothing else in the pack cross-checks
+    // it, so an inspect that only echoes the field launders a defect into a
+    // fact. A `verify` subcommand should treat this as a hard failure; inspect
+    // is a reporting tool, so it reports.
+    match reader.validate_tile_lengths() {
+        Ok(()) => writeln!(out, "tile_dim_px: {}", meta.tile_dim_px)?,
+        Err(err) => {
+            writeln!(out, "tile_dim_px: {} **INCONSISTENT**", meta.tile_dim_px)?;
+            writeln!(out, "  WARNING: {err}")?;
+            writeln!(
+                out,
+                "  the header's tile size does not describe this pack's tiles; \
+                 anything decoding it will use the wrong stride"
+            )?;
+        }
+    }
     writeln!(out, "zoom_range: {}-{}", meta.zoom_range.0, meta.zoom_range.1)?;
     writeln!(
         out,

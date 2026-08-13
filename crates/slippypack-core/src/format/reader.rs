@@ -11,7 +11,9 @@
 use super::crc::Crc32;
 use super::extensions::{ExtensionSection, read_extension_sections};
 use super::header::{HEADER_BASE_SIZE, HeaderError, ParsedHeader, read_header};
-use super::tile_index::{INDEX_ENTRY_SIZE, TileIndexEntry, TileIndexError, read_index_entry};
+use super::tile_index::{
+    Compression, INDEX_ENTRY_SIZE, TileIndexEntry, TileIndexError, read_index_entry,
+};
 use super::types::PackMetadata;
 
 /// Parsed view of a `.rawtiles` byte buffer.
@@ -54,6 +56,17 @@ pub enum ReaderError {
     /// The 4-byte CRC footer doesn't match the computed CRC over the
     /// preceding bytes.
     CrcMismatch { expected: u32, got: u32 },
+    /// An uncompressed tile's length is not `tile_dim_px² ×
+    /// bytes_per_pixel`, so the header's `tile_dim_px` does not describe
+    /// the bytes the pack actually contains.
+    ///
+    /// Only checked for `Compression::None`: a compressed tile's on-disk
+    /// length is by definition not the raw matrix size.
+    TileLengthMismatch {
+        entry: u32,
+        got: u32,
+        expected: u32,
+    },
 }
 
 impl core::fmt::Display for ReaderError {
@@ -74,6 +87,17 @@ impl core::fmt::Display for ReaderError {
                 write!(
                     f,
                     "CRC mismatch: expected {expected:#010x}, computed {got:#010x}"
+                )
+            }
+            Self::TileLengthMismatch {
+                entry,
+                got,
+                expected,
+            } => {
+                write!(
+                    f,
+                    "tile index entry {entry}: uncompressed tile is {got} bytes but \
+                     the header's tile_dim_px and pixel_format imply {expected}"
                 )
             }
         }
@@ -243,6 +267,47 @@ impl<'a> RawtilesReader<'a> {
     pub fn extensions(&self) -> &[ExtensionSection] {
         &self.extensions
     }
+
+    /// Check every uncompressed tile's length against `tile_dim_px² ×
+    /// bytes_per_pixel`, returning the first entry that disagrees.
+    ///
+    /// **This is the only thing tying the header's `tile_dim_px` to the bytes the
+    /// pack carries.** Nothing else does: bounds-checking an `(offset, length)`
+    /// pair says a tile is inside the file, not that it is the size the header
+    /// claims. Without this, a pack declaring 128 px tiles while holding 256 px
+    /// ones parses clean, and a consumer trusting the field decodes every tile
+    /// with the wrong stride — garbage on a display rather than an error on a
+    /// laptop. That matters most exactly when `tile_dim_px` stops being a
+    /// constant.
+    ///
+    /// Deliberately **not** part of [`Self::open`]: tile bytes are opaque to the
+    /// byte-layout parser, and round-trip tests legitimately write short
+    /// stand-in blobs to exercise index and offset arithmetic. Callers that care
+    /// about a pack being self-consistent — `inspect`, and a `verify`
+    /// subcommand — call this explicitly.
+    ///
+    /// Compressed tiles are skipped: their on-disk length is not the raw matrix
+    /// size by definition.
+    ///
+    /// # Errors
+    ///
+    /// [`ReaderError::TileLengthMismatch`] for the first inconsistent entry.
+    pub fn validate_tile_lengths(&self) -> Result<(), ReaderError> {
+        let expected = self.parsed_header.metadata.raw_tile_len();
+        // Bounded by tile_dim_px² × 2, which fits u32 for every u16 edge length
+        // the header can express.
+        let expected_u32 = u32::try_from(expected).unwrap_or(u32::MAX);
+        for (i, entry) in self.index.iter().enumerate() {
+            if entry.compression == Compression::None && u64::from(entry.length) != expected {
+                return Err(ReaderError::TileLengthMismatch {
+                    entry: u32::try_from(i).unwrap_or(u32::MAX),
+                    got: entry.length,
+                    expected: expected_u32,
+                });
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -257,6 +322,77 @@ mod tests {
     use super::super::writer_trait::{TileContent, TileWriter};
     use super::{RawtilesReader, ReaderError};
     use crate::identity::BoundingBox;
+
+    /// Metadata whose declared edge length matches the tile bytes a test writes.
+    /// `tile_dim_px: 8` with ABGR2222 → 64 bytes per tile, which is the size the
+    /// fixtures below use.
+    fn coherent_metadata() -> PackMetadata {
+        PackMetadata {
+            tile_dim_px: 8,
+            ..baseline_metadata()
+        }
+    }
+
+    #[test]
+    fn raw_tile_len_is_dim_squared_times_pixel_size() {
+        assert_eq!(coherent_metadata().raw_tile_len(), 64);
+        assert_eq!(baseline_metadata().raw_tile_len(), 128 * 128);
+        let rgb565 = PackMetadata {
+            pixel_format: PixelFormat::Rgb565,
+            ..coherent_metadata()
+        };
+        assert_eq!(rgb565.raw_tile_len(), 64 * 2);
+    }
+
+    #[test]
+    fn validate_tile_lengths_accepts_a_coherent_pack() {
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
+        w.begin_pack(coherent_metadata()).unwrap();
+        w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0x11; 64]))
+            .unwrap();
+        w.add_tile_ref(4, 1, 0, Compression::None, TileContent::Inline(vec![0x22; 64]))
+            .unwrap();
+        let mut bytes: Vec<u8> = Vec::new();
+        w.finalize(&mut bytes).unwrap();
+        let r = RawtilesReader::open(&bytes).unwrap();
+        assert_eq!(r.validate_tile_lengths(), Ok(()));
+    }
+
+    #[test]
+    fn validate_tile_lengths_catches_a_lying_header() {
+        // The defect this exists for: the header says 128 px (16 KiB per tile)
+        // while the pack holds 64-byte tiles. `open` accepts it — the bytes are
+        // in bounds and the CRC is right — so only this check notices.
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
+        w.begin_pack(baseline_metadata()).unwrap();
+        w.add_tile_ref(4, 0, 0, Compression::None, TileContent::Inline(vec![0x11; 64]))
+            .unwrap();
+        let mut bytes: Vec<u8> = Vec::new();
+        w.finalize(&mut bytes).unwrap();
+        let r = RawtilesReader::open(&bytes).expect("structurally valid");
+        assert_eq!(
+            r.validate_tile_lengths(),
+            Err(ReaderError::TileLengthMismatch {
+                entry: 0,
+                got: 64,
+                expected: 16_384,
+            }),
+        );
+    }
+
+    #[test]
+    fn validate_tile_lengths_skips_compressed_tiles() {
+        // A compressed tile's on-disk length is not the raw matrix size, so
+        // checking it against tile_dim_px² would reject every RLE pack.
+        let mut w: RawtilesWriter<Infallible, Infallible> = RawtilesWriter::new();
+        w.begin_pack(coherent_metadata()).unwrap();
+        w.add_tile_ref(4, 0, 0, Compression::Rle8, TileContent::Inline(vec![0x11; 7]))
+            .unwrap();
+        let mut bytes: Vec<u8> = Vec::new();
+        w.finalize(&mut bytes).unwrap();
+        let r = RawtilesReader::open(&bytes).unwrap();
+        assert_eq!(r.validate_tile_lengths(), Ok(()));
+    }
 
     fn baseline_metadata() -> PackMetadata {
         PackMetadata {
