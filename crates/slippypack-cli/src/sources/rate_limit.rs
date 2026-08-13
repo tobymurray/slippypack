@@ -165,11 +165,18 @@ pub fn extract_host(url: &str) -> Option<String> {
         Some((_, host_part)) => host_part,
         None => authority,
     };
-    // Strip optional :port. (IPv6 literals like `[::1]:8080` aren't
-    // handled — tile URLs use domain names in practice.)
-    let host = match after_userinfo.rsplit_once(':') {
-        Some((h, _port)) => h,
-        None => after_userinfo,
+    // Strip optional :port. Bracketed IPv6 literals must not be split on the
+    // colons inside the brackets, so they are unwrapped first: `[::1]:8080` → `::1`.
+    // Without this the host key for any IPv6 URL is garbage, which breaks per-host
+    // pacing and makes `::1` unrecognisable as loopback.
+    let host = if let Some(rest) = after_userinfo.strip_prefix('[') {
+        // An unterminated bracket is malformed, not a host.
+        rest.split_once(']')?.0
+    } else {
+        match after_userinfo.rsplit_once(':') {
+            Some((h, _port)) => h,
+            None => after_userinfo,
+        }
     };
     if host.is_empty() {
         None
@@ -259,6 +266,24 @@ mod tests {
     fn extract_host_rejects_unparseable() {
         assert_eq!(extract_host("not-a-url"), None);
         assert_eq!(extract_host("https:///no-host"), None);
+    }
+
+    #[test]
+    fn extract_host_unwraps_bracketed_ipv6() {
+        assert_eq!(
+            extract_host("http://[::1]:8080/3/4/5.png").as_deref(),
+            Some("::1"),
+        );
+        assert_eq!(extract_host("http://[::1]/x").as_deref(), Some("::1"));
+        assert_eq!(
+            extract_host("https://[2001:DB8::1]:443/tile").as_deref(),
+            Some("2001:db8::1"),
+        );
+    }
+
+    #[test]
+    fn extract_host_rejects_unterminated_bracket() {
+        assert_eq!(extract_host("http://[::1/x"), None);
     }
 
     #[test]
