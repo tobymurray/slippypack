@@ -194,6 +194,12 @@ pub struct BuildOptions {
     /// On-disk pixel format. Changes `pack_uuid` (it's in the canonical
     /// descriptor).
     pub pixel_format: PixelFormat,
+    /// Tile edge length in pixels. Changes `pack_uuid` — it is in the
+    /// canonical descriptor — and every decoded source tile must match it
+    /// exactly. Validated by `main.rs`'s `parse_tile_dim`: a power of two
+    /// in 32..=1024. Ignored for `synthetic`, whose fixture has a fixed
+    /// edge of its own.
+    pub tile_dim_px: u16,
     /// Per-tile compression. Does NOT change `pack_uuid` (compression
     /// is per-tile in the tile-index, not part of the canonical
     /// descriptor).
@@ -361,6 +367,7 @@ pub fn descriptor_for(opts: &BuildOptions) -> Result<PackDescriptor, BuildError>
             zoom,
             auth_kinds_from_options(opts),
             opts.pixel_format,
+            opts.tile_dim_px,
         ))
     } else {
         Err(BuildError::UnknownSourceKind(opts.source.clone()))
@@ -474,6 +481,7 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
             zoom,
             auth_kinds_from_options(opts),
             opts.pixel_format,
+            opts.tile_dim_px,
         );
     let mut fetcher = UrlFetcher::new();
     fetcher.set_auth_headers(opts.auth_headers.clone());
@@ -516,14 +524,15 @@ fn build_url_template(opts: &BuildOptions) -> Result<(), BuildError> {
     let attribution = opts.attribution.clone();
     let pixel_format = opts.pixel_format;
     let compression = opts.compression;
+    // Every decoded tile must match the declared edge exactly. A source that
+    // serves a different size is a configuration error, not something to
+    // silently rescale: the header would otherwise describe bytes the pack does
+    // not contain.
+    let expected_dim = descriptor.tile_dim_px;
 
     run_build(opts, metadata, move |writer| {
         for (z, x, y, bytes) in tile_bytes {
             check_cancel(cancel.as_deref())?;
-            // Phase 1 first slice assumes tile_dim_px = 256 — the
-            // dominant slippy-map tile size. Phase 1.x will sample the
-            // first response's actual decoded dimensions and use those.
-            let expected_dim = 256;
             add_decoded_tile(
                 writer,
                 z,
@@ -546,6 +555,7 @@ fn url_template_descriptor(
     zoom: (u8, u8),
     auth_kinds: Vec<AuthKind>,
     pixel_format: PixelFormat,
+    tile_dim_px: u16,
 ) -> PackDescriptor {
     PackDescriptor {
         affn: None,
@@ -563,7 +573,7 @@ fn url_template_descriptor(
         style_hash: None,
         tile_addressing_scheme: 1,
         tile_axis_convention: 1,
-        tile_dim_px: 256,
+        tile_dim_px,
         zoom_range: ZoomRange {
             min: zoom.0,
             max: zoom.1,
@@ -787,6 +797,7 @@ mod tests {
         let cancel = Arc::new(AtomicBool::new(true));
         let opts = BuildOptions {
             source: "synthetic".to_string(),
+            tile_dim_px: 256,
             out: tmp.clone(),
             bbox: None,
             zoom_range: None,
@@ -848,6 +859,7 @@ mod tests {
     fn synthetic_opts(out: PathBuf, attribution: Option<String>) -> BuildOptions {
         BuildOptions {
             source: "synthetic".to_string(),
+            tile_dim_px: 256,
             out,
             bbox: None,
             zoom_range: None,

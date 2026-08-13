@@ -141,6 +141,14 @@ struct DebugUuidCliArgs {
     #[arg(long = "pixel-format", value_enum, default_value_t = PixelFormatArg::Abgr2222)]
     pixel_format: PixelFormatArg,
 
+    /// Tile edge length in pixels. Same shape and default as
+    /// `make --tile-dim`, and present here for the same reason as
+    /// `--pixel-format`: `tile_dim_px` is part of the canonical
+    /// descriptor, so omitting it here would make this subcommand report
+    /// a UUID that a non-default `make` never produces.
+    #[arg(long = "tile-dim", default_value_t = 256, value_parser = parse_tile_dim)]
+    tile_dim: u16,
+
     /// Emit the canonical descriptor bytes (UTF-8 JSON, no trailing
     /// newline) instead of the derived UUIDv5. Useful for piping into
     /// `sha1sum`, `xxd`, or a third-party UUIDv5 implementation for
@@ -173,6 +181,25 @@ struct MakeArgs {
     /// Ignored for `synthetic` (which is fixed at z=2).
     #[arg(long, value_parser = parse_zoom)]
     zoom: Option<(u8, u8)>,
+
+    /// Tile edge length in pixels. Must be a power of two in 32..=1024.
+    ///
+    /// The default stays **256** — the dominant slippy-map size, and what
+    /// the source servers actually serve. Do not change it for a pack you
+    /// intend to load on a watch until the app's own tile constants move
+    /// with it: the app derives its cache geometry from this, and a pack
+    /// whose tile size the app does not expect renders as garbage rather
+    /// than as an error.
+    ///
+    /// 128 is what the cartography spec prescribes, for RAM: a 240×240
+    /// viewport can straddle four 256 px tiles (256 KiB of cache) against
+    /// nine 128 px tiles (144 KiB). Note it also halves ground resolution
+    /// per pixel, so a zoom ladder written for 256 shifts up by one.
+    ///
+    /// This value is part of the canonical descriptor, so changing it
+    /// changes `pack_uuid`.
+    #[arg(long = "tile-dim", default_value_t = 256, value_parser = parse_tile_dim)]
+    tile_dim: u16,
 
     /// HTTP header to add to every URL-template request, in
     /// `"Name: value"` form. Repeatable. Example:
@@ -318,6 +345,7 @@ fn run_debug_uuid_cli(args: &DebugUuidCliArgs) -> Result<(), BuildError> {
         auth_headers,
         auth_query,
         pixel_format: args.pixel_format.to_core(),
+        tile_dim_px: args.tile_dim,
         format,
     };
     let stdout = std::io::stdout();
@@ -382,6 +410,7 @@ fn run_make(args: MakeArgs, cancel: Arc<AtomicBool>) -> Result<(), BuildError> {
         pack_uuid_override,
         attribution: args.attribution,
         pixel_format: args.pixel_format.to_core(),
+        tile_dim_px: args.tile_dim,
         compression: args.compression.to_core(),
         cancel: Some(cancel),
     };
@@ -433,6 +462,26 @@ fn parse_bbox(s: &str) -> Result<BboxDeg, String> {
         max_lon,
         max_lat,
     })
+}
+
+/// Tile edge length, restricted to powers of two in `32..=1024`.
+///
+/// Power-of-two because every consumer indexes tiles by shifting, and because a
+/// non-power-of-two edge makes the app's cache geometry awkward for no gain. The
+/// ceiling keeps one uncompressed RGB565 tile inside 2 MiB; the floor is the
+/// point below which a 240 px viewport needs more than four tiles per axis.
+fn parse_tile_dim(s: &str) -> Result<u16, String> {
+    let dim: u16 = s
+        .trim()
+        .parse()
+        .map_err(|e| format!("invalid --tile-dim: {e}"))?;
+    if !(32..=1024).contains(&dim) {
+        return Err(format!("--tile-dim must be in [32, 1024]; got {dim}"));
+    }
+    if !dim.is_power_of_two() {
+        return Err(format!("--tile-dim must be a power of two; got {dim}"));
+    }
+    Ok(dim)
 }
 
 fn parse_zoom(s: &str) -> Result<(u8, u8), String> {

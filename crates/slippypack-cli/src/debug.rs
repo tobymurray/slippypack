@@ -38,6 +38,9 @@ pub struct DebugUuidArgs {
     pub auth_headers: Vec<crate::sources::url_template::AuthHeader>,
     pub auth_query: Vec<crate::sources::url_template::AuthQuery>,
     pub pixel_format: PixelFormat,
+    /// Tile edge length in pixels. In the canonical descriptor, so it changes
+    /// the derived UUID exactly as `pixel_format` does.
+    pub tile_dim_px: u16,
     pub format: DebugUuidFormat,
 }
 
@@ -50,6 +53,7 @@ impl Default for DebugUuidArgs {
             auth_headers: Vec::new(),
             auth_query: Vec::new(),
             pixel_format: PixelFormat::Abgr2222,
+            tile_dim_px: 256,
             format: DebugUuidFormat::default(),
         }
     }
@@ -78,6 +82,7 @@ pub fn run_debug_uuid<W: std::io::Write>(
         pack_uuid_override: None,
         attribution: None,
         pixel_format: args.pixel_format,
+        tile_dim_px: args.tile_dim_px,
         compression: Compression::None,
         cancel: None,
     };
@@ -106,6 +111,7 @@ mod tests {
     fn synthetic_uuid_is_deterministic() {
         let args = DebugUuidArgs {
             source: "synthetic".to_string(),
+            tile_dim_px: 256,
             bbox: None,
             zoom_range: None,
             auth_headers: Vec::new(),
@@ -130,6 +136,7 @@ mod tests {
     fn synthetic_uuid_is_uuidv5_shape() {
         let args = DebugUuidArgs {
             source: "synthetic".to_string(),
+            tile_dim_px: 256,
             bbox: None,
             zoom_range: None,
             auth_headers: Vec::new(),
@@ -156,6 +163,7 @@ mod tests {
     fn bytes_output_starts_with_canonical_json() {
         let args = DebugUuidArgs {
             source: "synthetic".to_string(),
+            tile_dim_px: 256,
             bbox: None,
             zoom_range: None,
             auth_headers: Vec::new(),
@@ -191,6 +199,7 @@ mod tests {
                 auth_query: Vec::new(),
                 format: DebugUuidFormat::Uuid,
                 pixel_format: PixelFormat::Abgr2222,
+                tile_dim_px: 256,
             };
             run_debug_uuid(&args, &mut buf).unwrap();
             String::from_utf8(buf).unwrap()
@@ -220,6 +229,7 @@ mod tests {
             auth_query: Vec::new(),
             format: DebugUuidFormat::Uuid,
             pixel_format: PixelFormat::Abgr2222,
+            tile_dim_px: 256,
         };
         let mut buf = Vec::new();
         let err = run_debug_uuid(&args, &mut buf).unwrap_err();
@@ -246,6 +256,7 @@ mod tests {
                 auth_query: Vec::new(),
                 format: DebugUuidFormat::Uuid,
                 pixel_format: PixelFormat::Abgr2222,
+                tile_dim_px: 256,
             };
             let mut buf = Vec::new();
             run_debug_uuid(&args, &mut buf).unwrap();
@@ -263,6 +274,7 @@ mod tests {
                 auth_query: Vec::new(),
                 format: DebugUuidFormat::Uuid,
                 pixel_format: PixelFormat::Abgr2222,
+                tile_dim_px: 256,
             };
             let mut buf = Vec::new();
             run_debug_uuid(&args, &mut buf).unwrap();
@@ -294,6 +306,7 @@ mod tests {
                 auth_query: Vec::new(),
                 format: DebugUuidFormat::Uuid,
                 pixel_format: PixelFormat::Abgr2222,
+                tile_dim_px: 256,
             };
             let mut buf = Vec::new();
             run_debug_uuid(&args, &mut buf).unwrap();
@@ -306,6 +319,7 @@ mod tests {
     fn unknown_source_kind_errors() {
         let args = DebugUuidArgs {
             source: "not-a-real-kind".to_string(),
+            tile_dim_px: 256,
             bbox: None,
             zoom_range: None,
             auth_headers: Vec::new(),

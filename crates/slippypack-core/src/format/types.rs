@@ -187,6 +187,9 @@ pub struct PackMetadata {
     pub tile_addressing_scheme: AddressingScheme,
     pub tile_axis_convention: AxisConvention,
     /// `128` for quadtree packs in v1; `≤ 240` for single-image packs.
+    ///
+    /// [`Self::raw_tile_len`] is the only place this becomes an expected byte
+    /// count. Nothing else should recompute it.
     pub tile_dim_px: u16,
     /// `(min_zoom, max_zoom)` inclusive on both ends.
     pub zoom_range: (u8, u8),
@@ -196,6 +199,25 @@ pub struct PackMetadata {
     /// build wall-clock. The writer stamps it into the header verbatim;
     /// the caller is responsible for computing it.
     pub build_timestamp: u64,
+}
+
+impl PackMetadata {
+    /// Byte length of one **uncompressed** tile: `tile_dim_px² ×
+    /// bytes_per_pixel`, the relation § 11 #16 pins.
+    ///
+    /// This is the only thing tying the header's `tile_dim_px` to the bytes a
+    /// pack carries. Without checking it, a header can claim any edge length it
+    /// likes: a pack declaring 128 px tiles while holding 256 px ones is
+    /// structurally valid, and a consumer trusting the field decodes every tile
+    /// with the wrong stride.
+    ///
+    /// `u64` because `1024² × 2` is uncomfortably close to `u32` and the caller
+    /// compares against a `u32` length.
+    #[must_use]
+    pub fn raw_tile_len(&self) -> u64 {
+        let dim = u64::from(self.tile_dim_px);
+        dim * dim * self.pixel_format.bytes_per_pixel() as u64
+    }
 }
 
 #[cfg(test)]
