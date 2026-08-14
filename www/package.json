@@ -1,0 +1,18 @@
+{
+  "name": "slippypack-www",
+  "private": true,
+  "type": "module",
+  "description": "Browser front-end: renders a region and writes a .rawtiles pack, with no server",
+  "scripts": {
+    "build:wasm": "./scripts/build-wasm.sh",
+    "serve": "npx --yes serve -l 8080 .",
+    "verify": "node scripts/verify-e2e.mjs"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.3.0",
+    "pmtiles": "^4.5.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

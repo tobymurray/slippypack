@@ -11,6 +11,8 @@ debug/
 # Node / TS shell (Phase 4+)
 /www/node_modules/
 /www/dist/
+# wasm-bindgen output for the browser front-end — a build product
+/www/pkg/
 
 # Editor / OS
 .DS_Store

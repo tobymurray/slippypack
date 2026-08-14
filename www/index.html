@@ -1,0 +1,153 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>slippypack — build a map pack</title>
+<link rel="stylesheet" href="./node_modules/maplibre-gl/dist/maplibre-gl.css">
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 46rem; }
+  h1 { font-size: 1.2rem; margin: 0 0 .25rem; }
+  p.lede { margin: 0 0 1.5rem; opacity: .75; }
+  label { display: block; margin: .75rem 0 .25rem; font-weight: 600; }
+  input { font: inherit; padding: .4rem .5rem; width: 100%; box-sizing: border-box; }
+  button { font: inherit; padding: .55rem 1.1rem; margin-top: 1.25rem; cursor: pointer; }
+  button[disabled] { cursor: not-allowed; opacity: .5; }
+  #status { margin-top: 1rem; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 13px; }
+  /* The renderer draws into this; it is a workspace, not a preview. */
+  #map { position: fixed; left: -10000px; top: 0; width: 512px; height: 512px; }
+  .attribution { margin-top: 2rem; font-size: 12px; opacity: .7; }
+</style>
+
+<h1>Build a map pack</h1>
+<p class="lede">
+  Renders the region in your browser and writes a <code>.rawtiles</code> pack.
+  Nothing is uploaded and nothing is built on a server.
+</p>
+
+<label for="bbox">Region — min lon, min lat, max lon, max lat</label>
+<input id="bbox" value="-76.015, 44.590, -75.889, 44.662">
+
+<label for="zooms">Zoom ladder (<code>MAP_CARTOGRAPHY_SPEC.md</code> § 7)</label>
+<input id="zooms" value="12-16">
+
+<button id="build">Build pack</button>
+<div id="status"></div>
+
+<p class="attribution">
+  Map data from OpenStreetMap (ODbL) · basemap © Protomaps
+</p>
+
+<div id="map"></div>
+
+<!--
+  No bundler. The import map is what lets the dependencies' own bare
+  specifiers resolve — pmtiles imports "fflate" internally, which the
+  browser cannot resolve on its own. It applies to dynamic imports too,
+  which is what makes scripts/verify-e2e.mjs able to drive these same
+  modules.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "maplibre-gl": "./node_modules/maplibre-gl/dist/maplibre-gl.mjs",
+    "pmtiles": "./node_modules/pmtiles/dist/esm/index.js",
+    "fflate": "./node_modules/fflate/esm/browser.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as maplibregl from 'maplibre-gl';
+import { Protocol } from 'pmtiles';
+import init, { PackBuilder } from './pkg/slippypack_web.js';
+import { renderRegion, countTiles, ladderToGridLevel, PALETTE_RGB, PALETTE_CODES }
+  from './src/render.js';
+import { sha256 } from './src/tiles.js';
+
+const ATTRIBUTION = 'Map data from OpenStreetMap (ODbL) · basemap © Protomaps';
+const statusEl = document.getElementById('status');
+const buildEl = document.getElementById('build');
+const say = (msg) => { statusEl.textContent = msg; };
+
+maplibregl.addProtocol('pmtiles', new Protocol().tile);
+
+async function save(bytes, name) {
+  // File System Access where it exists, so the user picks the location —
+  // ideally straight into the watch's maps/ directory over USB.
+  if (window.showSaveFilePicker) {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: name,
+      types: [{ description: 'rawtiles pack', accept: { 'application/octet-stream': ['.rawtiles'] } }],
+    });
+    const stream = await handle.createWritable();
+    await stream.write(bytes);
+    await stream.close();
+    return handle.name;
+  }
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  a.click();
+  URL.revokeObjectURL(url);
+  return name;
+}
+
+buildEl.addEventListener('click', async () => {
+  buildEl.disabled = true;
+  try {
+    const bbox = document.getElementById('bbox').value.split(',').map(Number);
+    if (bbox.length !== 4 || bbox.some(Number.isNaN)) throw new Error('bbox needs four numbers');
+    const [ladderMin, ladderMax] = document.getElementById('zooms').value.split('-').map(Number);
+    const gridLevels = [];
+    for (let z = ladderMin; z <= ladderMax; z++) gridLevels.push(ladderToGridLevel(z));
+
+    say('loading…');
+    await init('./pkg/slippypack_web_bg.wasm');
+
+    const styleText = await (await fetch('./watch-style.json')).text();
+    const styleHash = await sha256(styleText);
+
+    const total = countTiles(bbox, gridLevels);
+    say(`rendering ${total.toLocaleString()} tiles…`);
+
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: JSON.parse(styleText),
+      center: [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2],
+      zoom: 2,
+      preserveDrawingBuffer: true, // the canvas has to be readable
+      fadeDuration: 0,             // every frame read back must be final
+      pixelRatio: 1,               // spec § 8: render at 1x, never 2x-and-downsample
+      interactive: false,
+      attributionControl: false,
+    });
+    await new Promise((r) => map.once('load', r));
+
+    const builder = new PackBuilder(
+      128, gridLevels[0], gridLevels.at(-1),
+      new Float64Array(bbox), PALETTE_RGB, PALETTE_CODES, styleHash,
+      ATTRIBUTION, Math.floor(Date.now() / 1000),
+    );
+
+    const started = performance.now();
+    await renderRegion({
+      map, builder, bbox, gridLevels,
+      onProgress: ({ done }) => say(`rendering ${done.toLocaleString()} / ${total.toLocaleString()} tiles…`),
+    });
+
+    const bytes = builder.finish();
+    map.remove();
+
+    const seconds = ((performance.now() - started) / 1000).toFixed(1);
+    const name = await save(bytes, 'map.rawtiles');
+    say(
+      `built ${name} — ${total.toLocaleString()} tiles, ` +
+      `${(bytes.length / 1048576).toFixed(2)} MiB, ${seconds} s\n\n` +
+      `Copy it into the watch's Apps/<mapapp>/maps/ directory over USB, ` +
+      `then eject the drive safely before unplugging.`
+    );
+  } catch (err) {
+    say(`failed: ${err.message}`);
+  } finally {
+    buildEl.disabled = false;
+  }
+});
+</script>
