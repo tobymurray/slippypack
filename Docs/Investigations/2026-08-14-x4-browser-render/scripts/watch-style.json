@@ -1,0 +1,93 @@
+{
+  "version": 8,
+  "name": "UNA watch basemap (X4 spike)",
+  "glyphs": "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
+  "sources": {
+    "pm": {
+      "type": "vector",
+      "url": "pmtiles://https://data.source.coop/protomaps/openstreetmap/v4.pmtiles",
+      "attribution": "Map data from OpenStreetMap (ODbL) &middot; basemap &copy; Protomaps"
+    }
+  },
+  "layers": [
+    { "id": "bg", "type": "background", "paint": { "background-color": "#62B7D5" } },
+
+    { "id": "earth", "type": "fill", "source": "pm", "source-layer": "earth",
+      "paint": { "fill-color": "#FFFFFF", "fill-antialias": false } },
+
+    { "id": "landcover-green", "type": "fill", "source": "pm", "source-layer": "landcover",
+      "filter": ["match", ["get", "kind"], ["forest", "scrub"], true, false],
+      "paint": { "fill-color": "#D0EDCD", "fill-antialias": false } },
+
+    { "id": "landcover-pale", "type": "fill", "source": "pm", "source-layer": "landcover",
+      "filter": ["match", ["get", "kind"], ["grassland", "farmland", "barren", "urban_area"], true, false],
+      "paint": { "fill-color": "#E9F6E8", "fill-antialias": false } },
+
+    { "id": "landuse-park", "type": "fill", "source": "pm", "source-layer": "landuse",
+      "filter": ["match", ["get", "kind"], ["park", "nature_reserve", "forest", "wood", "recreation_ground", "golf_course", "pitch"], true, false],
+      "paint": { "fill-color": "#D0EDCD", "fill-antialias": false } },
+
+    { "id": "landuse-other", "type": "fill", "source": "pm", "source-layer": "landuse",
+      "filter": ["match", ["get", "kind"], ["park", "nature_reserve", "forest", "wood", "recreation_ground", "golf_course", "pitch"], false, true],
+      "paint": { "fill-color": "#E9F6E8", "fill-antialias": false } },
+
+    { "id": "water-fill", "type": "fill", "source": "pm", "source-layer": "water",
+      "paint": { "fill-color": "#62B7D5", "fill-antialias": false } },
+
+    { "id": "water-line", "type": "line", "source": "pm", "source-layer": "water",
+      "filter": ["==", ["geometry-type"], "LineString"],
+      "paint": { "line-color": "#0084C2", "line-width": 2 } },
+
+    { "id": "buildings", "type": "fill", "source": "pm", "source-layer": "buildings",
+      "minzoom": 12,
+      "paint": { "fill-color": "#D7D7D7", "fill-antialias": false } },
+
+    { "id": "road-casing-major", "type": "line", "source": "pm", "source-layer": "roads",
+      "filter": ["match", ["get", "kind"], ["highway", "major_road"], true, false],
+      "layout": { "line-cap": "butt", "line-join": "round" },
+      "paint": { "line-color": "#FFFFFF", "line-width": 7 } },
+
+    { "id": "road-casing-minor", "type": "line", "source": "pm", "source-layer": "roads",
+      "filter": ["match", ["get", "kind"], ["medium_road", "minor_road"], true, false],
+      "layout": { "line-cap": "butt", "line-join": "round" },
+      "paint": { "line-color": "#FFFFFF", "line-width": 5 } },
+
+    { "id": "road-major", "type": "line", "source": "pm", "source-layer": "roads",
+      "filter": ["match", ["get", "kind"], ["highway", "major_road"], true, false],
+      "layout": { "line-cap": "butt", "line-join": "round" },
+      "paint": { "line-color": "#383838", "line-width": 4 } },
+
+    { "id": "road-minor", "type": "line", "source": "pm", "source-layer": "roads",
+      "filter": ["match", ["get", "kind"], ["medium_road", "minor_road"], true, false],
+      "layout": { "line-cap": "butt", "line-join": "round" },
+      "paint": { "line-color": "#874149", "line-width": 2 } },
+
+    { "id": "road-path", "type": "line", "source": "pm", "source-layer": "roads",
+      "filter": ["match", ["get", "kind"], ["path"], true, false],
+      "layout": { "line-cap": "butt" },
+      "paint": { "line-color": "#285B7D", "line-width": 2, "line-dasharray": [3, 3] } },
+
+    { "id": "place-labels", "type": "symbol", "source": "pm", "source-layer": "places",
+      "filter": ["match", ["get", "kind"], ["locality", "neighbourhood", "region"], true, false],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Medium"],
+        "text-size": 12,
+        "text-max-width": 7,
+        "text-padding": 2
+      },
+      "paint": { "text-color": "#383838", "text-halo-color": "#FFFFFF", "text-halo-width": 1 } },
+
+    { "id": "road-labels", "type": "symbol", "source": "pm", "source-layer": "roads",
+      "minzoom": 13,
+      "filter": ["match", ["get", "kind"], ["highway", "major_road", "medium_road", "minor_road"], true, false],
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Medium"],
+        "text-size": 11,
+        "text-padding": 2
+      },
+      "paint": { "text-color": "#383838", "text-halo-color": "#FFFFFF", "text-halo-width": 1 } }
+  ]
+}

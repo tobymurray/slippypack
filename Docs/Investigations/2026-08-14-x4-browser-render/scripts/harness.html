@@ -1,0 +1,265 @@
+<meta charset="utf-8">
+<title>X4 — browser render throughput</title>
+<link rel="stylesheet" href="/node_modules/maplibre-gl/dist/maplibre-gl.css">
+<style>
+  html,body{margin:0;background:#222}
+  #map{width:512px;height:512px}
+  .maplibregl-control-container{display:none}
+</style>
+<div id="map"></div>
+<script src="/node_modules/pmtiles/dist/pmtiles.js"></script>
+<script type="module">
+import * as maplibregl from '/node_modules/maplibre-gl/dist/maplibre-gl.mjs';
+const { Protocol } = window.pmtiles;
+
+const protocol = new Protocol();
+maplibregl.addProtocol('pmtiles', protocol.tile);
+
+// --- Cartography spec section 3: the declared slots that may be baked into a pack.
+// `trace` (0xC3) is excluded per R5 (app-drawn, never baked); `halo` == `paper`,
+// `road_major` == `ink`, so 14 named slots collapse to 11 distinct codes.
+const SLOTS = [
+  ['paper',      0xFF, 0xFF, 0xFF, 0xFF],
+  ['landuse',    0xE9, 0xF6, 0xE8, 0xEE],
+  ['wood_lt',    0xD0, 0xED, 0xCD, 0xDD],
+  ['building',   0xD7, 0xD7, 0xD7, 0xEA],
+  ['wood',       0x93, 0xCA, 0xB5, 0xD8],
+  ['water',      0x62, 0xB7, 0xD5, 0xF4],
+  ['contour',    0xA5, 0x94, 0x7A, 0xC5],
+  ['water_dk',   0x00, 0x84, 0xC2, 0xF0],
+  ['road_minor', 0x87, 0x41, 0x49, 0xC1],
+  ['path',       0x28, 0x5B, 0x7D, 0xD0],
+  ['ink',        0x38, 0x38, 0x38, 0xC0],
+];
+
+// Snap-to-declared-slots (spec section 8 / E5), with a memo table: real content
+// repeats colours heavily, so the nearest-slot search runs on distinct colours only.
+const snapMemo = new Map();
+function snap(r, g, b) {
+  const key = (r << 16) | (g << 8) | b;
+  let v = snapMemo.get(key);
+  if (v !== undefined) return v;
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < SLOTS.length; i++) {
+    const s = SLOTS[i];
+    const dr = r - s[1], dg = g - s[2], db = b - s[3];
+    const d = dr * dr + dg * dg + db * db;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  v = SLOTS[best][4];
+  snapMemo.set(key, v);
+  return v;
+}
+
+// rawtiles v0.6 section 9.11 pixel-level RLE, 1 byte/pixel for ABGR2222.
+// Port of Docs/Investigations/2026-08-07-watch-cartography/scripts/athens_compress.py.
+function rleLength(d) {
+  let out = 0, lit = 0, i = 0;
+  const n = d.length;
+  const flush = () => { while (lit > 0) { const c = Math.min(lit, 128); out += 1 + c; lit -= c; } };
+  while (i < n) {
+    const px = d[i];
+    let j = i + 1;
+    while (j < n && d[j] === px && j - i < 128) j++;
+    const run = j - i;
+    if (run >= 3) { flush(); out += 2; i = j; }
+    else { lit++; i++; }
+  }
+  flush();
+  return out;
+}
+
+// --- Web Mercator slippy tile math
+const lon2x = (lon, z) => ((lon + 180) / 360) * Math.pow(2, z);
+const lat2y = (lat, z) => {
+  const r = lat * Math.PI / 180;
+  return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * Math.pow(2, z);
+};
+const x2lon = (x, z) => x / Math.pow(2, z) * 360 - 180;
+const y2lat = (y, z) => {
+  const n = Math.PI - 2 * Math.PI * y / Math.pow(2, z);
+  return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+};
+
+function tileRange(bbox, z) {
+  const [w, s, e, n] = bbox;
+  return {
+    x0: Math.floor(lon2x(w, z)), x1: Math.floor(lon2x(e, z)),
+    y0: Math.floor(lat2y(n, z)), y1: Math.floor(lat2y(s, z)),
+  };
+}
+
+// --- map bootstrap
+const TILE_DIM = 128;
+let map, c2d, cctx;
+
+function resizeTo(w, h) {
+  if (!c2d || c2d.width !== w || c2d.height !== h) {
+    c2d = new OffscreenCanvas(w, h);
+    cctx = c2d.getContext('2d', { willReadFrequently: true });
+  }
+  const el = document.getElementById('map');
+  if (el.style.width === w + 'px' && el.style.height === h + 'px') return false;
+  el.style.width = w + 'px';
+  el.style.height = h + 'px';
+  map.resize();
+  return true;
+}
+
+function idle(timeoutMs = 60000) {
+  return new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error('idle timeout')), timeoutMs);
+    map.once('idle', () => { clearTimeout(t); res(); });
+  });
+}
+
+window.x4Boot = async function (styleUrl) {
+  const el = document.getElementById('map');
+  el.style.width = '512px'; el.style.height = '512px';
+  map = new maplibregl.Map({
+    container: 'map',
+    style: styleUrl,
+    center: [0, 0],
+    zoom: 2,
+    preserveDrawingBuffer: true,   // required to read the canvas back
+    fadeDuration: 0,               // no cross-fade: every frame must be final
+    attributionControl: false,
+    interactive: false,
+    pixelRatio: 1,                 // spec section 8: render at 1x, never 2x-and-downsample
+  });
+  await new Promise(res => map.once('load', res));
+  const gl = map.getCanvas().getContext('webgl2') || map.getCanvas().getContext('webgl');
+  const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
+  return {
+    renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown',
+    vendor: dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : 'unknown',
+    dpr: window.devicePixelRatio,
+  };
+};
+
+// Render one pass over `bbox` at slippy level `L`, producing TILE_DIM px tiles.
+// maplibre zoom Z = L - 2 makes one level-L tile exactly TILE_DIM px wide
+// (world is 512*2^Z px; a level-L tile spans 512*2^(Z-L) = 128 px).
+// strategy 'tile'  : one map render per pack tile.
+// strategy 'block' : one map render per blockN x blockN group, then slice.
+window.x4Pass = async function ({ bbox, level, strategy, blockN, quantise, hashes }) {
+  const hashOut = hashes ? {} : null;
+  const Z = level - 2;
+  const { x0, x1, y0, y1 } = tileRange(bbox, level);
+  const step = strategy === 'block' ? blockN : 1;
+  const t = { render: 0, readback: 0, quant: 0, rle: 0, resize: 0 };
+  let tiles = 0, rawBytes = 0, rleBytes = 0, renders = 0;
+  const codeSet = new Set();
+  const t0 = performance.now();
+
+  for (let by = y0; by <= y1; by += step) {
+    for (let bx = x0; bx <= x1; bx += step) {
+      const w = Math.min(step, x1 - bx + 1);
+      const h = Math.min(step, y1 - by + 1);
+
+      let ts = performance.now();
+      const didResize = resizeTo(w * TILE_DIM, h * TILE_DIM);
+      t.resize += performance.now() - ts;
+
+      const cx = x2lon(bx + w / 2, level);
+      const cy = y2lat(by + h / 2, level);
+
+      ts = performance.now();
+      const p = idle();
+      map.jumpTo({ center: [cx, cy], zoom: Z });
+      await p;
+      if (didResize) { /* a resize can land a frame late; the idle above covers it */ }
+      t.render += performance.now() - ts;
+      renders++;
+
+      ts = performance.now();
+      cctx.drawImage(map.getCanvas(), 0, 0);
+      const img = cctx.getImageData(0, 0, w * TILE_DIM, h * TILE_DIM).data;
+      t.readback += performance.now() - ts;
+
+      if (!quantise) { tiles += w * h; rawBytes += w * h * TILE_DIM * TILE_DIM; continue; }
+
+      const rowStride = w * TILE_DIM * 4;
+      const buf = new Uint8Array(TILE_DIM * TILE_DIM);
+      for (let ty = 0; ty < h; ty++) {
+        for (let tx = 0; tx < w; tx++) {
+          ts = performance.now();
+          let o = 0;
+          for (let py = 0; py < TILE_DIM; py++) {
+            let i = (ty * TILE_DIM + py) * rowStride + tx * TILE_DIM * 4;
+            for (let px = 0; px < TILE_DIM; px++, i += 4) {
+              buf[o++] = snap(img[i], img[i + 1], img[i + 2]);
+            }
+          }
+          t.quant += performance.now() - ts;
+
+          ts = performance.now();
+          rleBytes += rleLength(buf);
+          t.rle += performance.now() - ts;
+
+          for (let k = 0; k < buf.length; k += 97) codeSet.add(buf[k]);
+          if (hashOut) {
+            let h = 0x811c9dc5;                      // FNV-1a over the quantised tile
+            for (let k = 0; k < buf.length; k++) {
+              h ^= buf[k];
+              h = Math.imul(h, 0x01000193) >>> 0;
+            }
+            hashOut[`${level}/${bx + tx}/${by + ty}`] =
+              hashes === 'bytes' ? btoa(String.fromCharCode(...buf)) : h;
+          }
+          tiles++;
+          rawBytes += TILE_DIM * TILE_DIM;
+        }
+      }
+    }
+  }
+
+  return {
+    level, strategy, blockN: step, tiles, renders,
+    wallMs: performance.now() - t0, ...t,
+    rawBytes, rleBytes,
+    rlePct: rawBytes ? (rleBytes / rawBytes) * 100 : 0,
+    codes: [...codeSet].length,
+    hashes: hashOut,
+  };
+};
+
+// Grab one rendered tile as a PNG so the workload can be eyeballed.
+window.x4Sample = async function ({ bbox, level, n }) {
+  const Z = level - 2;
+  const { x0, y0 } = tileRange(bbox, level);
+  resizeTo(n * TILE_DIM, n * TILE_DIM);
+  const p = idle();
+  map.jumpTo({ center: [x2lon(x0 + n / 2, level), y2lat(y0 + n / 2, level)], zoom: Z });
+  await p;
+  cctx.drawImage(map.getCanvas(), 0, 0);
+  const blob = await c2d.convertToBlob({ type: 'image/png' });
+  const ab = await blob.arrayBuffer();
+  return [...new Uint8Array(ab)];
+};
+
+// Same, but quantised through the palette, so the pack's actual pixels can be seen.
+window.x4SampleQuantised = async function ({ bbox, level, n }) {
+  const Z = level - 2;
+  const { x0, y0 } = tileRange(bbox, level);
+  const W = n * TILE_DIM;
+  resizeTo(W, W);
+  const p = idle();
+  map.jumpTo({ center: [x2lon(x0 + n / 2, level), y2lat(y0 + n / 2, level)], zoom: Z });
+  await p;
+  cctx.drawImage(map.getCanvas(), 0, 0);
+  const img = cctx.getImageData(0, 0, W, W);
+  const d = img.data;
+  const byteToRgb = new Map(SLOTS.map(s => [s[4], [s[1], s[2], s[3]]]));
+  for (let i = 0; i < d.length; i += 4) {
+    const [r, g, b] = byteToRgb.get(snap(d[i], d[i + 1], d[i + 2]));
+    d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255;
+  }
+  cctx.putImageData(img, 0, 0);
+  const blob = await c2d.convertToBlob({ type: 'image/png' });
+  const ab = await blob.arrayBuffer();
+  return [...new Uint8Array(ab)];
+};
+
+window.x4Ready = true;
+</script>

@@ -1,0 +1,111 @@
+[
+  {
+    "level": 13,
+    "strategy": "block",
+    "blockN": 16,
+    "tiles": 513,
+    "renders": 4,
+    "wallMs": 2050,
+    "render": 1756,
+    "readback": 107,
+    "quant": 152,
+    "rle": 20,
+    "resize": 14,
+    "rawBytes": 8404992,
+    "rleBytes": 1827689,
+    "rlePct": 21.745279472009017,
+    "codes": 10,
+    "pass": 1,
+    "label": "metro90"
+  },
+  {
+    "level": 14,
+    "strategy": "block",
+    "blockN": 16,
+    "tiles": 1998,
+    "renders": 12,
+    "wallMs": 5596,
+    "render": 4711,
+    "readback": 262,
+    "quant": 527,
+    "rle": 72,
+    "resize": 16,
+    "rawBytes": 32735232,
+    "rleBytes": 6641051,
+    "rlePct": 20.28716643889984,
+    "codes": 11,
+    "pass": 1,
+    "label": "metro90"
+  },
+  {
+    "level": 15,
+    "strategy": "block",
+    "blockN": 16,
+    "tiles": 7844,
+    "renders": 35,
+    "wallMs": 13943,
+    "render": 10600,
+    "readback": 948,
+    "quant": 2068,
+    "rle": 261,
+    "resize": 36,
+    "rawBytes": 128516096,
+    "rleBytes": 22306323,
+    "rlePct": 17.35683209673596,
+    "codes": 11,
+    "pass": 1,
+    "label": "metro90"
+  },
+  {
+    "level": 16,
+    "strategy": "block",
+    "blockN": 16,
+    "tiles": 30660,
+    "renders": 140,
+    "wallMs": 55760,
+    "render": 43886,
+    "readback": 3232,
+    "quant": 7530,
+    "rle": 949,
+    "resize": 59,
+    "rawBytes": 502333440,
+    "rleBytes": 57776634,
+    "rlePct": 11.50164997974254,
+    "codes": 11,
+    "pass": 1,
+    "label": "metro90"
+  },
+  {
+    "level": 17,
+    "strategy": "block",
+    "blockN": 16,
+    "tiles": 122220,
+    "renders": 513,
+    "wallMs": 192006,
+    "render": 147715,
+    "readback": 12637,
+    "quant": 28046,
+    "rle": 3042,
+    "resize": 131,
+    "rawBytes": 2002452480,
+    "rleBytes": 146648153,
+    "rlePct": 7.323427370421294,
+    "codes": 11,
+    "pass": 1,
+    "label": "metro90"
+  },
+  {
+    "passNetwork": {
+      "data.source.coop": {
+        "requests": 12954,
+        "bytes": 67181882
+      },
+      "protomaps.github.io": {
+        "requests": 1,
+        "bytes": 64099
+      }
+    },
+    "pass": 1,
+    "label": "metro90"
+  }
+]
