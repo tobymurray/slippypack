@@ -108,14 +108,24 @@ pub enum Source {
         zoom_max: u8,
     },
     Style {
-        /// SHA-256 of the MapLibre Style Spec JSON file. The style file
-        /// IS this source's data (a `style:///path/to/style.json` source
-        /// renders tiles directly from the style's embedded `sources`),
-        /// so the style content is part of the source identity.
+        /// SHA-256 of the **pre-quantisation RGB888 stream this style
+        /// rendered**, in sorted `(z, x, y)` tile order — the same rule
+        /// the rawtiles spec § A.4 gives every other file-backed source,
+        /// applied to a source whose "file" is a render.
         ///
-        /// Distinct from `PackDescriptor::style_hash` at the top level,
-        /// which is the SHA-256 of the `--style` flag applied to a
-        /// separate vector source (e.g. a PBF) at render time.
+        /// **Not the hash of the style JSON.** That lives in
+        /// `PackDescriptor::style_hash`, which a `style://` source now
+        /// populates. The split exists because the style does not
+        /// determine the pixels on its own: the 2026-08-14 X4
+        /// investigation (F6) measured the same style rendered with a
+        /// different tile-block size differing by 2–7 pixels per tile.
+        /// Hashing only the style would give two such packs the same
+        /// `pack_uuid`, which is the one thing `pack_uuid` exists to
+        /// prevent. Hashing the rendered stream pins what was actually
+        /// written.
+        ///
+        /// See `DECISIONS.md` I-011, which supersedes I-010's reading
+        /// of this field.
         content_hash: [u8; 32],
         zoom_min: u8,
         zoom_max: u8,
@@ -194,8 +204,15 @@ pub struct PackDescriptor {
     /// serializer sorts by `(zoom_min, zoom_max, derived Source Ord)`
     /// before emitting bytes.
     pub sources: Vec<Source>,
-    /// SHA-256 of the `--style` JSON (or the `style://` source's content)
-    /// when a renderer-style is in play; `None` for non-renderer builds.
+    /// SHA-256 of the MapLibre Style Spec JSON, whenever a style is in
+    /// play — both when it is applied to a separate vector source (the
+    /// `--style` flag over a PBF) and when the style *is* the source
+    /// (`style://`). `None` for builds with no renderer.
+    ///
+    /// This is the style's own identity. What that style *rendered* is
+    /// [`Source::Style::content_hash`]; the two are separate because a
+    /// style does not determine its output pixels on its own. See
+    /// `DECISIONS.md` I-011.
     pub style_hash: Option<[u8; 32]>,
     pub tile_addressing_scheme: u8,
     pub tile_axis_convention: u8,
@@ -909,8 +926,11 @@ mod tests {
     #[test]
     fn style_source_with_different_content_hash_changes_pack_uuid() {
         // Two Style sources with identical zoom ranges but different
-        // style JSONs MUST NOT collide on pack_uuid. This is the bug
-        // closed by adding content_hash to Source::Style.
+        // rendered pixel streams MUST NOT collide on pack_uuid. This is
+        // the bug closed by adding content_hash to Source::Style, and
+        // per I-011 the hash it carries is the render, not the style —
+        // which is what makes two renders of the *same* style
+        // distinguishable.
         let mut d_a = baseline_descriptor();
         let mut hash_a = [0_u8; 32];
         hash_a[0] = 0x11;
@@ -933,6 +953,35 @@ mod tests {
             derive_pack_uuid(&d_a),
             derive_pack_uuid(&d_b),
             "Style sources with different content_hash must produce different pack_uuids",
+        );
+    }
+
+    /// The other half of I-011: the render and the style that produced
+    /// it are separate identities, so a pack built from byte-identical
+    /// pixels by a *different* style is still a different pack. Without
+    /// this, editing a style in a way that happens not to change the
+    /// rendered tiles would silently reuse the old `pack_uuid`.
+    #[test]
+    fn same_render_under_a_different_style_changes_pack_uuid() {
+        let rendered = [0x11_u8; 32];
+        let style_source = vec![Source::Style {
+            content_hash: rendered,
+            zoom_min: 6,
+            zoom_max: 12,
+        }];
+
+        let mut d_a = baseline_descriptor();
+        d_a.sources.clone_from(&style_source);
+        d_a.style_hash = Some([0xAA; 32]);
+
+        let mut d_b = baseline_descriptor();
+        d_b.sources = style_source;
+        d_b.style_hash = Some([0xBB; 32]);
+
+        assert_ne!(
+            derive_pack_uuid(&d_a),
+            derive_pack_uuid(&d_b),
+            "the same rendered stream under different styles must not share a pack_uuid",
         );
     }
 
