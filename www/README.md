@@ -14,10 +14,35 @@ packs). The region is a bbox you type in.
 ```sh
 npm install
 npm run build:wasm        # needs the wasm32 target + wasm-bindgen-cli 0.2.127
+npm run vendor            # copies the runtime deps out of node_modules/
 npm run serve             # then open http://localhost:8080
 ```
 
-`build:wasm` writes `pkg/`, which is gitignored — it is a build product.
+`pkg/` and `vendor/` are both gitignored build products.
+
+## Deploying it
+
+```sh
+npm run build:site        # assembles dist/ — the whole site, ~1.4 MB
+```
+
+`dist/` is static and self-contained: no server, no bundler, nothing built
+at serve time. `.github/workflows/pages.yml` runs exactly these scripts
+and publishes it to GitHub Pages on a push to `main`.
+
+**Why `vendor/` exists.** The page loads a handful of files out of
+`node_modules/`, which is neither in the repo nor deployable — importing
+from it works locally and 404s everywhere else. `scripts/vendor.sh`
+copies them into `vendor/`, so the dev layout and the deployed layout are
+the same layout.
+
+It copies more than the obvious entrypoints, and the reason is worth
+knowing: `maplibre-gl.mjs` imports `maplibre-gl-shared.mjs`, and MapLibre
+also spawns `maplibre-gl-worker.mjs` as a **Worker**. A missing worker
+does not throw — tile parsing simply never happens, the map never fires
+`idle`, and the build hangs with no error at all. So `vendor.sh` scans
+the vendored files for every `./*.mjs` reference rather than only static
+imports, and fails if one is unaccounted for.
 
 ## Checking it
 

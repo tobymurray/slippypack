@@ -12,7 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { firefox } from 'playwright';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, '..');
+// --root lets this verify the assembled dist/ as well as the source
+// tree, so what gets deployed is what gets tested.
+const ROOT = path.resolve(HERE, '..', process.argv.includes('--root') ? process.argv[process.argv.indexOf('--root') + 1] : '.');
 const MIME = {
   '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript',
   '.json': 'application/json', '.css': 'text/css', '.wasm': 'application/wasm',
@@ -23,12 +25,12 @@ const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
   return i === -1 ? fallback : process.argv[i + 1];
 };
-const OUT = path.resolve(ROOT, arg('out', '../target/browser.rawtiles'));
+const OUT = path.resolve(HERE, '..', arg('out', '../target/browser.rawtiles'));
 const BBOX = arg('bbox', '-76.015,44.590,-75.889,44.662').split(',').map(Number);
 const LADDER = arg('ladder', '12-16').split('-').map(Number);
 
 if (!fs.existsSync(path.join(ROOT, 'pkg', 'slippypack_web.js'))) {
-  console.error('pkg/ is missing — run scripts/build-wasm.sh first');
+  console.error(`pkg/ is missing under ${ROOT} — run scripts/build-wasm.sh first`);
   process.exit(1);
 }
 

@@ -1,0 +1,85 @@
+name: Deploy www to GitHub Pages
+
+# The browser front-end is a static site with two build products that are
+# deliberately not in the repo: the WASM module (built from Rust) and the
+# vendored runtime dependencies (copied out of node_modules). Both are
+# assembled here, so what deploys is built from source rather than from
+# whatever happened to be on someone's machine.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'www/**'
+      - 'crates/slippypack-core/**'
+      - 'crates/slippypack-web/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it midway; a
+# half-published site is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Must match the wasm-bindgen version in crates/slippypack-web/Cargo.toml
+      # or the generated glue and the module disagree at runtime.
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
+
+      # binaryen for wasm-opt. Note that wasm-opt fails to validate this
+      # module without --all-features (DECISIONS.md E-001); build-wasm.sh
+      # passes it.
+      - name: Install binaryen
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: www/package-lock.json
+
+      - name: Install JS dependencies
+        working-directory: www
+        run: npm ci
+
+      - name: Build WASM
+        working-directory: www
+        run: ./scripts/build-wasm.sh
+
+      - name: Assemble site
+        working-directory: www
+        run: ./scripts/build-site.sh
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: www/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

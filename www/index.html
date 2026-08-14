@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>slippypack — build a map pack</title>
-<link rel="stylesheet" href="./node_modules/maplibre-gl/dist/maplibre-gl.css">
+<link rel="stylesheet" href="./vendor/maplibre-gl.css">
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 46rem; }
@@ -48,9 +48,9 @@
 <script type="importmap">
 {
   "imports": {
-    "maplibre-gl": "./node_modules/maplibre-gl/dist/maplibre-gl.mjs",
-    "pmtiles": "./node_modules/pmtiles/dist/esm/index.js",
-    "fflate": "./node_modules/fflate/esm/browser.js"
+    "maplibre-gl": "./vendor/maplibre-gl.mjs",
+    "pmtiles": "./vendor/pmtiles.js",
+    "fflate": "./vendor/fflate.js"
   }
 }
 </script>

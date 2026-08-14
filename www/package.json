@@ -5,6 +5,8 @@
   "description": "Browser front-end: renders a region and writes a .rawtiles pack, with no server",
   "scripts": {
     "build:wasm": "./scripts/build-wasm.sh",
+    "vendor": "./scripts/vendor.sh",
+    "build:site": "./scripts/build-site.sh",
     "serve": "npx --yes serve -l 8080 .",
     "verify": "node scripts/verify-e2e.mjs"
   },
