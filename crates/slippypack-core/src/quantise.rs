@@ -255,6 +255,236 @@ impl Quantiser for Rgb565 {
     }
 }
 
+/// One entry of a declared palette: the sRGB colour a style paints with,
+/// and the ABGR2222 byte a pixel of that colour must become.
+///
+/// The pairing is the point. A palette-first style paints in colours
+/// chosen *because* they are the sRGB renderings of specific ABGR2222
+/// codes, so the mapping is declared by the style author rather than
+/// derived by the quantiser. See `MAP_CARTOGRAPHY_SPEC.md` § 3, whose
+/// `preview` column is `rgb` here and whose `byte` column is `code`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaletteSlot {
+    /// The style's declared sRGB colour, R-G-B.
+    pub rgb: [u8; 3],
+    /// The ABGR2222 byte pixels of that colour quantise to.
+    pub code: u8,
+}
+
+/// Errors from constructing an [`Abgr2222Palette`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PaletteError {
+    /// No slots were declared. A palette quantiser with nothing to snap
+    /// to has no defined output.
+    Empty,
+    /// A slot's code does not have both alpha bits set. v1 packs are
+    /// opaque (§ 9.1), so every declared code must be `0b11xx_xxxx`.
+    NotOpaque { index: usize, code: u8 },
+    /// Two slots declare the same sRGB colour. Nearest-slot search would
+    /// be resolved by declaration order rather than by the palette,
+    /// which makes the output depend on something the style does not
+    /// express. Rejected rather than silently ordered.
+    DuplicateColour { first: usize, second: usize },
+}
+
+impl core::fmt::Display for PaletteError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::Empty => f.write_str("palette declares no slots"),
+            Self::NotOpaque { index, code } => write!(
+                f,
+                "palette slot {index} declares code {code:#04x}, which is not opaque \
+                 (v1 packs require both alpha bits set)",
+            ),
+            Self::DuplicateColour { first, second } => write!(
+                f,
+                "palette slots {first} and {second} declare the same sRGB colour",
+            ),
+        }
+    }
+}
+
+impl core::error::Error for PaletteError {}
+
+/// The palette-snapping ABGR2222 quantiser: map each pixel to the
+/// **nearest declared slot**, not to the nearest of all 64 codes.
+///
+/// # Why this exists
+///
+/// The canonical [`Abgr2222`] quantiser is the right answer when the
+/// input is an arbitrary raster whose colours were not chosen with the
+/// panel in mind. It is the wrong answer for a palette-first render,
+/// for a measured reason: a renderer that anti-aliases perturbs a small
+/// fraction of pixels off the declared colours, and nearest-of-64 maps
+/// those perturbed pixels to codes the style never declared — which
+/// lengthens the code count, shortens RLE runs, and breaks the
+/// blit-time LUT restyle that depends on one code per feature class
+/// (`MAP_CARTOGRAPHY_SPEC.md` § 3 R4, § 9).
+///
+/// Snapping to the declared slots instead recovers the no-anti-aliasing
+/// result: same code count, same LUT behaviour, ~+0.2 % bytes. That is
+/// the 2026-08-07 investigation's E5, and it is what removes "write a
+/// custom aliased rasteriser" from the render pipeline's risk list.
+/// The 2026-08-14 X4 investigation measured the residual on real
+/// rendered content at 0.01 % of pixels.
+///
+/// # It also sidesteps C0
+///
+/// [`quantise_pixel`]'s thresholds encode a display model — quanta
+/// "displayed as {0, 85, 170, 255}" — that the LS012B7DD06A panel
+/// contradicts, because its area gradation makes the levels linear in
+/// reflectance rather than in sRGB code (E8). Palette snapping never
+/// consults those thresholds: it goes from a declared colour to a
+/// declared code directly, so a style whose slots were chosen against
+/// the panel's real transfer function stays correct regardless of how
+/// the canonical path is eventually fixed.
+///
+/// # Determinism
+///
+/// Integer-only, like every quantiser here: distances are computed as
+/// `u32` sums of squared channel differences, so there is no float and
+/// no architecture-dependent rounding. Ties resolve to the
+/// lowest-numbered slot, which makes the output a pure function of the
+/// declared palette's *order* as well as its contents — construct it
+/// from the style's slot order and it is reproducible.
+///
+/// # Identity
+///
+/// The palette changes the output bytes, so it is part of what makes a
+/// pack. It is **not** captured by [`Self::VERSION`] — a version number
+/// cannot express caller-supplied data. It must reach the canonical
+/// descriptor through `style_hash`, which is where the style that
+/// declares the palette is already hashed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Abgr2222Palette {
+    slots: alloc::vec::Vec<PaletteSlot>,
+}
+
+impl Abgr2222Palette {
+    /// Quantiser version. Bumped on any output-byte change.
+    ///
+    /// **3, not 2.** `quantiser_version` is a single flat namespace
+    /// across every RGB888→codes mapping, and **2 is reserved** for the
+    /// linear-reflectance revision of the *canonical* quantiser
+    /// (`MAP_DELIVERY_WORKFLOW.md` change C0, unimplemented). Palette
+    /// snapping is an orthogonal axis — *which* mapping, not *which*
+    /// display model — but the descriptor has one field for both, so
+    /// they must not collide. See `DECISIONS.md` Q-009.
+    pub const VERSION: u32 = 3;
+    /// Pixel-format enum byte for ABGR2222 — the same target format as
+    /// [`Abgr2222`]; only the mapping differs.
+    pub const PIXEL_FORMAT: u8 = 1;
+    /// One output byte per pixel.
+    pub const BYTES_PER_PIXEL: usize = 1;
+
+    /// Build a palette quantiser from the style's declared slots, in the
+    /// style's own order.
+    ///
+    /// # Errors
+    ///
+    /// - [`PaletteError::Empty`] if `slots` is empty.
+    /// - [`PaletteError::NotOpaque`] if any code lacks both alpha bits.
+    /// - [`PaletteError::DuplicateColour`] if two slots declare the same
+    ///   sRGB colour.
+    ///
+    /// Two slots sharing a *code* is explicitly allowed: the cartography
+    /// spec's `halo` and `paper` are both `0xFF`, and `road_major` and
+    /// `ink` are both `0xC0`.
+    pub fn new(slots: &[PaletteSlot]) -> Result<Self, PaletteError> {
+        if slots.is_empty() {
+            return Err(PaletteError::Empty);
+        }
+        for (index, slot) in slots.iter().enumerate() {
+            if slot.code & 0b1100_0000 != 0b1100_0000 {
+                return Err(PaletteError::NotOpaque {
+                    index,
+                    code: slot.code,
+                });
+            }
+        }
+        for (second, slot) in slots.iter().enumerate() {
+            if let Some(first) = slots[..second].iter().position(|s| s.rgb == slot.rgb) {
+                return Err(PaletteError::DuplicateColour { first, second });
+            }
+        }
+        Ok(Self {
+            slots: slots.to_vec(),
+        })
+    }
+
+    /// The declared slots, in declaration order.
+    #[must_use]
+    pub fn slots(&self) -> &[PaletteSlot] {
+        &self.slots
+    }
+
+    /// Snap one RGB888 pixel to the nearest declared slot's code.
+    ///
+    /// Distance is the squared Euclidean distance in sRGB, summed as
+    /// `u32`. The maximum possible value is `3 × 255²` = 195,075, so it
+    /// cannot overflow.
+    #[inline]
+    #[must_use]
+    pub fn snap_pixel(&self, r: u8, g: u8, b: u8) -> u8 {
+        let mut best_code = self.slots[0].code;
+        let mut best_distance = u32::MAX;
+        for slot in &self.slots {
+            let dr = u32::from(r.abs_diff(slot.rgb[0]));
+            let dg = u32::from(g.abs_diff(slot.rgb[1]));
+            let db = u32::from(b.abs_diff(slot.rgb[2]));
+            let distance = dr * dr + dg * dg + db * db;
+            if distance < best_distance {
+                best_distance = distance;
+                best_code = slot.code;
+                if distance == 0 {
+                    break;
+                }
+            }
+        }
+        best_code
+    }
+
+    /// Snap a flat RGB888 buffer (3 bytes per pixel) into a flat
+    /// ABGR2222 buffer (1 byte per pixel).
+    ///
+    /// # Panics
+    ///
+    /// - if `input.len()` is not a multiple of 3.
+    /// - if `output.len()` does not equal `input.len() / 3`.
+    pub fn snap_rgb888(&self, input: &[u8], output: &mut [u8]) {
+        assert!(
+            input.len().is_multiple_of(3),
+            "RGB888 input length ({}) must be a multiple of 3",
+            input.len(),
+        );
+        assert!(
+            output.len() == input.len() / 3,
+            "output length ({}) must equal input length / 3 ({})",
+            output.len(),
+            input.len() / 3,
+        );
+        for (out_byte, rgb) in output.iter_mut().zip(input.chunks_exact(3)) {
+            *out_byte = self.snap_pixel(rgb[0], rgb[1], rgb[2]);
+        }
+    }
+}
+
+impl Quantiser for Abgr2222Palette {
+    fn version(&self) -> u32 {
+        Self::VERSION
+    }
+    fn pixel_format(&self) -> u8 {
+        Self::PIXEL_FORMAT
+    }
+    fn bytes_per_pixel(&self) -> usize {
+        Self::BYTES_PER_PIXEL
+    }
+    fn quantise(&self, rgb888: &[u8], output: &mut [u8]) {
+        self.snap_rgb888(rgb888, output);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Abgr2222, QUANTISER_VERSION, Quantiser, quantise_pixel, quantise_rgb888};
@@ -605,5 +835,218 @@ mod tests {
         let input = [0_u8; 6]; // 2 pixels, so output must be 4 bytes
         let mut output = [0_u8; 2]; // wrong
         super::quantise_rgb888_to_rgb565(&input, &mut output);
+    }
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::{Abgr2222, Abgr2222Palette, PaletteError, PaletteSlot, Quantiser};
+
+    /// The subset of `MAP_CARTOGRAPHY_SPEC.md` § 3 that a pack may carry:
+    /// 14 named slots minus `trace` (R5 — app-drawn, never baked), with
+    /// `halo` == `paper` and `road_major` == `ink` collapsing to 11
+    /// distinct codes across 11 distinct colours.
+    fn watch_palette() -> [PaletteSlot; 11] {
+        [
+            PaletteSlot { rgb: [0xFF, 0xFF, 0xFF], code: 0xFF }, // paper / halo
+            PaletteSlot { rgb: [0xE9, 0xF6, 0xE8], code: 0xEE }, // landuse
+            PaletteSlot { rgb: [0xD0, 0xED, 0xCD], code: 0xDD }, // wood_lt
+            PaletteSlot { rgb: [0xD7, 0xD7, 0xD7], code: 0xEA }, // building
+            PaletteSlot { rgb: [0x93, 0xCA, 0xB5], code: 0xD8 }, // wood
+            PaletteSlot { rgb: [0x62, 0xB7, 0xD5], code: 0xF4 }, // water
+            PaletteSlot { rgb: [0xA5, 0x94, 0x7A], code: 0xC5 }, // contour
+            PaletteSlot { rgb: [0x00, 0x84, 0xC2], code: 0xF0 }, // water_dk
+            PaletteSlot { rgb: [0x87, 0x41, 0x49], code: 0xC1 }, // road_minor
+            PaletteSlot { rgb: [0x28, 0x5B, 0x7D], code: 0xD0 }, // path
+            PaletteSlot { rgb: [0x38, 0x38, 0x38], code: 0xC0 }, // road_major / ink
+        ]
+    }
+
+    #[test]
+    fn empty_palette_is_rejected() {
+        assert_eq!(Abgr2222Palette::new(&[]), Err(PaletteError::Empty));
+    }
+
+    #[test]
+    fn non_opaque_code_is_rejected() {
+        let slots = [PaletteSlot { rgb: [1, 2, 3], code: 0x3F }];
+        assert_eq!(
+            Abgr2222Palette::new(&slots),
+            Err(PaletteError::NotOpaque { index: 0, code: 0x3F }),
+        );
+    }
+
+    #[test]
+    fn duplicate_colour_is_rejected() {
+        let slots = [
+            PaletteSlot { rgb: [0x38, 0x38, 0x38], code: 0xC0 },
+            PaletteSlot { rgb: [0xFF, 0xFF, 0xFF], code: 0xFF },
+            PaletteSlot { rgb: [0x38, 0x38, 0x38], code: 0xC1 },
+        ];
+        assert_eq!(
+            Abgr2222Palette::new(&slots),
+            Err(PaletteError::DuplicateColour { first: 0, second: 2 }),
+        );
+    }
+
+    /// Two slots may share a code — the spec's own palette does, twice.
+    #[test]
+    fn duplicate_code_is_allowed() {
+        let slots = [
+            PaletteSlot { rgb: [0xFF, 0xFF, 0xFF], code: 0xFF }, // paper
+            PaletteSlot { rgb: [0xFE, 0xFE, 0xFE], code: 0xFF }, // a second slot, same code
+        ];
+        assert!(Abgr2222Palette::new(&slots).is_ok());
+    }
+
+    #[test]
+    fn a_declared_colour_snaps_to_its_own_code() {
+        let palette = Abgr2222Palette::new(&watch_palette()).unwrap();
+        for slot in watch_palette() {
+            assert_eq!(
+                palette.snap_pixel(slot.rgb[0], slot.rgb[1], slot.rgb[2]),
+                slot.code,
+                "slot {:02X?} did not snap to its own code",
+                slot.rgb,
+            );
+        }
+    }
+
+    /// The E5 property, and the reason the mode exists: an anti-aliased
+    /// edge produces colours between two declared slots, and every one of
+    /// them must come back as a *declared* code — never as some third
+    /// code the style never asked for.
+    #[test]
+    fn anti_aliased_blends_only_ever_produce_declared_codes() {
+        let palette = Abgr2222Palette::new(&watch_palette()).unwrap();
+        let declared: alloc::vec::Vec<u8> = watch_palette().iter().map(|s| s.code).collect();
+        // A 4 px major road (ink) over paper, anti-aliased at both edges.
+        let ink = [0x38, 0x38, 0x38];
+        let paper = [0xFF, 0xFF, 0xFF];
+        for step in 0..=255_u32 {
+            let blend = |a: u8, b: u8| {
+                u8::try_from((u32::from(a) * (255 - step) + u32::from(b) * step) / 255).unwrap()
+            };
+            let code = palette.snap_pixel(
+                blend(ink[0], paper[0]),
+                blend(ink[1], paper[1]),
+                blend(ink[2], paper[2]),
+            );
+            assert!(
+                declared.contains(&code),
+                "blend step {step} produced undeclared code {code:#04x}",
+            );
+        }
+    }
+
+    /// The contrast with the canonical quantiser, which is the whole
+    /// point: nearest-of-64 invents codes the style never declared.
+    #[test]
+    fn canonical_quantiser_invents_codes_where_palette_snap_does_not() {
+        let palette = Abgr2222Palette::new(&watch_palette()).unwrap();
+        let declared: alloc::vec::Vec<u8> = watch_palette().iter().map(|s| s.code).collect();
+        // A dark grey off an anti-aliased `ink`-on-`paper` edge. The
+        // canonical path sends it to 0xD5 — a code this style never
+        // declared, and one no LUT variant has an entry for.
+        let (r, g, b) = (0x50, 0x50, 0x50);
+        let canonical = super::quantise_pixel(r, g, b);
+        assert_eq!(canonical, 0xD5);
+        assert!(
+            !declared.contains(&canonical),
+            "expected the canonical path to leave the declared set",
+        );
+        assert!(declared.contains(&palette.snap_pixel(r, g, b)));
+    }
+
+    #[test]
+    fn ties_resolve_to_the_lowest_numbered_slot() {
+        // Two slots equidistant from the probe: 10 below and 10 above.
+        let slots = [
+            PaletteSlot { rgb: [0x40, 0x40, 0x40], code: 0xC0 },
+            PaletteSlot { rgb: [0x54, 0x54, 0x54], code: 0xC1 },
+        ];
+        let palette = Abgr2222Palette::new(&slots).unwrap();
+        assert_eq!(palette.snap_pixel(0x4A, 0x4A, 0x4A), 0xC0);
+
+        // Reversing declaration order reverses the winner — which is why
+        // the palette's order is part of the pack's identity.
+        let reversed = Abgr2222Palette::new(&[slots[1], slots[0]]).unwrap();
+        assert_eq!(reversed.snap_pixel(0x4A, 0x4A, 0x4A), 0xC1);
+    }
+
+    /// `quantiser_version` is one flat namespace shared by every
+    /// mapping, and 2 is held for C0's linear-reflectance canonical
+    /// quantiser. Anything that lands on 2 here is a `pack_uuid`
+    /// collision waiting to happen.
+    #[test]
+    fn version_two_stays_reserved_for_the_canonical_quantisers_c0_revision() {
+        assert_eq!(Abgr2222Palette::VERSION, 3);
+        assert_ne!(Abgr2222Palette::VERSION, 2);
+        assert_ne!(Abgr2222::VERSION, 2);
+    }
+
+    #[test]
+    fn trait_impl_reports_abgr2222_shape_with_its_own_version() {
+        let palette = Abgr2222Palette::new(&watch_palette()).unwrap();
+        assert_eq!(palette.pixel_format(), Abgr2222::PIXEL_FORMAT);
+        assert_eq!(palette.bytes_per_pixel(), Abgr2222::BYTES_PER_PIXEL);
+        assert_ne!(
+            palette.version(),
+            Abgr2222::VERSION,
+            "palette snapping is a different mapping and must not share a \
+             quantiser_version with the canonical path",
+        );
+    }
+
+    #[test]
+    fn buffer_snap_matches_pixel_snap() {
+        let palette = Abgr2222Palette::new(&watch_palette()).unwrap();
+        let input = [
+            0xFF, 0xFF, 0xFF, // paper
+            0x38, 0x38, 0x38, // ink
+            0x63, 0xB8, 0xD4, // one off water
+            0x9B, 0x9B, 0x9B, // mid anti-aliased edge
+        ];
+        let mut output = [0_u8; 4];
+        palette.quantise(&input, &mut output);
+        assert_eq!(output, [0xFF, 0xC0, 0xF4, palette.snap_pixel(0x9B, 0x9B, 0x9B)]);
+    }
+
+    /// Locks the byte output. Any change here means bumping
+    /// `Abgr2222Palette::VERSION`, because it changes every pack.
+    #[test]
+    fn determinism_committed_output_for_the_watch_palette() {
+        let palette = Abgr2222Palette::new(&watch_palette()).unwrap();
+        let mut input = alloc::vec::Vec::new();
+        for i in 0..32_u8 {
+            input.extend_from_slice(&[i.wrapping_mul(7), i.wrapping_mul(11), i.wrapping_mul(13)]);
+        }
+        let mut output = [0_u8; 32];
+        palette.quantise(&input, &mut output);
+        let expected: [u8; 32] = [
+            0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xD0, 0xD0, 0xD0, 0xD0, 0xD0, 0xD0, 0xF4,
+            0xF4, 0xF4, 0xF4, 0xF4, 0xF4, 0xF4, 0xC5, 0xC5, 0xC5, 0xC5, 0xC1, 0xC1, 0xC1, 0xC1,
+            0xC1, 0xC1, 0xC5, 0xC5,
+        ];
+        assert_eq!(
+            output, expected,
+            "palette-snap output drifted; bump Abgr2222Palette::VERSION if intentional",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "must be a multiple of 3")]
+    fn buffer_rejects_non_multiple_of_3_input() {
+        let palette = Abgr2222Palette::new(&watch_palette()).unwrap();
+        let mut output = [0_u8; 1];
+        palette.quantise(&[0_u8; 4], &mut output);
+    }
+
+    #[test]
+    #[should_panic(expected = "must equal input length / 3")]
+    fn buffer_rejects_output_size_mismatch() {
+        let palette = Abgr2222Palette::new(&watch_palette()).unwrap();
+        let mut output = [0_u8; 1];
+        palette.quantise(&[0_u8; 6], &mut output);
     }
 }
