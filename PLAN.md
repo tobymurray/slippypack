@@ -695,7 +695,9 @@ Adds MapLibre GL JS as an interactive region picker. Presets (informed by the un
 - *This town/region* — 100 km radius, z9–14
 - *Whole country* — country bbox, z6–12
 
-Each preset shows estimated time, estimated size, area outline on the map. **Estimates are computed from `tile_count × per-tile-rate-ms` for time, and `tile_count × 16 KB` for raw size** (multiplied by an empirical compression factor once Phase 2.x compression lands); `per-tile-rate-ms` defaults to 500 ms (a deliberately conservative number for a typical HTTPS round-trip on a residential connection) and is tweakable in Settings → Advanced → "Estimated tile fetch latency." The UI labels estimates as estimates, not commitments. **Source is still hardcoded at this phase** — the source-picker UX lands in Phase 6.
+Each preset shows estimated time, estimated size, area outline on the map. **Estimates are computed from `tile_count × per-tile-rate-ms` for time, and `tile_count × 16 KB` for raw size** (multiplied by an empirical compression factor once Phase 2.x compression lands). The UI labels estimates as estimates, not commitments.
+
+**`per-tile-rate-ms` is ~2 ms, not 500 ms.** The original 500 ms default assumed one HTTPS round trip per pack tile, which is how a URL-template raster build works. A browser-rendered build has no per-tile round trip at all: the fetch unit is a vector tile covering 16 pack tiles, and the render unit is a block of 256. The 2026-08-14 X4 investigation measured **2.2 ms/tile cold** end to end, render through RLE (`Docs/Investigations/2026-08-14-x4-browser-render/`, F4). Keep the setting tweakable, but a 500 ms default would quote 20 minutes for a nine-second job and talk users out of pressing the button. **Source is still hardcoded at this phase** — the source-picker UX lands in Phase 6.
 
 ### Phase 6 — Source picker
 

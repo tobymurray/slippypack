@@ -89,6 +89,82 @@ This is a hot-path function called per pixel; size mismatches are caller bugs, n
 **Manifests:** `crates/slippypack-core/src/quantise.rs::quantise_rgb888` (`assert!` on `input.len() % 3 == 0` and `output.len() == input.len() / 3`).
 **Commit:** `cdd611d`.
 
+### Q-008 — `Abgr2222Palette`: snap to declared slots, not to nearest-of-64
+A palette-first style paints in colours chosen *because* they are the sRGB renderings of specific ABGR2222 codes. Quantising that render with the canonical nearest-of-64 path defeats the point: a renderer that anti-aliases perturbs a fraction of pixels off the declared colours, and nearest-of-64 maps those to codes the style never declared — lengthening the code count, shortening RLE runs, and breaking the one-code-per-feature-class rule (`MAP_CARTOGRAPHY_SPEC.md` § 3 R4) that the blit-time LUT restyle depends on.
+
+Snapping to the declared slots recovers the no-anti-aliasing result: same code count, same LUT behaviour, ~+0.2 % bytes (2026-08-07 investigation E5). Measured on real rendered content the residual is 0.01 % of pixels (2026-08-14 X4 investigation, E4-3). This is what removes "write a custom aliased rasteriser" from the render pipeline's risk list.
+
+**It also sidesteps C0.** `quantise_pixel`'s thresholds encode a display model — quanta displayed as `{0, 85, 170, 255}` — that the LS012B7DD06A contradicts, because area gradation makes its levels linear in reflectance (E8). Palette snapping never consults those thresholds; it goes declared-colour → declared-code directly, so a style whose slots were chosen against the panel's real transfer function stays correct however the canonical path is eventually fixed.
+
+**Construction is validated, not trusted**: empty palettes, codes without both alpha bits (v1 packs are opaque), and duplicate colours are all rejected. Duplicate *codes* are allowed — the cartography spec's own palette has two (`halo` = `paper`, `road_major` = `ink`). Duplicate colours are not, because the nearest-slot search would then be resolved by declaration order rather than by anything the style expresses.
+
+**The palette is not captured by `VERSION`.** A version number cannot express caller-supplied data, and the palette changes every output byte. It reaches the descriptor through `style_hash`, which is where the style that declares it is already hashed.
+
+**Manifests:** `crates/slippypack-core/src/quantise.rs::{Abgr2222Palette, PaletteSlot, PaletteError}`; `palette_tests::anti_aliased_blends_only_ever_produce_declared_codes` locks the E5 property.
+**Commit:** to land with the palette-quantiser slice.
+
+### Q-009 — `quantiser_version` 2 is reserved for C0; palette snapping takes 3
+`quantiser_version` is a single flat namespace in the canonical descriptor, shared by every RGB888→codes mapping. `MAP_DELIVERY_WORKFLOW.md`'s change C0 proposes `quantiser_version = 2` for a linear-reflectance revision of the *canonical* quantiser; that change is unimplemented but specified, so taking 2 for palette snapping would guarantee a future `pack_uuid` collision between two genuinely different mappings.
+
+Palette snapping is an orthogonal axis to C0 — *which mapping* versus *which display model* — and the descriptor has one field for both. The field cannot express orthogonality, so the numbering must: canonical = 1, C0's linear-reflectance canonical = 2 (**reserved, do not take**), palette-snap = 3.
+
+**Manifests:** `crates/slippypack-core/src/quantise.rs::Abgr2222Palette::VERSION`; `palette_tests::version_two_stays_reserved_for_the_canonical_quantisers_c0_revision`.
+**Commit:** to land with the palette-quantiser slice.
+
+---
+
+## B — Builder module
+
+### B-001 — The tile→pack pipeline lives in `slippypack-core`, not in either front-end
+`format` gives a writer that takes already-encoded tile bytes. Everything between rendered pixels and that writer — hashing, quantising, compressing — has to live somewhere, and it has to be *one* somewhere. "One core library, two front-ends, both writing byte-identical packs" (README) is false the moment the CLI quantises in Rust and the PWA quantises in JavaScript: they would agree on the container and disagree on the pixels, which is the one disagreement `pack_uuid` cannot express.
+
+So `PackBuilder` is in core and `slippypack-web` is a facade over it. The CLI will adopt the same builder when the `dir` / `pmtiles` / `style` sources land; today it still has its own per-tile path for the `url` source.
+
+**Manifests:** `crates/slippypack-core/src/builder.rs::{PackBuilder, PackBuilderConfig, BuilderError}`.
+**Commit:** to land with the builder slice.
+
+### B-002 — Tiles must be fed in ascending `(z, x, y)`; out-of-order is an error, not a sort
+The source `content_hash` is the SHA-256 of a byte *stream*, so the stream's order is part of the value. Sorted `(z, x, y)` is the only order that is a property of the pack (it is the spec § 5.2 index order) rather than a property of whatever loop the caller happened to write.
+
+The builder could sort internally, but only by buffering every tile's pre-quantisation RGB888 — 2.5 GiB for the metro-scale pack the X4 investigation measured. Enforcing the order instead pushes that cost to the caller, who can pay it selectively: a block renderer needs to buffer one block-row, not the whole pack.
+
+Equal keys are rejected too — a duplicate tile is not sorted, and the writer would reject it anyway.
+
+**Manifests:** `crates/slippypack-core/src/builder.rs::PackBuilder::add_tile_rgb888` (`BuilderError::OutOfOrder`); `builder::tests::feed_order_changes_the_content_hash` exists to make the consequence undeniable.
+**Commit:** to land with the builder slice.
+
+### B-003 — `finish` takes a caller-supplied `PackDescriptor` rather than building one
+Which `Source` variant describes "a vector archive rendered through a style" is an open question against the rawtiles spec — its § A.4 classifies `pmtiles` and `mbtiles` as *raster* sources and reserves vector rendering for a future minor (tracked as change C3). A module that assembled the descriptor itself would answer that question by accident, and every pack ever built would inherit the answer.
+
+Instead the builder computes what only it can compute — `rendered_content_hash()` — and the caller places it. `finish` then checks the descriptor against the build (`tile_dim_px`, `zoom_range`, `pixel_format`, `quantiser_version`) and refuses a mismatch, because a descriptor that contradicts the build derives a `pack_uuid` for a pack nobody made.
+
+**Manifests:** `crates/slippypack-core/src/builder.rs::PackBuilder::{rendered_content_hash, finish}` (`BuilderError::DescriptorMismatch`).
+**Commit:** to land with the builder slice.
+
+### B-004 — RGBA8888 entry point; alpha is dropped, and non-opaque is an error
+A canvas `ImageData.data` is RGBA8888 in memory order (byte 0 red, byte 3 alpha), fixed by the HTML spec regardless of endianness — not "ARGB8888", which names the integer `0xAARRGGBB` and is `B, G, R, A` in memory on a little-endian machine, and not the pack's own `ABGR2222`, which is packed bits with alpha high. Three similar names, three layouts.
+
+Demanding RGB888 at the boundary would make JavaScript repack 4 bytes to 3 across the whole readback — ~52 MB for a trail pack, ~3.4 GB for a metro one, on the main thread, to discard a byte Rust can skip for free. So the builder takes the layout the browser has and strips alpha itself. The § A.4 hash is still over the RGB888 that remains, so both entry points produce byte-identical packs.
+
+A pixel that is not fully opaque is rejected rather than silently flattened: v1 packs are opaque, so transparency means the page rendered with no opaque ground beneath it and the colour channels are not what anyone intended.
+
+**Manifests:** `crates/slippypack-core/src/builder.rs::PackBuilder::add_tile_rgba8888` (`BuilderError::NotOpaque`); `builder::tests::rgba_and_rgb_inputs_produce_identical_packs`.
+**Commit:** to land with the builder slice.
+
+---
+
+## E — Web module (slippypack-web)
+
+### E-001 — `slippypack-web` is a `wasm-bindgen` facade with no pipeline of its own
+Per B-001, every byte-producing decision is in core. What the crate adds is the JS boundary: the RGBA-shaped entry point, degrees→microdegrees conversion, palette marshalling from two flat typed arrays, and descriptor assembly.
+
+Evidence the facade stays thin: the `wasm32-unknown-unknown` release build is **45.9 KB gzipped** after `wasm-opt -Oz`, against PLAN.md § Phase 4's 500 KB budget. The `image` crate — pulled in by core for the CLI's decode path — is dead-code-eliminated entirely, because the render path never decodes anything.
+
+**Build gotcha for CI**: `wasm-opt` 116 fails validation on this module unless passed `--all-features`. `wasm-pack` bundles its own and handles this; a hand-rolled build step will not.
+
+**Manifests:** `crates/slippypack-web/src/lib.rs::PackBuilder`; `crates/slippypack-web/Cargo.toml` (`wasm-bindgen`).
+**Commit:** to land with the WASM-facade slice.
+
 ---
 
 ## P — Projection module
@@ -1032,8 +1108,29 @@ Bug closed by review. `Source::Style { zoom_min, zoom_max }` had no content iden
 
 **Note on the top-level `style_hash` field** (PackDescriptor): this is *separate* and remains as-is. The top-level field captures the SHA-256 of the `--style` flag applied to a non-style source (typically a PBF), where the style is *external* to the source. `Source::Style`'s `content_hash` captures the SHA-256 of the style file that IS the source data (a `style:///path/to/style.json` source renders directly from the style's embedded `sources`). Two distinct concepts; both belong in the descriptor.
 
+**Superseded in part by I-011**, which keeps the field but changes what it hashes: `Source::Style::content_hash` is now the rendered pre-quantisation RGB888 stream, and the style JSON's hash moves to the top-level `style_hash` for `style://` sources as well. The collision this entry closed stays closed; I-011 closes a second one it did not anticipate.
+
 **Manifests**: `crates/slippypack-core/src/identity.rs::Source::Style`; serializer now uses `write_file_kind` for Style (same shape as the other file-backed kinds); new test `style_source_with_different_content_hash_changes_pack_uuid` locks the collision-closure.
 **Commit**: to land with the Style content_hash slice.
+
+### I-011 — `Source::Style::content_hash` is the rendered pixel stream; the style JSON's hash moves to `style_hash`
+Refines I-010. That entry made `Source::Style` carry a `content_hash` — the SHA-256 of the style JSON — on the reasoning that for a `style://` source the style *is* the data. The 2026-08-14 X4 investigation showed that reasoning is incomplete: **a style does not determine its output pixels on its own.** Finding F6 measured the same style, same source, same bbox, rendered with a different tile-block size, differing by 2–7 pixels out of 16,384 per tile on anti-aliased edges. Hashing only the style gives those two packs the same `pack_uuid` while their bytes differ, which is precisely what `pack_uuid` exists to prevent.
+
+So the two identities are separated:
+
+- `Source::Style::content_hash` — SHA-256 of the **pre-quantisation RGB888 stream**, in sorted `(z, x, y)` order. This is the same rule spec § A.4 gives every other file-backed source, applied to a source whose "file" is a render.
+- `PackDescriptor::style_hash` — SHA-256 of the **MapLibre Style Spec JSON**, now populated for `style://` sources too, not only for a `--style` flag over a separate vector source.
+
+A pack is therefore identified by both what was rendered and what rendered it. Either changing alone changes the `pack_uuid`.
+
+**The alternative was to pin the renderer's block size** as a pipeline constant, so a given style has exactly one rendering and the gap cannot open. That is cheaper but weaker: it makes pack identity depend on a convention held outside the format, and it silently breaks the day anyone tunes the block size for memory or throughput. Hashing the render needs no convention.
+
+**Breaking change**, taken deliberately while slippypack has no external users and no published packs. Any pack built before this derives a different `pack_uuid` after it.
+
+**Does not resolve C3.** The rawtiles spec still has no descriptor shape for a vector source rendered through a style; this is slippypack choosing a defensible reading of the shape it has. C3 remains the durable fix.
+
+**Manifests**: `crates/slippypack-core/src/identity.rs::Source::Style` and `PackDescriptor::style_hash` (doc contracts); `crates/slippypack-web/src/lib.rs::PackBuilder::finish` (populates both); tests `style_source_with_different_content_hash_changes_pack_uuid` and `same_render_under_a_different_style_changes_pack_uuid` lock the two halves.
+**Commit**: to land with the WASM-facade slice.
 
 ### V-004 — `Quantiser` trait names the pixel-format seam; only `Abgr2222` ships in v1
 Triggered by the broader-device-usefulness review. The format itself supports multiple pixel formats (the `pixel_format` byte is an enum), but the quantiser monoculture meant slippypack only produced ABGR2222 output. Adding a `Quantiser` trait now (purely additive — `quantise_rgb888` and `QUANTISER_VERSION` stay) names the seam where RGB565 / RGB888 / indexed-palette quantisers can land later as companion impls without touching `slippypack-core`'s public surface.

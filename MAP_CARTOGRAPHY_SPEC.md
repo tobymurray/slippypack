@@ -213,7 +213,10 @@ here is the justification it was missing. At latitude 45°:
 | z16 | 1.69 | 405 m | junction detail |
 
 z17 (203 m across) is below the useful range for someone moving at 3–5 m/s — the map would
-be off-screen before it is read. **z16 is the floor.**
+be off-screen before it is read. **z16 is the floor** — and it is the *data's* floor too:
+the Protomaps planet's vector tiles stop at z15, which is exactly the source zoom this
+ladder's finest level renders from (X4, F3). A finer level would render overzoomed
+geometry — legible, but carrying no detail the pack does not already have.
 
 The 4×-per-level fear is overstated: E3 measured RLE ratios falling with zoom (30.3 % at
 z12 → 6.0 % at z16), so **adding a zoom level costs ≈ 2.2×, not 4×.**
@@ -223,6 +226,20 @@ z12 → 6.0 % at z16), so **adding a zoom level costs ≈ 2.2×, not 4×.**
 (`una-sdk/cmake/una-app.cmake:281`) spent on tile cache alone. At 128 px a tile is 16 KiB
 and the worst case is nine tiles = 144 KiB. It also lifts the 4 GiB cap's tile ceiling from
 65,516 to 261,824 (`RAWTILES_SPEC_ADEQUACY.md` E2).
+
+**Halving `tile_dim` shifts the tile grid up one level — it is not free.** The m/px column
+above is the *256 px* tile scale, which is what the Athens fixture is. `slippypack-core`'s
+projection is plain slippy XYZ with no `tile_dim` coupling
+(`crates/slippypack-core/src/projection/mercator.rs:42` — `lonlat_to_tile(lon, lat, zoom)`),
+so keeping the same zoom range and halving the tile size **halves the ground resolution**:
+the z14 row would deliver 13.5 m/px, not 6.75. To render the ladder as declared at
+`tile_dim` 128, the tile grid must be **slippy levels 13–17**, and a pack's zoom range
+should be written that way.
+
+The cost is 4× the tiles for the same ground, which the 2026-08-14 X4 investigation (F2)
+measured on the Saturday-run region: **2,467 tiles and 2.11 MiB**, against the 687 tiles
+and 0.8 MiB that `MAP_DELIVERY_WORKFLOW.md` E7 costs it at. Every size figure derived from
+E7 — including its ~1 TB planet — inherits the same factor.
 
 ---
 
