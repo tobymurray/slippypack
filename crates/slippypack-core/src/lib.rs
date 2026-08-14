@@ -19,6 +19,7 @@
 // today so the transition is mechanical when it lands.
 extern crate alloc;
 
+pub mod builder;
 pub mod decode;
 pub mod format;
 pub mod identity;
