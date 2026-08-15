@@ -345,8 +345,18 @@ On acceptable wording:
 > OpenStreetMap.**"
 
 **Therefore, the watch obligation is concrete and cheap:** show the pack's `ATTR` string
-on map-app startup for ≥ 5 seconds, and keep the full licence text reachable from an About
-screen. No permanent on-map overlay is required, which matters when the map is 240×240.
+on map-app startup, and keep the full licence text reachable from an About screen. No
+permanent on-map overlay is required, which matters when the map is 240×240.
+
+**Five seconds is a floor on *automatic* collapse, not a minimum display time.** The
+guideline lists three alternative collapse conditions, and the first one is
+"**immediately** with a dismiss interaction". A screen the wearer presses a button to
+leave may therefore be dismissed at once; the five-second floor only governs attribution
+that collapses on its own with no interaction. An earlier draft of this appendix read the
+floor as a required duration, which would have forced a timed overlay on a 240×240 panel
+for no legal gain. Sources agree with the cheaper reading: OSM maps installed on Garmin
+devices credit `©OPENSTREETMAP.ORG` on a startup screen after "Loading Maps…", not as a
+map overlay.
 
 **Exact attribution strings a derived pack must carry.**
 

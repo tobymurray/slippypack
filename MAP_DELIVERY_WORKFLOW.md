@@ -85,8 +85,9 @@ be built** is marked 🔨 with its owner.
 6. **Owner ejects the drive safely, then unplugs.** ✅ *documented* — and the app verifies
    the pack's footer CRC on first open, which at measured device throughput (27.8 MiB/s,
    `RAWTILES_SPEC_ADEQUACY.md` E3) is **~1 s for a 29 MiB pack**.
-7. Map app now lists the pack. Attribution shows for 5 seconds on first open — which is
-   what the OSMF safe harbour requires and no more (`MAP_COMPLIANCE_APPENDIX.md` § 4).
+7. Map app now lists the pack. Attribution shows on a dismissible screen at app startup —
+   the OSMF safe harbour permits collapsing it *immediately* on a dismiss interaction, so
+   no timed overlay is owed (`MAP_COMPLIANCE_APPENDIX.md` § 4).
    🔨 *watch app — attribution display*
 
 ### 2.2 The specific-trail path (target: under 6 minutes)
@@ -225,7 +226,7 @@ bring, and "zero infrastructure" turns out to cost $15/month to abandon.
 |---|---|
 | pack discovery — scan `maps/`, list packs, show coverage | 🔨 new |
 | pack picker UI, and an empty state that tells a new owner what to do | 🔨 new |
-| attribution display — `ATTR` for ≥5 s on map open; About screen with `openstreetmap.org/copyright` as plain text | 🔨 new; requirement quoted in `MAP_COMPLIANCE_APPENDIX.md` § 4 |
+| attribution display — `ATTR` on a dismissible screen at app startup, sourced from the *installed* packs so it does not wait on a GPS fix; About screen with `openstreetmap.org/copyright` as plain text | 🔨 new; requirement quoted in `MAP_COMPLIANCE_APPENDIX.md` § 4 |
 | 64-entry palette LUT applied at blit time, with day/night/high-contrast/trail variants | 🔨 new; mechanism proven in simulation (E6), **per-frame cost unmeasured** |
 | footer-CRC verification on first open after copy | partly ✅ (reader validates); needs UI |
 | serialise USB-MSC writes against BLE sync | ⚠️ documented corruption mode; needs enforcement |
