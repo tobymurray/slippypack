@@ -19,16 +19,31 @@
 import { PALETTE_RGB, PALETTE_CODES } from './palette.js';
 import { lon2x, lat2y, x2lon, y2lat } from './tiles.js';
 
+/** Default pack tile size. MAP_CARTOGRAPHY_SPEC.md section 7 specifies 128
+ *  for the RAM reason (a 256 px ABGR2222 tile is 64 KiB, and a 240 px
+ *  viewport can straddle four).
+ *
+ *  It is a parameter and not a constant because the watch does not agree
+ *  yet: MapKit's MapMath::TILE_DIM is 256 and its mosaic arithmetic is
+ *  shifts by TILE_SHIFT = 8, so PackCatalog rejects any pack that is not
+ *  256. Until one side moves, building for a real watch means passing 256. */
 export const TILE_DIM = 128;
 
-/** Ladder zoom (the m/px figures in MAP_CARTOGRAPHY_SPEC.md section 7,
- *  which are the 256 px tile scale) to the slippy grid level a 128 px
- *  tile must sit on to deliver it. */
-export const ladderToGridLevel = (z) => z + 1;
+/** How many halvings from MapLibre's 512 px tile to ours. 128 → 2, 256 → 1. */
+const shiftFor = (tileDim) => Math.log2(512 / tileDim);
 
-/** MapLibre zoom that makes one grid-level-L tile exactly TILE_DIM px:
- *  the world is 512·2^Z px, so a level-L tile spans 512·2^(Z−L) px. */
-const maplibreZoomFor = (level) => level - 2;
+/** Ladder zoom (the m/px figures in MAP_CARTOGRAPHY_SPEC.md section 7, which
+ *  are the *256 px* tile scale) to the slippy grid level a tile of `tileDim`
+ *  px must sit on to deliver it.
+ *
+ *  At 256 px that is the ladder's own number. At 128 px the grid shifts up
+ *  one, because halving the tile at the same zoom would halve the ground
+ *  resolution — the finding recorded as F2. */
+export const ladderToGridLevel = (z, tileDim = TILE_DIM) => z + shiftFor(tileDim) - 1;
+
+/** MapLibre zoom that makes one grid-level-L tile exactly `tileDim` px: the
+ *  world is 512·2^Z px, so a level-L tile spans 512·2^(Z−L) px. */
+const maplibreZoomFor = (level, tileDim) => level - shiftFor(tileDim);
 
 export async function renderRegion({
   map,
@@ -36,9 +51,10 @@ export async function renderRegion({
   bbox,           // [minLon, minLat, maxLon, maxLat]
   gridLevels,     // e.g. [13, 14, 15, 16, 17]
   blockN = 16,
+  tileDim = TILE_DIM,
   onProgress = () => {},
 }) {
-  const canvas = new OffscreenCanvas(TILE_DIM, TILE_DIM);
+  const canvas = new OffscreenCanvas(tileDim, tileDim);
   let ctx = canvas.getContext('2d', { willReadFrequently: true });
   let surface = canvas;
 
@@ -61,7 +77,7 @@ export async function renderRegion({
 
   let done = 0;
   for (const level of gridLevels) {
-    const zoom = maplibreZoomFor(level);
+    const zoom = maplibreZoomFor(level, tileDim);
     const x0 = Math.floor(lon2x(bbox[0], level));
     const x1 = Math.floor(lon2x(bbox[2], level));
     const y0 = Math.floor(lat2y(bbox[3], level));
@@ -73,7 +89,7 @@ export async function renderRegion({
 
       for (let by = y0; by <= y1; by += blockN) {
         const rows = Math.min(blockN, y1 - by + 1);
-        resizeTo(cols * TILE_DIM, rows * TILE_DIM);
+        resizeTo(cols * tileDim, rows * tileDim);
 
         const settled = idle();
         map.jumpTo({
@@ -83,15 +99,15 @@ export async function renderRegion({
         await settled;
 
         ctx.drawImage(map.getCanvas(), 0, 0);
-        const { data } = ctx.getImageData(0, 0, cols * TILE_DIM, rows * TILE_DIM);
-        const stride = cols * TILE_DIM * 4;
+        const { data } = ctx.getImageData(0, 0, cols * tileDim, rows * tileDim);
+        const stride = cols * tileDim * 4;
 
         for (let ty = 0; ty < rows; ty++) {
           for (let tx = 0; tx < cols; tx++) {
-            const tile = new Uint8Array(TILE_DIM * TILE_DIM * 4);
-            for (let py = 0; py < TILE_DIM; py++) {
-              const from = (ty * TILE_DIM + py) * stride + tx * TILE_DIM * 4;
-              tile.set(data.subarray(from, from + TILE_DIM * 4), py * TILE_DIM * 4);
+            const tile = new Uint8Array(tileDim * tileDim * 4);
+            for (let py = 0; py < tileDim; py++) {
+              const from = (ty * tileDim + py) * stride + tx * tileDim * 4;
+              tile.set(data.subarray(from, from + tileDim * 4), py * tileDim * 4);
             }
             column.set(`${bx + tx}:${by + ty}`, tile);
           }
