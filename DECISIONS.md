@@ -160,7 +160,13 @@ Per B-001, every byte-producing decision is in core. What the crate adds is the 
 
 Evidence the facade stays thin: the `wasm32-unknown-unknown` release build is **45.9 KB gzipped** after `wasm-opt -Oz`, against PLAN.md § Phase 4's 500 KB budget. The `image` crate — pulled in by core for the CLI's decode path — is dead-code-eliminated entirely, because the render path never decodes anything.
 
-**Build gotcha for CI**: `wasm-opt` 116 fails validation on this module unless passed `--all-features`. `wasm-pack` bundles its own and handles this; a hand-rolled build step will not.
+**Build gotcha for CI**: `wasm-opt` fails validation on this module unless told which features it uses — rustc emits `memory.copy`/`memory.fill`, sign-extension, non-trapping float→int and multivalue. Name those five. `wasm-pack` bundles its own binaryen and handles this; a hand-rolled build step will not.
+
+**Do not fix that with `--all-features`, which is what this entry said first and what broke production.** Enabling every proposal lets binaryen rewrite `call_indirect` into **typed function references**, and that type's encoding was renumbered when the GC proposal was finalised: binaryen 116 writes `0x64`, binaryen 108 writes the pre-standard `0x6b`. `apt-get install binaryen` on Ubuntu noble — which is what the Pages workflow used — gives you 108. So the artifact was valid on the machine that built it and rejected by every browser, failing as `wasm validation error: at offset 177: bad type` after a clean, green deploy.
+
+Naming the five features costs 249 bytes (0.25%) and leaves the output free of post-MVP types altogether, so every binaryen version encodes it the same way. The version stops mattering, which is better than pinning it.
+
+`build-wasm.sh` now runs `WebAssembly.validate` over the result and exits non-zero if it fails. Nothing had ever asked whether the module loads: it was optimised, uploaded and deployed unexamined. A stronger gate — `verify-e2e` in real Firefox before the deploy job — is the natural next step; it needs `xvfb` and a network round trip to Protomaps, so it is not free.
 
 **Manifests:** `crates/slippypack-web/src/lib.rs::PackBuilder`; `crates/slippypack-web/Cargo.toml` (`wasm-bindgen`).
 **Commit:** to land with the WASM-facade slice.

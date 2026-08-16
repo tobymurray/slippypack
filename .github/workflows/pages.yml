@@ -46,9 +46,12 @@ jobs:
       - name: Install wasm-bindgen-cli
         run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
 
-      # binaryen for wasm-opt. Note that wasm-opt fails to validate this
-      # module without --all-features (DECISIONS.md E-001); build-wasm.sh
-      # passes it.
+      # binaryen for wasm-opt. apt on noble gives 108, which is old enough
+      # to write the pre-standard encoding for typed function references —
+      # so build-wasm.sh names the five features rustc actually uses and
+      # never lets binaryen reach for that type at all (DECISIONS.md
+      # E-001). The version is therefore not load-bearing, and the script
+      # validates the module before this job can upload it.
       - name: Install binaryen
         run: sudo apt-get update && sudo apt-get install -y binaryen
 
