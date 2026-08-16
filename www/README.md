@@ -9,6 +9,18 @@ archive), no PWA shell or offline launch (Phase 7), and no OPFS
 streaming (Phase 8). Region picking, presets, estimates and cancellation
 are Phase 5 and have landed.
 
+**Compression defaults to None, because the watch cannot decode RLE.** The vendored
+`SDK::RawTiles::Container` accepts an RLE8 tile-index entry at open and then
+returns `UnsupportedCompression` from `readTile()` — there is no decoder yet.
+The failure is silent all the way down: MapManager CRC-verifies the pack and
+marks it `Good`, `findTile()` succeeds because it is index-only, `MapSession`
+reports `Live` and the status line shows the zoom — and the screen stays blank.
+So a pack meant for hardware is `none`: 18× larger, and drawable. Keep the area
+small (a 3 km radius at z14–16 is ~20 MB) until an RLE8 decoder lands on the
+watch, or until the codec question in
+[`Docs/Investigations/2026-08-16-pack-size`](../Docs/Investigations/2026-08-16-pack-size)
+is settled.
+
 **Tile size is a picker, and it defaults to 256.** `render.js` still
 defaults to 128, which is what `MAP_CARTOGRAPHY_SPEC.md` § 7 specifies,
 but a pack the page hands to a user is a pack destined for a watch —

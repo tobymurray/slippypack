@@ -113,8 +113,11 @@ export function loadRates() {
 /** Fold a finished build into the rates, so the next estimate is this
  *  machine's rather than the reference machine's. Half-weighted, so one
  *  odd build cannot swing it. */
-export function recordBuild({ tiles, renders, seconds, bytes, tileDim }) {
+export function recordBuild({ tiles, renders, seconds, bytes, tileDim, compression = 'rle8' }) {
   if (!tiles || seconds < LEARNABLE_SECONDS) return;
+  // An uncompressed build measures the renderer, not the compressor; its
+  // "fraction" is 1 by construction and would wreck the learned one.
+  const learnSize = compression !== 'none';
   const rates = loadRates();
   const mix = (was, now) => (was + now) / 2;
   const perMegapixel = Math.max(
@@ -124,7 +127,9 @@ export function recordBuild({ tiles, renders, seconds, bytes, tileDim }) {
   const next = {
     ...rates,
     msPerMegapixel: mix(rates.msPerMegapixel, perMegapixel),
-    packedFraction: mix(rates.packedFraction, bytes / (tiles * rawBytesPerTile(tileDim))),
+    packedFraction: learnSize
+      ? mix(rates.packedFraction, bytes / (tiles * rawBytesPerTile(tileDim)))
+      : rates.packedFraction,
   };
   try {
     localStorage.setItem(RATES_KEY, JSON.stringify(next));
@@ -140,7 +145,7 @@ export function recordBuild({ tiles, renders, seconds, bytes, tileDim }) {
  * Returns the chosen `blockN` alongside the numbers, because the caller
  * has to render with the same one the estimate was made for.
  */
-export function estimate({ bbox, gridLevels, tileDim, rates = loadRates() }) {
+export function estimate({ bbox, gridLevels, tileDim, compression = 'rle8', rates = loadRates() }) {
   if (!gridLevels.length || bbox[2] <= bbox[0] || bbox[3] <= bbox[1]) {
     return { tiles: 0, verdict: 'empty', reason: 'Drag on the map to choose an area.' };
   }
@@ -151,7 +156,11 @@ export function estimate({ bbox, gridLevels, tileDim, rates = loadRates() }) {
   const chosen = sized.find((s) => s.peakBytes <= COLUMN_BUDGET) ?? sized.at(-1);
 
   const { tiles, renders, peakBytes, blockN } = chosen;
-  const bytes = Math.round(tiles * rawBytesPerTile(tileDim) * rates.packedFraction);
+  // An uncompressed pack is exactly its raw size. Charging it the RLE8
+  // fraction would under-quote by 18x, and the ceilings below are the only
+  // thing standing between a careless drag and a 193 MB pack.
+  const fraction = compression === 'none' ? 1 : rates.packedFraction;
+  const bytes = Math.round(tiles * rawBytesPerTile(tileDim) * fraction);
   const cost = (l) => megapixels(l.tiles, tileDim) * rates.msPerMegapixel
     + l.renders * rates.msPerRender;
   const work = chosen.perLevel.map((l) => ({ ...l, ms: cost(l) }));

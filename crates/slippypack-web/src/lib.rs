@@ -57,7 +57,8 @@ fn to_micro(degrees: f64) -> i32 {
 /// Builds one `.rawtiles` pack from tiles rendered in the browser.
 ///
 /// ```js
-/// const b = new PackBuilder(128, 13, 17, bbox, paletteRgb, paletteCodes, styleHash, attr, ts);
+/// const b = new PackBuilder(256, 12, 16, bbox, paletteRgb, paletteCodes,
+///                           styleHash, attr, ts, 'none');
 /// for (const t of tilesSortedByZxy) b.add_tile_rgba(t.z, t.x, t.y, t.pixels);
 /// const bytes = b.finish();   // Uint8Array
 /// ```
@@ -85,11 +86,19 @@ impl PackBuilder {
     /// - `style_hash` is the 32-byte SHA-256 of the MapLibre style JSON.
     /// - `build_timestamp` is Unix seconds (as `f64` because JS has no
     ///   `u64`; fractional parts are truncated).
+    /// - `compression` is `"rle8"` or `"none"`. It is a parameter, and not
+    ///   simply `Rle8`, because **the watch cannot decode RLE**: the
+    ///   vendored `SDK::RawTiles::Container` accepts RLE tile-index entries
+    ///   at open and then returns `UnsupportedCompression` from
+    ///   `readTile()`. A pack built with `"rle8"` today CRC-verifies, opens,
+    ///   reports itself live, and draws nothing. Until that decoder exists,
+    ///   a pack meant for hardware is `"none"` — 18x larger, and drawable.
     ///
     /// # Errors
     ///
     /// Returns a JS error for a malformed palette, a bad `style_hash`
-    /// length, or an invalid tile dimension or zoom range.
+    /// length, an unknown `compression`, or an invalid tile dimension or
+    /// zoom range.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -102,7 +111,17 @@ impl PackBuilder {
         style_hash: &[u8],
         attribution: Option<String>,
         build_timestamp: f64,
+        compression: &str,
     ) -> Result<PackBuilder, JsError> {
+        let compression = match compression {
+            "rle8" => Compression::Rle8,
+            "none" => Compression::None,
+            other => {
+                return Err(JsError::new(&format!(
+                    "compression must be \"rle8\" or \"none\", got \"{other}\""
+                )));
+            }
+        };
         if bbox_deg.len() != 4 {
             return Err(JsError::new(
                 "bbox_deg must be [min_lon, min_lat, max_lon, max_lat]",
@@ -132,7 +151,7 @@ impl PackBuilder {
         let inner = CorePackBuilder::new(PackBuilderConfig {
             tile_dim_px,
             zoom_range: (zoom_min, zoom_max),
-            compression: Compression::Rle8,
+            compression,
             quantiser: Box::new(quantiser),
             attribution,
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

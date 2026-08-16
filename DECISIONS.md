@@ -213,6 +213,22 @@ Note the per-render figure: **210 ms, not the ~41 ms X4 reported.** That measure
 
 ---
 
+### G-005 — The page writes uncompressed packs by default, because RLE8 is undrawable on the watch
+`slippypack-web` hardcoded `Compression::Rle8`. The watch's vendored `SDK::RawTiles::Container` documents itself as a reader "over `ABGR2222` or `RGB565` pixels with `compression = None`": it accepts an RLE8 tile-index entry structurally at open — rejecting a legal v1 enum value would be a false reject — and then returns `UnsupportedCompression` from `readTile()`.
+
+Verified by compiling that reader on the host against a pack the deployed page built: `open: ok`, `tile_dim: 256`, `tile_count: 64`, then `readTile: compression not decodable by this reader yet (RLE)`. Same at 18,169 tiles, so it is not a scale effect.
+
+**Every layer of the chain reports success.** MapManager CRC-verifies the file and writes `Good`; `Container::findTile()` is index-only and succeeds; `MapSession::status()` returns `Live` and the face draws the zoom number. Only `TileCache::get()` returns `nullptr`, and `MapTileView` skips a tile it cannot get. The result is a blank map that believes it is working, with no error anywhere to read.
+
+So the front-end takes `compression` as a parameter and defaults it to `"none"` — the same shape as the `tile_dim` decision in `e1b1979`, and for the same reason: what the page hands a stranger has to work on the watch that stranger owns. The cost is 18×, which is why the guardrail had to learn about it (an uncompressed 25 km ladder is 1.18 GB and is now refused rather than quoted at 65 MB).
+
+The alternative — porting § 9.11 RLE8 decode into `Container.cpp` — was rejected as the most throwaway work available: a vector pipeline needs a rasteriser on the watch, and an RLE8 decoder is exactly the code that would then be deleted. See `Docs/Investigations/2026-08-16-pack-size`.
+
+**Manifests:** `crates/slippypack-web/src/lib.rs::PackBuilder::new`; `www/index.html`; `www/src/estimate.js`.
+**Commit:** landed with the uncompressed-pack default.
+
+---
+
 ### G-004 — The picker draws the coarsest grid in the ladder, not the finest
 The selection is drawn twice: the box that was dragged, and the tile-aligned extent the pack will actually cover. The grid that says the difference is drawn at the ladder's **coarsest** level, because those are the biggest tiles in the pack and therefore the ones that reach furthest past the box. A deeper grid is finer, prettier, and understates the overshoot; past ~400 cells the lines alias into a wash and half of them disappear, so no grid is drawn at all.
 

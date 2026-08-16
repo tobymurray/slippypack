@@ -29,6 +29,9 @@ const OUT = path.resolve(HERE, '..', arg('out', '../target/browser.rawtiles'));
 const BBOX = arg('bbox', '-76.015,44.590,-75.889,44.662').split(',').map(Number);
 const LADDER = arg('ladder', '12-16').split('-').map(Number);
 const TILE_DIM = Number(arg('tile-dim', '128'));
+// rle8 keeps the determinism check on the codec the format specifies;
+// none is what a pack for real hardware needs today.
+const COMPRESSION = arg('compression', 'rle8');
 
 if (!fs.existsSync(path.join(ROOT, 'pkg', 'slippypack_web.js'))) {
   console.error(`pkg/ is missing under ${ROOT} — run scripts/build-wasm.sh first`);
@@ -58,7 +61,7 @@ await page.goto(`${base}/index.html`);
 
 // Drive the page's own modules rather than a private copy of them, so
 // this verifies what a user would actually run.
-const result = await page.evaluate(async ({ bbox, ladder, origin, tileDim }) => {
+const result = await page.evaluate(async ({ bbox, ladder, origin, tileDim, compression }) => {
   // Bare specifiers here resolve through index.html's import map.
   const maplibregl = await import('maplibre-gl');
   const { Protocol } = await import('pmtiles');
@@ -93,6 +96,7 @@ const result = await page.evaluate(async ({ bbox, ladder, origin, tileDim }) => 
     new Float64Array(bbox), PALETTE_RGB, PALETTE_CODES, styleHash,
     'Map data from OpenStreetMap (ODbL) · basemap © Protomaps',
     1_760_000_000, // pinned so two runs are comparable
+    compression,
   );
 
   const started = performance.now();
@@ -106,7 +110,7 @@ const result = await page.evaluate(async ({ bbox, ladder, origin, tileDim }) => 
     styleHash: [...styleHash],
     seconds: (performance.now() - started) / 1000,
   };
-}, { bbox: BBOX, ladder: LADDER, origin: base, tileDim: TILE_DIM });
+}, { bbox: BBOX, ladder: LADDER, origin: base, tileDim: TILE_DIM, compression: COMPRESSION });
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, Buffer.from(result.pack));
@@ -118,6 +122,7 @@ const declared = Buffer.from(result.pack.slice(-4)).readUInt32LE(0);
 const actual = zlib.crc32(body) >>> 0;
 
 console.log(`tile_dim     : ${TILE_DIM}`);
+console.log(`compression  : ${COMPRESSION}`);
 console.log(`tiles        : ${result.tiles.toLocaleString()}`);
 console.log(`seconds      : ${result.seconds.toFixed(1)}`);
 console.log(`bytes        : ${result.pack.length.toLocaleString()}`);

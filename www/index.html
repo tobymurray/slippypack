@@ -188,6 +188,14 @@
           </select>
         </div>
       </div>
+      <label class="k" for="compression">Compression</label>
+      <select id="compression">
+        <option value="none" selected>None — a watch can draw it</option>
+        <option value="rle8">RLE8 — 18× smaller, nothing reads it yet</option>
+      </select>
+      <p class="hint">The watch's reader accepts an RLE8 pack, verifies it, reports a
+        live map — and draws nothing, because it has no RLE decoder. Until it has one,
+        keep this on None and keep the area small.</p>
     </section>
 
     <section>
@@ -287,6 +295,7 @@ function refresh({ syncPicker = false } = {}) {
   const bbox = readBbox();
   const [min, max] = $('zooms').value.split('-').map(Number);
   const tileDim = Number($('tiledim').value);
+  const compression = $('compression').value;
   const valid = bbox.length === 4 && bbox.every(Number.isFinite)
     && Number.isFinite(min) && Number.isFinite(max) && max >= min;
 
@@ -295,8 +304,9 @@ function refresh({ syncPicker = false } = {}) {
     if (syncPicker) picker.setBbox(bbox);
     picker.setLevels(levels);
   }
-  plan = estimate({ bbox, gridLevels: levels, tileDim });
+  plan = estimate({ bbox, gridLevels: levels, tileDim, compression });
   plan.bbox = bbox;
+  plan.compression = compression;
   plan.levels = levels;
   plan.tileDim = tileDim;
 
@@ -309,7 +319,7 @@ function refresh({ syncPicker = false } = {}) {
   $('build').disabled = !buildable;
 }
 
-for (const id of ['bbox', 'zooms', 'tiledim']) {
+for (const id of ['bbox', 'zooms', 'tiledim', 'compression']) {
   $(id).addEventListener('input', () => refresh({ syncPicker: id === 'bbox' }));
 }
 
@@ -341,7 +351,7 @@ for (const button of document.querySelectorAll('.preset')) {
 
 async function save(bytes, name) {
   // File System Access where it exists, so the user picks the location —
-  // ideally straight into the watch's maps/ directory over USB.
+  // ideally straight into the watch's SharedData/maps/ over USB.
   if (window.showSaveFilePicker) {
     const handle = await window.showSaveFilePicker({
       suggestedName: name,
@@ -369,13 +379,13 @@ $('cancel').addEventListener('click', () => {
 /** The controls that describe *what* is being built, frozen for the
  *  duration of a build: a readout that disagrees with the pack coming
  *  out of it is worse than no readout. */
-const controls = () => [...document.querySelectorAll('#bbox, #zooms, #tiledim, #select, .preset')];
+const controls = () => [...document.querySelectorAll('#bbox, #zooms, #tiledim, #compression, #select, .preset')];
 
 $('build').addEventListener('click', async () => {
   // Take the plan by value. `plan` is rebuilt on every input event, and
   // the progress callback below reads from it for the whole build.
   const active = plan;
-  const { bbox, levels, tileDim, tiles, blockN, renders } = active;
+  const { bbox, levels, tileDim, tiles, blockN, renders, compression } = active;
   abort = new AbortController();
   $('build').disabled = true;
   $('cancel').hidden = false;
@@ -404,7 +414,7 @@ $('build').addEventListener('click', async () => {
     builder = new PackBuilder(
       tileDim, levels[0], levels.at(-1),
       new Float64Array(bbox), PALETTE_RGB, PALETTE_CODES, styleHash,
-      ATTRIBUTION, Math.floor(Date.now() / 1000),
+      ATTRIBUTION, Math.floor(Date.now() / 1000), compression,
     );
 
     const started = performance.now();
@@ -436,13 +446,13 @@ $('build').addEventListener('click', async () => {
     const bytes = builder.finish();
     finished = true;
     const seconds = (performance.now() - started) / 1000;
-    recordBuild({ tiles, renders, seconds, bytes: bytes.length, tileDim });
+    recordBuild({ tiles, renders, seconds, bytes: bytes.length, tileDim, compression });
 
     const name = await save(bytes, 'map.rawtiles');
     say(
       `Built ${name} — ${tiles.toLocaleString()} tiles at ${tileDim} px, `
       + `${formatBytes(bytes.length)}, ${formatDuration(seconds)}.\n\n`
-      + 'Copy it into the watch\'s Apps/<mapapp>/maps/ directory over USB, '
+      + 'Copy it into the watch\'s SharedData/maps/ directory over USB, '
       + 'then eject the drive safely before unplugging.',
     );
   } catch (err) {
