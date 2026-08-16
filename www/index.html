@@ -1,48 +1,222 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>slippypack — build a map pack</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slippypack — cut a map pack</title>
 <link rel="stylesheet" href="./vendor/maplibre-gl.css">
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 46rem; }
-  h1 { font-size: 1.2rem; margin: 0 0 .25rem; }
-  p.lede { margin: 0 0 1.5rem; opacity: .75; }
-  label { display: block; margin: .75rem 0 .25rem; font-weight: 600; }
-  input, select { font: inherit; padding: .4rem .5rem; width: 100%; box-sizing: border-box; }
-  button { font: inherit; padding: .55rem 1.1rem; margin-top: 1.25rem; cursor: pointer; }
-  button[disabled] { cursor: not-allowed; opacity: .5; }
-  #status { margin-top: 1rem; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 13px; }
-  /* The renderer draws into this; it is a workspace, not a preview. */
-  #map { position: fixed; left: -10000px; top: 0; width: 512px; height: 512px; }
-  .attribution { margin-top: 2rem; font-size: 12px; opacity: .7; }
+  /* The interface is painted out of the pack's own palette — the eleven
+     colours in src/palette.js are the only ones a tile may contain, so
+     they are the only ones used here. That is also why there is no dark
+     theme: the palette is a paper palette, and inverting it would mean
+     inventing colours the format cannot hold. */
+  :root {
+    color-scheme: light;
+    --paper: #FFFFFF;
+    --landuse: #E9F6E8;
+    --rule: #D7D7D7;
+    --ink: #383838;
+    --muted: #A5947A;
+    --water: #62B7D5;
+    --deep: #0084C2;
+    --warn: #874149;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 14px/1.55 system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+  }
+  main { display: grid; grid-template-columns: 23rem minmax(0, 1fr); height: 100dvh; }
+
+  /* --- panel --- */
+  #panel {
+    overflow-y: auto;
+    padding: 1.5rem 1.5rem 2rem;
+    border-right: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  h1 {
+    font: 600 1rem/1 var(--mono);
+    letter-spacing: .18em;
+    margin: 0 0 .5rem;
+  }
+  header p { margin: 0; color: var(--muted); }
+  section { display: flex; flex-direction: column; gap: .5rem; }
+  .k {
+    font: 500 .68rem/1 var(--mono);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+  }
+  .hint { margin: 0; font-size: .8rem; color: var(--muted); }
+
+  input, select, button { font: inherit; color: inherit; }
+  input, select {
+    width: 100%;
+    padding: .4rem .5rem;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    background: var(--paper);
+    font-family: var(--mono);
+    font-size: .82rem;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--deep);
+    outline-offset: 1px;
+  }
+
+  .row { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem .75rem; align-items: end; }
+  .pair label { display: block; margin-bottom: .3rem; }
+
+  button {
+    padding: .45rem .7rem;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    background: var(--paper);
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--deep); color: var(--deep); }
+  button[aria-pressed="true"] { border-color: var(--deep); background: var(--landuse); color: var(--deep); }
+  button.primary {
+    background: var(--deep);
+    border-color: var(--deep);
+    color: var(--paper);
+    padding: .6rem 1rem;
+    flex: 1;
+  }
+  button.primary:hover:not(:disabled) { background: #006ea0; color: var(--paper); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .sm { font-size: .8rem; padding: .35rem .55rem; }
+  /* The build controls sit at the foot of the panel, so the button is in
+     the same place whether or not there is a status to read. */
+  .actions { display: flex; gap: .5rem; margin-top: auto; padding-top: .5rem; }
+
+  /* --- the cost readout: the one place numbers are the content --- */
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .25rem 1rem; }
+  dt { color: var(--muted); font-size: .82rem; }
+  dd {
+    margin: 0;
+    text-align: right;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  #verdict:not(:empty) {
+    border-left: 2px solid var(--water);
+    padding-left: .6rem;
+    color: var(--ink);
+  }
+  #verdict.refuse { border-color: var(--warn); color: var(--warn); }
+
+  progress { width: 100%; height: .35rem; accent-color: var(--deep); }
+  #status { margin: 0; font-size: .82rem; white-space: pre-wrap; }
+
+  /* --- map --- */
+  #pick { position: relative; }
+  #picker { position: absolute; inset: 0; }
+  #picker .arming { cursor: crosshair; }
+  .attribution {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+    margin: 0;
+    padding: .25rem .5rem;
+    font-size: .7rem;
+    color: var(--ink);
+    background: rgba(255, 255, 255, .82);
+    border-top-left-radius: 2px;
+  }
+
+  /* The renderer draws into this. It is a workspace, not a preview: it
+     is resized to whole blocks (up to 4096 px) and read back frame by
+     frame, so it must never be laid out with the page. */
+  #workspace { position: fixed; left: -10000px; top: 0; }
+  #map { width: 512px; height: 512px; }
+
+  @media (max-width: 46rem) {
+    main { grid-template-columns: 1fr; grid-template-rows: 45dvh auto; height: auto; }
+    #pick { order: -1; }
+    #panel { border-right: 0; border-top: 1px solid var(--rule); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
 </style>
 
-<h1>Build a map pack</h1>
-<p class="lede">
-  Renders the region in your browser and writes a <code>.rawtiles</code> pack.
-  Nothing is uploaded and nothing is built on a server.
-</p>
+<main>
+  <aside id="panel">
+    <header>
+      <h1>slippypack</h1>
+      <p>Cut a piece of the map and carry it on your watch. It renders here, in this
+        tab — nothing is uploaded, and no server builds anything.</p>
+    </header>
 
-<label for="bbox">Region — min lon, min lat, max lon, max lat</label>
-<input id="bbox" value="-76.015, 44.590, -75.889, 44.662">
+    <section>
+      <h2 class="k">Area</h2>
+      <div class="row">
+        <button id="select" aria-pressed="false">Draw an area</button>
+        <button class="sm preset" data-km="5" data-ladder="14-17">5 km</button>
+        <button class="sm preset" data-km="25" data-ladder="11-16">25 km</button>
+        <button class="sm preset" data-km="100" data-ladder="9-14">100 km</button>
+      </div>
+      <label class="k" for="bbox">West, south, east, north</label>
+      <input id="bbox" spellcheck="false" value="-76.015, 44.590, -75.889, 44.662">
+      <p class="hint">Drag on the map to draw an area. Shift-drag works any time.
+        The grid is the coarsest zoom's tiles: a pack holds whole tiles, so it
+        reaches a little past the box you draw.</p>
+    </section>
 
-<label for="zooms">Zoom ladder (<code>MAP_CARTOGRAPHY_SPEC.md</code> § 7)</label>
-<input id="zooms" value="12-16">
+    <section>
+      <h2 class="k">Detail</h2>
+      <div class="pair">
+        <div>
+          <label class="k" for="zooms">Zoom ladder</label>
+          <input id="zooms" value="12-16">
+        </div>
+        <div>
+          <label class="k" for="tiledim">Tile size</label>
+          <select id="tiledim">
+            <option value="256" selected>256 px — watch</option>
+            <option value="128">128 px — spec</option>
+          </select>
+        </div>
+      </div>
+    </section>
 
-<label for="tiledim">Tile size</label>
-<select id="tiledim">
-  <option value="256" selected>256 px — what a watch will draw</option>
-  <option value="128">128 px — what the spec says</option>
-</select>
+    <section>
+      <h2 class="k">This pack</h2>
+      <dl>
+        <dt>Tiles</dt><dd id="c-tiles">—</dd>
+        <dt>Size</dt><dd id="c-size">—</dd>
+        <dt>Time</dt><dd id="c-time">—</dd>
+      </dl>
+      <p class="hint">Tiles are exact. Size and time are estimates, and get sharper
+        after your first build on this machine.</p>
+      <p id="verdict"></p>
+    </section>
 
-<button id="build">Build pack</button>
-<div id="status"></div>
+    <div class="actions">
+      <button id="build" class="primary">Build pack</button>
+      <button id="cancel" hidden>Cancel</button>
+    </div>
+    <progress id="bar" hidden max="1" value="0"></progress>
+    <p id="status" role="status" aria-live="polite"></p>
+  </aside>
 
-<p class="attribution">
-  Map data from OpenStreetMap (ODbL) · basemap © Protomaps
-</p>
+  <section id="pick">
+    <div id="picker"></div>
+    <p class="attribution">Map data from OpenStreetMap (ODbL) · basemap © Protomaps</p>
+  </section>
+</main>
 
-<div id="map"></div>
+<div id="workspace"><div id="map"></div></div>
 
 <!--
   No bundler. The import map is what lets the dependencies' own bare
@@ -65,16 +239,105 @@
 import * as maplibregl from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
 import init, { PackBuilder } from './pkg/slippypack_web.js';
-import { renderRegion, countTiles, ladderToGridLevel, PALETTE_RGB, PALETTE_CODES }
-  from './src/render.js';
+import { renderRegion, ladderLevels, PALETTE_RGB, PALETTE_CODES } from './src/render.js';
+import { createPicker } from './src/region.js';
+import { estimate, recordBuild, workDone, formatBytes, formatDuration } from './src/estimate.js';
 import { sha256 } from './src/tiles.js';
 
 const ATTRIBUTION = 'Map data from OpenStreetMap (ODbL) · basemap © Protomaps';
-const statusEl = document.getElementById('status');
-const buildEl = document.getElementById('build');
-const say = (msg) => { statusEl.textContent = msg; };
+const $ = (id) => document.getElementById(id);
+const say = (msg) => { $('status').textContent = msg; };
 
 maplibregl.addProtocol('pmtiles', new Protocol().tile);
+
+// Start fetching the WASM now rather than when the button is pressed, so
+// the first build does not pay for it. Marked handled here; the error, if
+// there is one, is re-thrown where it can be reported.
+const wasmReady = init('./pkg/slippypack_web_bg.wasm');
+wasmReady.catch(() => {});
+
+const styleText = await (await fetch('./watch-style.json')).text();
+const styleHash = await sha256(styleText);
+
+const readBbox = () => $('bbox').value.split(',').map(Number);
+// Five decimals is about a metre, and past six the microdegrees in the
+// descriptor cannot hold the difference anyway. Trailing zeros trimmed,
+// so a typed round number stays a round number.
+const writeBbox = (b) => { $('bbox').value = b.map((n) => +n.toFixed(5)).join(', '); };
+
+const picker = createPicker({
+  container: 'picker',
+  style: JSON.parse(styleText),
+  bbox: readBbox(),
+  onSelect: (bbox) => {
+    writeBbox(bbox);
+    // The picker disarms itself once a drag commits; the button has to
+    // stop looking armed at the same moment.
+    $('select').setAttribute('aria-pressed', 'false');
+    say('');
+    refresh();
+  },
+});
+
+// --- the estimate, which is also the guardrail ------------------------
+
+let plan = null;
+
+function refresh({ syncPicker = false } = {}) {
+  const bbox = readBbox();
+  const [min, max] = $('zooms').value.split('-').map(Number);
+  const tileDim = Number($('tiledim').value);
+  const valid = bbox.length === 4 && bbox.every(Number.isFinite)
+    && Number.isFinite(min) && Number.isFinite(max) && max >= min;
+
+  const levels = valid ? ladderLevels(min, max, tileDim) : [];
+  if (valid) {
+    if (syncPicker) picker.setBbox(bbox);
+    picker.setLevels(levels);
+  }
+  plan = estimate({ bbox, gridLevels: levels, tileDim });
+  plan.bbox = bbox;
+  plan.levels = levels;
+  plan.tileDim = tileDim;
+
+  const buildable = valid && plan.verdict !== 'refuse' && plan.verdict !== 'empty';
+  $('c-tiles').textContent = plan.tiles ? plan.tiles.toLocaleString() : '—';
+  $('c-size').textContent = plan.tiles ? `~${formatBytes(plan.bytes)}` : '—';
+  $('c-time').textContent = plan.tiles ? `~${formatDuration(plan.seconds)}` : '—';
+  $('verdict').textContent = valid ? plan.reason : 'Four numbers, west to north, and a zoom range like 12-16.';
+  $('verdict').className = valid && plan.verdict !== 'refuse' ? '' : 'refuse';
+  $('build').disabled = !buildable;
+}
+
+for (const id of ['bbox', 'zooms', 'tiledim']) {
+  $(id).addEventListener('input', () => refresh({ syncPicker: id === 'bbox' }));
+}
+
+$('select').addEventListener('click', () => {
+  picker.arm();
+  $('select').setAttribute('aria-pressed', 'true');
+  say('Drag on the map to draw the area.');
+});
+
+// Presets are a radius around what is selected now, with the ladder that
+// suits that scale (PLAN.md § Phase 5). No "whole country": at any tile
+// size it lands past the ceiling, and a button that always refuses is
+// worse than no button.
+for (const button of document.querySelectorAll('.preset')) {
+  button.addEventListener('click', () => {
+    const km = Number(button.dataset.km);
+    const [w, s, e, n] = readBbox();
+    const [lon, lat] = [(w + e) / 2, (s + n) / 2];
+    const dLat = km / 111.32;
+    const dLon = km / (111.32 * Math.cos((lat * Math.PI) / 180));
+    writeBbox([lon - dLon, lat - dLat, lon + dLon, lat + dLat]);
+    $('zooms').value = button.dataset.ladder;
+    picker.setBbox(readBbox(), { zoomTo: true });
+    refresh();
+  });
+}
+
+// --- building ---------------------------------------------------------
 
 async function save(bytes, name) {
   // File System Access where it exists, so the user picks the location —
@@ -96,30 +359,36 @@ async function save(bytes, name) {
   return name;
 }
 
-buildEl.addEventListener('click', async () => {
-  buildEl.disabled = true;
+let abort = null;
+
+$('cancel').addEventListener('click', () => {
+  abort?.abort();
+  say('Cancelling…');
+});
+
+/** The controls that describe *what* is being built, frozen for the
+ *  duration of a build: a readout that disagrees with the pack coming
+ *  out of it is worse than no readout. */
+const controls = () => [...document.querySelectorAll('#bbox, #zooms, #tiledim, #select, .preset')];
+
+$('build').addEventListener('click', async () => {
+  // Take the plan by value. `plan` is rebuilt on every input event, and
+  // the progress callback below reads from it for the whole build.
+  const active = plan;
+  const { bbox, levels, tileDim, tiles, blockN, renders } = active;
+  abort = new AbortController();
+  $('build').disabled = true;
+  $('cancel').hidden = false;
+  $('bar').hidden = false;
+  $('bar').value = 0;
+  for (const el of controls()) el.disabled = true;
+
+  let map = null;
+  let builder = null;
+  let finished = false;
   try {
-    const bbox = document.getElementById('bbox').value.split(',').map(Number);
-    if (bbox.length !== 4 || bbox.some(Number.isNaN)) throw new Error('bbox needs four numbers');
-    const [ladderMin, ladderMax] = document.getElementById('zooms').value.split('-').map(Number);
-    // The grid the tiles sit on depends on how big they are, so tileDim has
-    // to be settled before the ladder is turned into levels. A watch will
-    // only draw 256; MapKit's PackCatalog rejects anything else, and it does
-    // it silently, as "no map for here".
-    const tileDim = Number(document.getElementById('tiledim').value);
-    const gridLevels = [];
-    for (let z = ladderMin; z <= ladderMax; z++) gridLevels.push(ladderToGridLevel(z, tileDim));
-
-    say('loading…');
-    await init('./pkg/slippypack_web_bg.wasm');
-
-    const styleText = await (await fetch('./watch-style.json')).text();
-    const styleHash = await sha256(styleText);
-
-    const total = countTiles(bbox, gridLevels);
-    say(`rendering ${total.toLocaleString()} tiles…`);
-
-    const map = new maplibregl.Map({
+    await wasmReady;
+    map = new maplibregl.Map({
       container: 'map',
       style: JSON.parse(styleText),
       center: [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2],
@@ -132,33 +401,66 @@ buildEl.addEventListener('click', async () => {
     });
     await new Promise((r) => map.once('load', r));
 
-    const builder = new PackBuilder(
-      tileDim, gridLevels[0], gridLevels.at(-1),
+    builder = new PackBuilder(
+      tileDim, levels[0], levels.at(-1),
       new Float64Array(bbox), PALETTE_RGB, PALETTE_CODES, styleHash,
       ATTRIBUTION, Math.floor(Date.now() / 1000),
     );
 
     const started = performance.now();
+    say(`Rendering ${tiles.toLocaleString()} tiles…`);
+    // The ETA is the model's own prediction, scaled by how fast this
+    // machine is actually working through it. Extrapolating from tiles
+    // alone quotes about five times too long early on, because tiles
+    // arrive shallowest-first and a shallow level is nearly all
+    // per-render overhead. Anchored at the first block, so the map's
+    // startup is not counted against the rest of the build.
+    let anchor = null;
     await renderRegion({
-      map, builder, bbox, gridLevels, tileDim,
-      onProgress: ({ done }) => say(`rendering ${done.toLocaleString()} / ${total.toLocaleString()} tiles…`),
+      map, builder, bbox, gridLevels: levels, tileDim, blockN,
+      signal: abort.signal,
+      onProgress: ({ done }) => {
+        const predicted = workDone(active.work, done);
+        anchor ??= { at: performance.now(), predicted };
+        const modelled = predicted - anchor.predicted;
+        const scale = (performance.now() - anchor.at) / modelled;
+        const left = modelled > 500 && Number.isFinite(scale)
+          ? ` — about ${formatDuration((scale * (active.workMs - predicted)) / 1000)} left`
+          : '';
+        $('bar').value = done / tiles;
+        say(`Rendering ${done.toLocaleString()} of ${tiles.toLocaleString()} tiles${left}`);
+      },
     });
 
+    say('Writing the pack…');
     const bytes = builder.finish();
-    map.remove();
+    finished = true;
+    const seconds = (performance.now() - started) / 1000;
+    recordBuild({ tiles, renders, seconds, bytes: bytes.length, tileDim });
 
-    const seconds = ((performance.now() - started) / 1000).toFixed(1);
     const name = await save(bytes, 'map.rawtiles');
     say(
-      `built ${name} — ${total.toLocaleString()} tiles at ${tileDim} px, ` +
-      `${(bytes.length / 1048576).toFixed(2)} MiB, ${seconds} s\n\n` +
-      `Copy it into the watch's Apps/<mapapp>/maps/ directory over USB, ` +
-      `then eject the drive safely before unplugging.`
+      `Built ${name} — ${tiles.toLocaleString()} tiles at ${tileDim} px, `
+      + `${formatBytes(bytes.length)}, ${formatDuration(seconds)}.\n\n`
+      + 'Copy it into the watch\'s Apps/<mapapp>/maps/ directory over USB, '
+      + 'then eject the drive safely before unplugging.',
     );
   } catch (err) {
-    say(`failed: ${err.message}`);
+    say(err.name === 'AbortError'
+      ? 'Build cancelled. Nothing was written.'
+      : `Build failed: ${err.message}`);
   } finally {
-    buildEl.disabled = false;
+    // finish() consumes the builder; freeing it again would fault.
+    if (builder && !finished) builder.free();
+    map?.remove();
+    abort = null;
+    for (const el of controls()) el.disabled = false;
+    $('cancel').hidden = true;
+    $('bar').hidden = true;
+    $('select').setAttribute('aria-pressed', 'false');
+    refresh();
   }
 });
+
+refresh();
 </script>

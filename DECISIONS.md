@@ -167,6 +167,54 @@ Evidence the facade stays thin: the `wasm32-unknown-unknown` release build is **
 
 ---
 
+## G — Browser front-end (www/)
+
+### G-001 — The block column, not the pack, is what decides if a region is buildable
+Two numbers bound a browser build, and the obvious one is the smaller. The **pack** lives in WASM memory until `finish()`, which copies it out into a JS `Uint8Array` — peak about twice the pack. The **block column** is bigger: `render.js` buffers a whole column of blocks as raw RGBA before it can emit x-major, so the peak is `blockN × ny` tiles at 4 bytes a pixel.
+
+For a 25 km region at 256 px that is **~480 MB of live `Uint8Array` against a ~62 MB pack** — a factor of eight, in the direction nobody checks. `estimate.js` sizes the column first and refuses on it.
+
+The ordering requirement is what forces the shape: the pack is sorted `(z, x, y)` with x major (B-002), so every y for a given x must be in hand before that x can be emitted. Bands of rows would halve the memory and break the order. This is the strongest argument for Phase 8's OPFS streaming, and it is about the column, not about pack size.
+
+**Manifests:** `www/src/estimate.js`; `www/src/render.js`.
+**Commit:** landed with the region picker.
+
+---
+
+### G-002 — Block size is chosen from the region's geometry, and is therefore part of the pack's identity
+The column scales with `blockN`, so the guardrail shrinks the block rather than refusing outright: 16 where the column fits in 128 MB, then 8, then 4. The 25 km preset lands on 4.
+
+This is only safe because the choice is made from **the region's geometry alone** — never from `deviceMemory`, `hardwareConcurrency`, or anything else that varies per machine. Block size changes the rendered pixels (X4, F3), so it changes `content_hash` and therefore `pack_uuid`. A geometry-derived block size keeps "same inputs, same pack" true across browsers; a memory-derived one would have quietly made the same request produce different packs on different laptops.
+
+The cost is time, and it is not small: at `blockN 4` the 25 km build issues 1,154 renders instead of 273. The UI says so rather than leaving it a mystery — the verdict names the block size, the memory it is holding down, and the two ways to buy 16 back.
+
+**Manifests:** `www/src/estimate.js` (`BLOCK_SIZES`, `COLUMN_BUDGET`).
+**Commit:** landed with the region picker.
+
+---
+
+### G-003 — Build time is charged per pixel, not per tile
+The first cost model charged per tile, which is wrong by a factor of four in the one place a user can flip a switch: the same region at 128 px has four times the tiles of one at 256 px and draws **exactly the same pixels**.
+
+Measured, same region and ladder, one after the other: **256 px → 687 tiles in 16.5 s; 128 px → 2,467 tiles in 16.2 s.** Tile count moved 3.6x and wall time did not move at all.
+
+So cost is `megapixels × 313 ms + renders × 210 ms + 2.5 s` of startup, fitted to a 2,467-tile 128 px build (18.5 s) and an 18,169-tile 256 px build (617.7 s), 29x apart in pixels. It predicts all three measured builds within 10% on time and size.
+
+Note the per-render figure: **210 ms, not the ~41 ms X4 reported.** That measurement came from 128 px canvases; the cost is the jump, the resize and the wait for idle, and it grows with the canvas being settled. Rates are re-fitted from each build over 10 s and kept in `localStorage`, so the estimate becomes the user's own machine's. Builds shorter than that are ignored — a three-second build is nearly all startup and reads as six times the true rate.
+
+**Manifests:** `www/src/estimate.js` (`DEFAULT_RATES`, `recordBuild`, `workDone`).
+**Commit:** landed with the region picker.
+
+---
+
+### G-004 — The picker draws the coarsest grid in the ladder, not the finest
+The selection is drawn twice: the box that was dragged, and the tile-aligned extent the pack will actually cover. The grid that says the difference is drawn at the ladder's **coarsest** level, because those are the biggest tiles in the pack and therefore the ones that reach furthest past the box. A deeper grid is finer, prettier, and understates the overshoot; past ~400 cells the lines alias into a wash and half of them disappear, so no grid is drawn at all.
+
+**Manifests:** `www/src/region.js`.
+**Commit:** landed with the region picker.
+
+---
+
 ## P — Projection module
 
 ### P-001 — `Projection` trait now (with one impl); Local Linear deferred

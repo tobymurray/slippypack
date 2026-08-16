@@ -45,6 +45,13 @@ export const ladderToGridLevel = (z, tileDim = TILE_DIM) => z + shiftFor(tileDim
  *  world is 512·2^Z px, so a level-L tile spans 512·2^(Z−L) px. */
 const maplibreZoomFor = (level, tileDim) => level - shiftFor(tileDim);
 
+/** A ladder range, as the grid levels to render. */
+export function ladderLevels(min, max, tileDim = TILE_DIM) {
+  const levels = [];
+  for (let z = min; z <= max; z++) levels.push(ladderToGridLevel(z, tileDim));
+  return levels;
+}
+
 export async function renderRegion({
   map,
   builder,
@@ -52,8 +59,17 @@ export async function renderRegion({
   gridLevels,     // e.g. [13, 14, 15, 16, 17]
   blockN = 16,
   tileDim = TILE_DIM,
+  signal,         // AbortSignal; checked between blocks
   onProgress = () => {},
 }) {
+  // A block is the smallest unit that can be abandoned: half a block is
+  // half a canvas readback, and there is nothing useful to do with it.
+  // So a cancel takes effect within one block — under a second at any
+  // block size worth using — rather than instantly.
+  const checkAborted = () => {
+    if (signal?.aborted) throw signal.reason ?? new DOMException('Build cancelled', 'AbortError');
+  };
+  checkAborted();
   const canvas = new OffscreenCanvas(tileDim, tileDim);
   let ctx = canvas.getContext('2d', { willReadFrequently: true });
   let surface = canvas;
@@ -88,6 +104,7 @@ export async function renderRegion({
       const column = new Map(); // "x:y" -> Uint8Array(RGBA)
 
       for (let by = y0; by <= y1; by += blockN) {
+        checkAborted();
         const rows = Math.min(blockN, y1 - by + 1);
         resizeTo(cols * tileDim, rows * tileDim);
 

@@ -4,10 +4,10 @@ Renders a region into a `.rawtiles` pack, in the browser, with no server
 and nothing uploaded. This is PLAN.md Phase 4's "bare-minimum browser
 harness", built out far enough to produce a real pack.
 
-**What it is not, yet:** there is no region picker (Phase 5), no source
-picker (cut — there is one archive), no PWA shell or offline launch
-(Phase 7), and no OPFS streaming (Phase 8, needed before metro-sized
-packs). The region is a bbox you type in.
+**What it is not, yet:** there is no source picker (cut — there is one
+archive), no PWA shell or offline launch (Phase 7), and no OPFS
+streaming (Phase 8). Region picking, presets, estimates and cancellation
+are Phase 5 and have landed.
 
 **Tile size is a picker, and it defaults to 256.** `render.js` still
 defaults to 128, which is what `MAP_CARTOGRAPHY_SPEC.md` § 7 specifies,
@@ -93,6 +93,42 @@ it is wrong; `render.js` buffers a block-*column*. The WASM builder
 rejects out-of-order tiles rather than quietly producing a pack with a
 different `content_hash` (DECISIONS.md B-002), which is how this bug was
 caught the first time.
+
+## The number that decides whether a region is buildable
+
+Not the pack size — the **block column**. `render.js` has to buffer a
+whole column of blocks as raw RGBA before it can emit x-major, so the
+peak is `blockN × ny` tiles at 4 bytes a pixel. For a 25 km region at
+256 px that is ~480 MB of live `Uint8Array` while the pack itself is
+~100 MB. The column is what kills a tab, and `estimate.js` sizes it
+first.
+
+It is also why the block size is chosen rather than fixed: 16 where the
+column fits in 128 MB, 8 or 4 where it doesn't. That choice is made from
+the region's geometry alone — never from `deviceMemory` or anything else
+that varies per machine — because **the block size changes the rendered
+pixels** (X4, F3) and is therefore part of the pack's identity. Same
+inputs, same pack, any browser.
+
+Ordering forces this shape: the pack is sorted `(z, x, y)` with x major,
+so every y for a given x must be in hand before that x can be emitted.
+Bands of rows would halve the memory and break the order. Phase 8's OPFS
+streaming is the real fix, and the block column — not the pack — is the
+strongest argument for it.
+
+## Estimates are measured, and they cost pixels
+
+Time is charged **per pixel, not per tile**. The same region at 128 px
+has four times the tiles of one at 256 px and draws the same pixels:
+measured back to back, 687 tiles took 16.5 s and 2,467 tiles took 16.2 s.
+A per-tile model quotes the 128 px build at four times the truth.
+
+The model is `megapixels × 313 ms + renders × 210 ms + 2.5 s` startup,
+fitted to two builds 29× apart in pixels and accurate to within 10% on
+all three that have been measured. It re-fits from every build over ten
+seconds and keeps the result in `localStorage`, so the numbers become
+this machine's rather than the reference machine's — see DECISIONS.md
+G-003, including why a render costs 210 ms here and 41 ms in X4.
 
 ## Nothing here decides what a pack contains
 

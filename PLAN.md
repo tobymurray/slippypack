@@ -699,6 +699,10 @@ Each preset shows estimated time, estimated size, area outline on the map. **Est
 
 **`per-tile-rate-ms` is ~2 ms, not 500 ms.** The original 500 ms default assumed one HTTPS round trip per pack tile, which is how a URL-template raster build works. A browser-rendered build has no per-tile round trip at all: the fetch unit is a vector tile covering 16 pack tiles, and the render unit is a block of 256. The 2026-08-14 X4 investigation measured **2.2 ms/tile cold** end to end, render through RLE (`Docs/Investigations/2026-08-14-x4-browser-render/`, F4). Keep the setting tweakable, but a 500 ms default would quote 20 minutes for a nine-second job and talk users out of pressing the button. **Source is still hardcoded at this phase** — the source-picker UX lands in Phase 6.
 
+**Correction, as built: there is no per-tile rate.** Time is per *pixel*. The same region at 128 px has four times the tiles of one at 256 px and draws the same pixels — measured back to back, 687 tiles in 16.5 s against 2,467 tiles in 16.2 s. Any `tile_count × rate` formula is wrong by 4x on the axis the user can actually change. What shipped is `megapixels × 313 ms + renders × 210 ms + 2.5 s`, fitted to two builds 29x apart in pixels and within 10% on all three measured; a render costs 210 ms, not the ~41 ms X4 reported for 128 px canvases. Size is `tile_count × tile_dim²/4 × 0.22`, the RLE fraction measured at both tile sizes. Both rates re-fit from each build over ten seconds and persist in `localStorage`. See DECISIONS.md G-003.
+
+**Cancellation and the progress UI landed here, not in Phase 8.** The guardrail needs them: the estimator's job is to refuse builds that would kill the tab, and the honest answer for a build that is merely *long* is a live ETA and a way out — not a refusal. Phase 8 still owns OPFS streaming and resume-after-reload.
+
 ### Phase 6 — Source picker
 
 The first-run setup flow described in [§ BYO tile sources](#byo-tile-sources--what-the-user-experience-is). Adds:
