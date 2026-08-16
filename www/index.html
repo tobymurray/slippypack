@@ -8,7 +8,7 @@
   h1 { font-size: 1.2rem; margin: 0 0 .25rem; }
   p.lede { margin: 0 0 1.5rem; opacity: .75; }
   label { display: block; margin: .75rem 0 .25rem; font-weight: 600; }
-  input { font: inherit; padding: .4rem .5rem; width: 100%; box-sizing: border-box; }
+  input, select { font: inherit; padding: .4rem .5rem; width: 100%; box-sizing: border-box; }
   button { font: inherit; padding: .55rem 1.1rem; margin-top: 1.25rem; cursor: pointer; }
   button[disabled] { cursor: not-allowed; opacity: .5; }
   #status { margin-top: 1rem; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 13px; }
@@ -28,6 +28,12 @@
 
 <label for="zooms">Zoom ladder (<code>MAP_CARTOGRAPHY_SPEC.md</code> § 7)</label>
 <input id="zooms" value="12-16">
+
+<label for="tiledim">Tile size</label>
+<select id="tiledim">
+  <option value="256" selected>256 px — what a watch will draw</option>
+  <option value="128">128 px — what the spec says</option>
+</select>
 
 <button id="build">Build pack</button>
 <div id="status"></div>
@@ -96,8 +102,13 @@ buildEl.addEventListener('click', async () => {
     const bbox = document.getElementById('bbox').value.split(',').map(Number);
     if (bbox.length !== 4 || bbox.some(Number.isNaN)) throw new Error('bbox needs four numbers');
     const [ladderMin, ladderMax] = document.getElementById('zooms').value.split('-').map(Number);
+    // The grid the tiles sit on depends on how big they are, so tileDim has
+    // to be settled before the ladder is turned into levels. A watch will
+    // only draw 256; MapKit's PackCatalog rejects anything else, and it does
+    // it silently, as "no map for here".
+    const tileDim = Number(document.getElementById('tiledim').value);
     const gridLevels = [];
-    for (let z = ladderMin; z <= ladderMax; z++) gridLevels.push(ladderToGridLevel(z));
+    for (let z = ladderMin; z <= ladderMax; z++) gridLevels.push(ladderToGridLevel(z, tileDim));
 
     say('loading…');
     await init('./pkg/slippypack_web_bg.wasm');
@@ -122,14 +133,14 @@ buildEl.addEventListener('click', async () => {
     await new Promise((r) => map.once('load', r));
 
     const builder = new PackBuilder(
-      128, gridLevels[0], gridLevels.at(-1),
+      tileDim, gridLevels[0], gridLevels.at(-1),
       new Float64Array(bbox), PALETTE_RGB, PALETTE_CODES, styleHash,
       ATTRIBUTION, Math.floor(Date.now() / 1000),
     );
 
     const started = performance.now();
     await renderRegion({
-      map, builder, bbox, gridLevels,
+      map, builder, bbox, gridLevels, tileDim,
       onProgress: ({ done }) => say(`rendering ${done.toLocaleString()} / ${total.toLocaleString()} tiles…`),
     });
 
@@ -139,7 +150,7 @@ buildEl.addEventListener('click', async () => {
     const seconds = ((performance.now() - started) / 1000).toFixed(1);
     const name = await save(bytes, 'map.rawtiles');
     say(
-      `built ${name} — ${total.toLocaleString()} tiles, ` +
+      `built ${name} — ${total.toLocaleString()} tiles at ${tileDim} px, ` +
       `${(bytes.length / 1048576).toFixed(2)} MiB, ${seconds} s\n\n` +
       `Copy it into the watch's Apps/<mapapp>/maps/ directory over USB, ` +
       `then eject the drive safely before unplugging.`

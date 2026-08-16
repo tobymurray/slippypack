@@ -9,6 +9,13 @@ picker (cut — there is one archive), no PWA shell or offline launch
 (Phase 7), and no OPFS streaming (Phase 8, needed before metro-sized
 packs). The region is a bbox you type in.
 
+**Tile size is a picker, and it defaults to 256.** `render.js` still
+defaults to 128, which is what `MAP_CARTOGRAPHY_SPEC.md` § 7 specifies,
+but a pack the page hands to a user is a pack destined for a watch —
+and MapKit's `PackCatalog` rejects any `tile_dim` but 256, silently, as
+"no map for here". The control exists because the two sides disagree;
+it is not a preference.
+
 ## Running it
 
 ```sh
