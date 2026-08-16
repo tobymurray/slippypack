@@ -1,0 +1,11 @@
+[package]
+name = "tiledump"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+slippypack-core = { path = "/home/toby/git/rust/slippypack/crates/slippypack-core" }
+
+[[bin]]
+name = "tiledump"
+path = "main.rs"

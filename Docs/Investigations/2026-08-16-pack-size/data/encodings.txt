@@ -1,0 +1,18 @@
+18169 tiles total; measuring 1212 (every 15th)
+distinct palette codes in sample: 11
+
+encoding                            bytes/tile   vs RLE8   full pack
+raw (no compression)                     65536    18.74x    1190.7 MB
+RLE8 (today)                              3497     1.00x      63.5 MB
+deflate -9                                1431     0.41x      26.0 MB
+zstd -19                                  1089     0.31x      19.8 MB
+zstd -19 + 4 KB dict                      1160     0.33x      21.1 MB
+zstd -19 + 16 KB dict                     1179     0.34x      21.4 MB
+zstd -19 + 64 KB dict                     1192     0.34x      21.7 MB
+4-bit indexed (raw)                      32768     9.37x     595.4 MB
+4-bit + deflate -9                        1409     0.40x      25.6 MB
+4-bit + zstd -19                          1142     0.33x      20.7 MB
+PNG (8-bit palette, optimize)             1968     0.56x      35.8 MB
+
+unique tiles: 17246 of 18169 (923 duplicates, 5.1% of the pack)
+most repeated tile appears 463 times

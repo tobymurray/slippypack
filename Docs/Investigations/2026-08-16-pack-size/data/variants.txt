@@ -1,0 +1,7 @@
+18169 tiles total; measuring 404
+RLE8 (today)                         3576 B/tile   1.00x    65.0 MB  
+LZ4 -12                              2151 B/tile   0.60x    39.1 MB  ~1 KB decoder, no window buffer
+deflate -9 w=4KB                     1445 B/tile   0.40x    26.3 MB  ~3 KB decoder + 4 KB window
+deflate -6 w=4KB                     1666 B/tile   0.47x    30.3 MB  faster to encode
+Up-filter + deflate -9 w=4KB         1617 B/tile   0.45x    29.4 MB  
+per-tile min(RLE8, deflate)          1445 B/tile   0.40x    26.3 MB  the index already carries a codec per tile

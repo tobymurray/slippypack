@@ -1,0 +1,19 @@
+ zoom    tiles    RLE8 bytes   share  cumulative
+   11       20       425,540   0.7%       0.7%
+   12       72       947,335   1.5%       2.1%
+   13      240     2,517,091   3.9%       6.0%
+   14      900     6,870,070  10.6%      16.6%
+   15     3481    15,884,147  24.5%      41.0%
+   16    13456    38,263,483  59.0%     100.0%
+
+measuring 826 tiles
+codec                                  size        ratio        pack   encode      decoder cost
+RLE8 (today)                    3492 B/tile   1.00x RLE8     63.5 MB   enc   0.0s  a few bytes of state
+deflate w=32KB                  1421 B/tile   0.41x RLE8     25.8 MB   enc   3.8s  ~3 KB code + 32 KB window
+deflate w=4KB                   1401 B/tile   0.40x RLE8     25.5 MB   enc   2.7s  ~3 KB code + 4 KB window
+zstd -1 (window 64KB)           1631 B/tile   0.47x RLE8     29.6 MB   enc   0.0s  ~60 KB code, window 64 KB
+zstd -3 (window 64KB)           1665 B/tile   0.48x RLE8     30.2 MB   enc   0.0s  ~60 KB code, window 64 KB
+zstd -9 (window 64KB)           1461 B/tile   0.42x RLE8     26.5 MB   enc   0.3s  ~60 KB code, window 64 KB
+zstd -19 (window 64KB)          1096 B/tile   0.31x RLE8     19.9 MB   enc  33.2s  ~60 KB code, window 64 KB
+zstd -19 (window 32KB)          1128 B/tile   0.32x RLE8     20.5 MB   enc  24.7s  ~60 KB code, window 32 KB
+zstd -19 (window 4KB)           1366 B/tile   0.39x RLE8     24.8 MB   enc  18.0s  ~60 KB code, window 4 KB
