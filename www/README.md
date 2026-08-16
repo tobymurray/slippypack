@@ -70,7 +70,9 @@ writes it out so the Rust CLI can be the thing that decides whether it is
 valid:
 
 ```sh
-npm run verify
+npm run verify                       # 128 px, RLE8 — the format's own defaults
+node scripts/verify-e2e.mjs --tile-dim 256 --compression none \
+  --bbox '-75.97,44.60,-75.93,44.63' --ladder 14-16   # what a watch reads
 cargo run -p slippypack-cli -- inspect ../target/browser.rawtiles
 ```
 
@@ -79,14 +81,21 @@ verifies on the watch — better to learn it here than over USB. Run it
 twice and `cmp` the outputs: the build is deterministic, so the two files
 should be byte-identical.
 
+The check the CLI cannot do is whether the *watch* can read the result.
+For that, compile the vendored `SDK::RawTiles::Container` from
+`watch-apps/MapKit` on the host and call `openFromMemory()` and
+`readTile()` on a pack — which is how the RLE8 gap in G-005 was found,
+and how the uncompressed default was confirmed to close it.
+
 ## How it works, and the two things that are load-bearing
 
 ```
 Protomaps planet PMTiles  (HTTP range reads, no server of ours)
   └─ MapLibre GL JS + watch-style.json    ← renders 16×16 tile BLOCKS
-       └─ canvas readback, sliced to 128 px tiles
-            └─ slippypack-web (WASM)      ← quantise, RLE, container, UUID
-                 └─ .rawtiles → save to the watch over USB
+       └─ canvas readback, sliced to 256 px tiles (128 is the spec's)
+            └─ slippypack-web (WASM)      ← quantise, container, UUID
+                 │                          RLE8 optional; the watch wants none
+                 └─ .rawtiles → SharedData/maps/ over USB
 ```
 
 **Render in blocks, not per tile.** One map render per pack tile takes
@@ -153,6 +162,9 @@ pixels and marshals them across the WASM boundary.
 
 `watch-style.json` renders OpenStreetMap data via Protomaps' basemap.
 The pack carries an `ATTR` extension section, and the page shows the
-attribution too. The watch must display it for at least 5 s on map open
-— see `MAP_COMPLIANCE_APPENDIX.md` § 4. That part is still 🔨 on the
-watch side.
+attribution too. The watch side has landed: `MapKit::AttributionFace`
+shows the credit once at app startup, dismissible by any key and
+self-advancing after five seconds — the OSMF guidelines' "splash screen
+at startup" route, using two of their three collapse conditions. The
+five seconds is the earliest the notice may take itself away, not a wait
+imposed on the wearer; see `MAP_COMPLIANCE_APPENDIX.md` § 4.

@@ -162,15 +162,16 @@
       <h2 class="k">Area</h2>
       <div class="row">
         <button id="select" aria-pressed="false">Draw an area</button>
-        <button class="sm preset" data-km="5" data-ladder="14-17">5 km</button>
-        <button class="sm preset" data-km="25" data-ladder="11-16">25 km</button>
-        <button class="sm preset" data-km="100" data-ladder="9-14">100 km</button>
+        <button class="sm preset" data-km="2" data-ladder="14-16">2 km</button>
+        <button class="sm preset" data-km="5" data-ladder="14-16">5 km</button>
+        <button class="sm preset" data-km="10" data-ladder="13-15">10 km</button>
       </div>
       <label class="k" for="bbox">West, south, east, north</label>
       <input id="bbox" spellcheck="false" value="-76.015, 44.590, -75.889, 44.662">
-      <p class="hint">Drag on the map to draw an area. Shift-drag works any time.
-        The grid is the coarsest zoom's tiles: a pack holds whole tiles, so it
-        reaches a little past the box you draw.</p>
+      <p class="hint">Drag on the map to draw an area; shift-drag works any time. The
+        presets set a radius and the detail that fits it — 10 km costs about what 5 km
+        does, by giving up one zoom level. The grid shows the coarsest zoom's tiles:
+        a pack holds whole tiles, so it reaches a little past your box.</p>
     </section>
 
     <section>
@@ -190,12 +191,14 @@
       </div>
       <label class="k" for="compression">Compression</label>
       <select id="compression">
-        <option value="none" selected>None — a watch can draw it</option>
-        <option value="rle8">RLE8 — 18× smaller, nothing reads it yet</option>
+        <option value="none" selected>None — drawable today</option>
+        <option value="rle8">RLE8 — 18× smaller</option>
       </select>
-      <p class="hint">The watch's reader accepts an RLE8 pack, verifies it, reports a
-        live map — and draws nothing, because it has no RLE decoder. Until it has one,
-        keep this on None and keep the area small.</p>
+      <p class="hint">The spec says 128 px and RLE8. The watch agrees with neither: it
+        skips a 128 px pack as though there were no map here, and an RLE8 pack passes
+        every check, reports a live map and draws nothing. Both fail without an error,
+        so the defaults above are what works on hardware — and uncompressed is 18×
+        larger, which is why the area has to stay small.</p>
     </section>
 
     <section>
@@ -205,8 +208,9 @@
         <dt>Size</dt><dd id="c-size">—</dd>
         <dt>Time</dt><dd id="c-time">—</dd>
       </dl>
-      <p class="hint">Tiles are exact. Size and time are estimates, and get sharper
-        after your first build on this machine.</p>
+      <p class="hint">Tiles are exact, and so is the size of an uncompressed pack.
+        Time is an estimate, and sharpens after any build long enough to measure —
+        under ten seconds is mostly startup.</p>
       <p id="verdict"></p>
     </section>
 
@@ -312,7 +316,9 @@ function refresh({ syncPicker = false } = {}) {
 
   const buildable = valid && plan.verdict !== 'refuse' && plan.verdict !== 'empty';
   $('c-tiles').textContent = plan.tiles ? plan.tiles.toLocaleString() : '—';
-  $('c-size').textContent = plan.tiles ? `~${formatBytes(plan.bytes)}` : '—';
+  // Uncompressed is tiles x tile_dim^2 exactly; only RLE8 is a guess.
+  const approx = compression === 'none' ? '' : '~';
+  $('c-size').textContent = plan.tiles ? `${approx}${formatBytes(plan.bytes)}` : '—';
   $('c-time').textContent = plan.tiles ? `~${formatDuration(plan.seconds)}` : '—';
   $('verdict').textContent = valid ? plan.reason : 'Four numbers, west to north, and a zoom range like 12-16.';
   $('verdict').className = valid && plan.verdict !== 'refuse' ? '' : 'refuse';
@@ -330,9 +336,10 @@ $('select').addEventListener('click', () => {
 });
 
 // Presets are a radius around what is selected now, with the ladder that
-// suits that scale (PLAN.md § Phase 5). No "whole country": at any tile
-// size it lands past the ceiling, and a button that always refuses is
-// worse than no button.
+// suits that scale (PLAN.md § Phase 5). They are sized so every one of
+// them builds *uncompressed*, which is what the watch can read: a button
+// that always refuses is worse than no button, and at 18x the bytes the
+// old 25 km / 100 km presets were exactly that.
 for (const button of document.querySelectorAll('.preset')) {
   button.addEventListener('click', () => {
     const km = Number(button.dataset.km);
@@ -449,11 +456,17 @@ $('build').addEventListener('click', async () => {
     recordBuild({ tiles, renders, seconds, bytes: bytes.length, tileDim, compression });
 
     const name = await save(bytes, 'map.rawtiles');
+    // MapManager CRC-checks every pack before any map app may draw from it,
+    // at a measured ~2.9 MB/s. On a pack this size that wait is the first
+    // thing that happens on the watch, so it belongs in the instructions.
+    const verify = formatDuration(bytes.length / 2.9e6);
     say(
       `Built ${name} — ${tiles.toLocaleString()} tiles at ${tileDim} px, `
       + `${formatBytes(bytes.length)}, ${formatDuration(seconds)}.\n\n`
-      + 'Copy it into the watch\'s SharedData/maps/ directory over USB, '
-      + 'then eject the drive safely before unplugging.',
+      + 'Copy it into the watch\'s SharedData/maps/ directory over USB, then eject '
+      + 'the drive safely before unplugging.\n\n'
+      + `MapManager checks it before any map app will draw it — about ${verify} for `
+      + 'this pack. Until that finishes the map says it is verifying, not broken.',
     );
   } catch (err) {
     say(err.name === 'AbortError'

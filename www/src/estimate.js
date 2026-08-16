@@ -175,7 +175,7 @@ export function estimate({ bbox, gridLevels, tileDim, compression = 'rle8', rate
       + `Lower the top zoom, or draw a shorter area — height costs more than width.`;
   } else if (bytes > PACK_CEILING) {
     verdict = 'refuse';
-    reason = `A pack this size (~${formatBytes(bytes)}) has to be held in memory whole. `
+    reason = `A pack this size (${formatBytes(bytes)}) has to be held in memory whole. `
       + `Lower the top zoom, or split the region into two packs.`;
   } else if (bytes > PACK_WARN || peakBytes > COLUMN_BUDGET || seconds > SLOW) {
     verdict = 'heavy';
