@@ -48,11 +48,11 @@ const SLOW = 300; // seconds; past this, say so before they commit
  *  times the ~41 ms X4 measured — that figure came from 128 px canvases,
  *  and this cost grows with the canvas being settled.
  *
- *  `packedFraction` is what RLE leaves: 62 MB of a raw 284 MB on the
- *  18,169-tile build, and 2.2 MB of 9.6 MB on the 2,467-tile one. The
- *  two agree at 0.22 across a 4x difference in tile size, which is a
- *  better constant than either alone. */
-const DEFAULT_RATES = { msPerMegapixel: 313, msPerRender: 210, packedFraction: 0.22 };
+ *  `packedFraction` is what RLE8 leaves: 65 MB of a raw 1,191 MB on the
+ *  18,169-tile build, and 2.26 MB of 40 MB on the 2,467-tile one. The two
+ *  agree at 0.055 across a 4x difference in tile size, which is a better
+ *  constant than either alone. */
+const DEFAULT_RATES = { msPerMegapixel: 313, msPerRender: 210, packedFraction: 0.055 };
 const RATES_KEY = 'slippypack.rates.v2';
 
 /** Spinning up the render map and its first tiles, before any pack tile
@@ -65,8 +65,9 @@ const STARTUP_MS = 2500;
  *  after it: a three-second build reads as six times the true rate. */
 const LEARNABLE_SECONDS = 10;
 
-/** Raw ABGR2222 bytes per tile: 2 bits a pixel. */
-export const rawBytesPerTile = (tileDim) => (tileDim * tileDim) / 4;
+/** Raw ABGR2222 bytes per tile: one byte a pixel. ABGR2222 is 2 bits per
+ *  *channel* across four channels, so a 256 px tile is 64 KiB, not 16. */
+export const rawBytesPerTile = (tileDim) => tileDim * tileDim;
 
 /** Pixels are the unit that actually costs time. */
 const megapixels = (tiles, tileDim) => (tiles * tileDim * tileDim) / 1e6;
