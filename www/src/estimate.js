@@ -31,6 +31,21 @@ const COLUMN_BUDGET = 128 * MiB;   // shrink the block size to stay under
 const COLUMN_CEILING = 384 * MiB;  // refuse past here, at any block size
 const PACK_CEILING = 256 * MiB;    // ~512 MB peak across finish()
 const PACK_WARN = 96 * MiB;
+
+// The buffers are alive at the same time, and budgeting them separately is
+// how a build that satisfies every individual limit still kills the tab.
+// Measured: a 687-tile uncompressed 256 px pack crashed Firefox with a
+// 128 MB column, its 67 MB ImageData and 90 MB of pack-and-copy -- each
+// under its own ceiling, ~246 MiB together -- so the budget sits below
+// that, not at it. The same region as RLE8, same
+// canvas, same block size, built fine, which is what pinned it on the sum
+// rather than on the canvas.
+const TOTAL_BUDGET = 192 * MiB;    // shrink the block size to stay under
+const TOTAL_CEILING = 384 * MiB;   // refuse past here, at any block size
+
+/** Live bytes at the worst moment: the block column and the block's own
+ *  ImageData, plus the pack in WASM and the copy finish() makes of it. */
+const peakTotalFor = (columnBytes, packBytes) => 2 * columnBytes + 2 * packBytes;
 const SLOW = 300; // seconds; past this, say so before they commit
 
 /** Starting rates, replaced by measurements from this browser once it has
@@ -150,17 +165,21 @@ export function estimate({ bbox, gridLevels, tileDim, compression = 'rle8', rate
     return { tiles: 0, verdict: 'empty', reason: 'Drag on the map to choose an area.' };
   }
 
-  // Largest block size that fits the budget; the smallest one if none do,
-  // so that the ceiling check below is the thing that refuses.
-  const sized = BLOCK_SIZES.map((blockN) => ({ blockN, ...shape(bbox, gridLevels, tileDim, blockN) }));
-  const chosen = sized.find((s) => s.peakBytes <= COLUMN_BUDGET) ?? sized.at(-1);
-
-  const { tiles, renders, peakBytes, blockN } = chosen;
   // An uncompressed pack is exactly its raw size. Charging it the RLE8
   // fraction would under-quote by 18x, and the ceilings below are the only
   // thing standing between a careless drag and a 193 MB pack.
   const fraction = compression === 'none' ? 1 : rates.packedFraction;
-  const bytes = Math.round(tiles * rawBytesPerTile(tileDim) * fraction);
+  const sized = BLOCK_SIZES.map((blockN) => ({ blockN, ...shape(bbox, gridLevels, tileDim, blockN) }));
+  const bytes = Math.round(sized[0].tiles * rawBytesPerTile(tileDim) * fraction);
+
+  // Largest block size that fits both budgets; the smallest one if none do,
+  // so that the ceilings below are what refuses.
+  const fits = (s) => s.peakBytes <= COLUMN_BUDGET
+    && peakTotalFor(s.peakBytes, bytes) <= TOTAL_BUDGET;
+  const chosen = sized.find(fits) ?? sized.at(-1);
+
+  const { tiles, renders, peakBytes, blockN } = chosen;
+  const peakTotal = peakTotalFor(peakBytes, bytes);
   const cost = (l) => megapixels(l.tiles, tileDim) * rates.msPerMegapixel
     + l.renders * rates.msPerRender;
   const work = chosen.perLevel.map((l) => ({ ...l, ms: cost(l) }));
@@ -169,7 +188,12 @@ export function estimate({ bbox, gridLevels, tileDim, compression = 'rle8', rate
 
   let verdict = 'ok';
   let reason = '';
-  if (peakBytes > COLUMN_CEILING) {
+  if (peakTotal > TOTAL_CEILING) {
+    verdict = 'refuse';
+    reason = `This needs about ${formatBytes(peakTotal)} of memory at once — the tiles `
+      + `being rendered and the pack being assembled, both live. Lower the top zoom, `
+      + `draw a smaller area, or use RLE8 if the reader on the other end can take it.`;
+  } else if (peakBytes > COLUMN_CEILING) {
     verdict = 'refuse';
     reason = `Rendering this needs ${formatBytes(peakBytes)} of working memory in one go. `
       + `Lower the top zoom, or draw a shorter area — height costs more than width.`;
@@ -192,7 +216,7 @@ export function estimate({ bbox, gridLevels, tileDim, compression = 'rle8', rate
       + 'A shorter area, or one zoom less at the top, renders in 16-tile blocks.';
   }
 
-  return { tiles, renders, blockN, bytes, seconds, peakBytes, verdict, reason, work, workMs };
+  return { tiles, renders, blockN, bytes, seconds, peakBytes, peakTotal, verdict, reason, work, workMs };
 }
 
 /**
